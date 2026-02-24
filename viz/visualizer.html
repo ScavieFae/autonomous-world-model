@@ -301,6 +301,35 @@
     color: var(--text);
     cursor: pointer;
   }
+  .data-source .file-btn {
+    font-family: var(--mono);
+    font-size: 11px;
+    font-weight: 600;
+    padding: 4px 8px;
+    border-radius: 4px;
+    border: 1px solid var(--border-b);
+    background: var(--surface2);
+    color: var(--text);
+    cursor: pointer;
+  }
+  .data-source .file-btn:hover { background: var(--surface-el); }
+
+  .canvas-area.drag-over::after {
+    content: 'Drop JSON file to load';
+    position: absolute;
+    inset: 12px;
+    border: 1px dashed rgba(245,158,11,0.5);
+    border-radius: 8px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: rgba(245,158,11,0.9);
+    font-family: var(--mono);
+    font-size: 12px;
+    letter-spacing: 0.5px;
+    background: rgba(245,158,11,0.04);
+    pointer-events: none;
+  }
 
   /* ── Keyboard hint ── */
   .kb-hint {
@@ -326,7 +355,7 @@
 
 <div class="header">
   <h1>World Model <span>State Visualizer</span></h1>
-  <span class="tag">Mock Data</span>
+  <span class="tag" id="dataTag">Mock Data</span>
   <div class="data-source">
     <label>Source:</label>
     <select id="dataSource">
@@ -334,12 +363,14 @@
       <option value="combo">Combo sequence</option>
       <option value="edgeguard">Edgeguard</option>
     </select>
+    <button class="file-btn" id="btnLoadFile" type="button">Load JSON</button>
+    <input id="fileInput" type="file" accept=".json,application/json" hidden>
   </div>
   <div class="frame-counter">Frame <b id="frameNum">0</b> / <b id="totalFrames">0</b></div>
 </div>
 
 <div class="main">
-  <div class="canvas-area">
+  <div class="canvas-area" id="canvasArea">
     <canvas id="stage"></canvas>
   </div>
   <div class="panel">
@@ -980,6 +1011,7 @@ function generateEdgeguard() {
 // ═══════════════════════════════════════════════════════════════
 
 const canvas = document.getElementById('stage');
+const canvasArea = document.getElementById('canvasArea');
 const ctx = canvas.getContext('2d');
 const DPR = window.devicePixelRatio || 1;
 
@@ -1256,6 +1288,62 @@ function drawFrame(frame) {
   ctx.fillText('100', l2, canvasH - 4);
 }
 
+function drawCanvasMessage(message) {
+  if (!message) return;
+  ctx.save();
+  ctx.fillStyle = 'rgba(10,10,15,0.72)';
+  ctx.fillRect(0, 0, canvasW, canvasH);
+
+  const pad = 16;
+  const boxW = Math.min(640, canvasW - 24);
+  const lineH = 18;
+  const title = 'Load Error';
+  const lines = wrapCanvasText(message, boxW - pad * 2, '12px monospace');
+  const boxH = 56 + (lines.length * lineH);
+  const boxX = (canvasW - boxW) / 2;
+  const boxY = Math.max(20, (canvasH - boxH) / 2);
+
+  ctx.fillStyle = 'rgba(17,24,39,0.96)';
+  ctx.strokeStyle = 'rgba(244,63,94,0.4)';
+  ctx.lineWidth = 1;
+  ctx.beginPath();
+  ctx.rect(boxX, boxY, boxW, boxH);
+  ctx.fill();
+  ctx.stroke();
+
+  ctx.fillStyle = '#f43f5e';
+  ctx.font = '700 12px monospace';
+  ctx.textAlign = 'left';
+  ctx.fillText(title, boxX + pad, boxY + 22);
+
+  ctx.fillStyle = 'rgba(226,232,240,0.9)';
+  ctx.font = '12px monospace';
+  lines.forEach((line, i) => {
+    ctx.fillText(line, boxX + pad, boxY + 46 + i * lineH);
+  });
+  ctx.restore();
+}
+
+function wrapCanvasText(text, maxWidth, font) {
+  ctx.save();
+  ctx.font = font;
+  const words = String(text).split(/\s+/);
+  const lines = [];
+  let current = '';
+  for (const word of words) {
+    const next = current ? `${current} ${word}` : word;
+    if (ctx.measureText(next).width <= maxWidth || !current) {
+      current = next;
+    } else {
+      lines.push(current);
+      current = word;
+    }
+  }
+  if (current) lines.push(current);
+  ctx.restore();
+  return lines.length ? lines : ['Unknown error'];
+}
+
 
 // ═══════════════════════════════════════════════════════════════
 // UI UPDATE
@@ -1312,6 +1400,8 @@ function updatePanel(frame) {
 // ═══════════════════════════════════════════════════════════════
 
 let frames = [];
+let loadedFrames = null;
+let loadedFileName = '';
 let currentFrame = 0;
 let playing = false;
 let playSpeed = 1;
@@ -1319,6 +1409,7 @@ const SPEEDS = [0.1, 0.25, 0.5, 1, 2, 4];
 let speedIdx = 3;
 let lastFrameTime = 0;
 let animId = null;
+let canvasErrorMessage = '';
 
 const timeline = document.getElementById('timeline');
 const frameNum = document.getElementById('frameNum');
@@ -1327,20 +1418,161 @@ const btnPlay = document.getElementById('btnPlay');
 const btnSpeed = document.getElementById('btnSpeed');
 const speedLabel = document.getElementById('speedLabel');
 const dataSource = document.getElementById('dataSource');
+const dataTag = document.getElementById('dataTag');
+const btnLoadFile = document.getElementById('btnLoadFile');
+const fileInput = document.getElementById('fileInput');
 
-function loadScenario(name) {
-  frames = generateMockData(name);
+function setCanvasError(message) {
+  canvasErrorMessage = message || '';
+  renderCurrentFrame();
+}
+
+function clearCanvasError() {
+  if (!canvasErrorMessage) return;
+  canvasErrorMessage = '';
+  renderCurrentFrame();
+}
+
+function setHeaderTag(kind) {
+  const isLoaded = kind === 'loaded';
+  dataTag.textContent = isLoaded ? 'Model Output' : 'Mock Data';
+  dataTag.style.background = isLoaded ? 'var(--p2-dim)' : 'var(--p1-dim)';
+  dataTag.style.color = isLoaded ? 'var(--p2)' : 'var(--p1)';
+  dataTag.style.borderColor = isLoaded ? 'rgba(245,158,11,0.25)' : 'rgba(34,197,94,0.2)';
+}
+
+function ensureLoadedOption() {
+  let option = dataSource.querySelector('option[value="loaded"]');
+  if (!option) {
+    option = document.createElement('option');
+    option.value = 'loaded';
+    option.textContent = 'Loaded file';
+    dataSource.appendChild(option);
+  }
+  return option;
+}
+
+function resetPlaybackWithFrames(nextFrames) {
+  frames = nextFrames;
   currentFrame = 0;
-  timeline.max = frames.length - 1;
+  timeline.max = Math.max(0, frames.length - 1);
   timeline.value = 0;
   totalFrames.textContent = frames.length;
   renderCurrentFrame();
+}
+
+function loadScenario(name) {
+  setHeaderTag('mock');
+  canvasErrorMessage = '';
+  resetPlaybackWithFrames(generateMockData(name));
+}
+
+function loadLoadedFrames() {
+  if (!loadedFrames) {
+    setCanvasError('No file has been loaded yet.');
+    return;
+  }
+  setHeaderTag('loaded');
+  canvasErrorMessage = '';
+  resetPlaybackWithFrames(loadedFrames);
+}
+
+function validateAndNormalizeLoadedFrames(data) {
+  if (!Array.isArray(data)) {
+    throw new Error('Top-level JSON must be an array of frame objects.');
+  }
+  if (data.length === 0) {
+    throw new Error('JSON array is empty. Expected at least 1 frame.');
+  }
+  if (typeof data[0] !== 'object' || data[0] === null || Array.isArray(data[0])) {
+    throw new Error('First array entry must be a frame object.');
+  }
+  if (!Array.isArray(data[0].players) || data[0].players.length !== 2) {
+    throw new Error('First frame must include a players array with exactly 2 entries.');
+  }
+  const firstPlayer = data[0].players[0];
+  if (!firstPlayer || typeof firstPlayer !== 'object') {
+    throw new Error('First player in first frame must be an object.');
+  }
+  for (const key of ['x', 'y', 'action_state']) {
+    if (!(key in firstPlayer)) {
+      throw new Error(`First player in first frame is missing required field "${key}".`);
+    }
+    if (!Number.isFinite(Number(firstPlayer[key]))) {
+      throw new Error(`First player field "${key}" must be numeric.`);
+    }
+  }
+
+  const requiredFrameKeys = ['players'];
+  const playerDefaults = {
+    x: 0, y: 0, percent: 0, shield_strength: 60,
+    speed_air_x: 0, speed_y: 0, speed_ground_x: 0,
+    speed_attack_x: 0, speed_attack_y: 0,
+    state_age: 0, hitlag: 0, stocks: 4,
+    facing: 1, on_ground: 1, action_state: 14,
+    jumps_left: 2, character: 0,
+  };
+
+  return data.map((frame, frameIdx) => {
+    if (typeof frame !== 'object' || frame === null || Array.isArray(frame)) {
+      throw new Error(`Frame ${frameIdx} is not an object.`);
+    }
+    for (const key of requiredFrameKeys) {
+      if (!(key in frame)) throw new Error(`Frame ${frameIdx} is missing "${key}".`);
+    }
+    if (!Array.isArray(frame.players) || frame.players.length !== 2) {
+      throw new Error(`Frame ${frameIdx} must have a players array with 2 entries.`);
+    }
+    const players = frame.players.map((player, playerIdx) => {
+      if (typeof player !== 'object' || player === null || Array.isArray(player)) {
+        throw new Error(`Frame ${frameIdx} player ${playerIdx + 1} is not an object.`);
+      }
+      const merged = { ...playerDefaults, ...player };
+      for (const numericKey of Object.keys(playerDefaults)) {
+        const num = Number(merged[numericKey]);
+        if (!Number.isFinite(num)) {
+          throw new Error(`Frame ${frameIdx} player ${playerIdx + 1} field "${numericKey}" must be numeric.`);
+        }
+        merged[numericKey] = num;
+      }
+      merged.facing = merged.facing ? 1 : 0;
+      merged.on_ground = merged.on_ground ? 1 : 0;
+      return merged;
+    });
+    return { players, stage: Number.isFinite(Number(frame.stage)) ? Number(frame.stage) : 31 };
+  });
+}
+
+async function loadJsonFile(file) {
+  if (!file) return;
+  try {
+    const text = await file.text();
+    const parsed = JSON.parse(text);
+    const normalized = validateAndNormalizeLoadedFrames(parsed);
+    loadedFrames = normalized;
+    loadedFileName = file.name || '';
+    const loadedOption = ensureLoadedOption();
+    loadedOption.textContent = 'Loaded file';
+    loadedOption.title = loadedFileName;
+    dataSource.value = 'loaded';
+    if (playing) togglePlay();
+    loadLoadedFrames();
+  } catch (err) {
+    const msg = err && err.message ? err.message : String(err);
+    setCanvasError(msg);
+  }
+}
+
+function readFirstDroppedFile(event) {
+  const files = event.dataTransfer && event.dataTransfer.files;
+  return files && files.length ? files[0] : null;
 }
 
 function renderCurrentFrame() {
   if (!frames.length) return;
   const frame = frames[currentFrame];
   drawFrame(frame);
+  if (canvasErrorMessage) drawCanvasMessage(canvasErrorMessage);
   updatePanel(frame);
   frameNum.textContent = currentFrame;
   timeline.value = currentFrame;
@@ -1399,7 +1631,37 @@ timeline.addEventListener('input', () => {
 
 dataSource.addEventListener('change', () => {
   if (playing) togglePlay();
+  if (dataSource.value === 'loaded') {
+    loadLoadedFrames();
+    return;
+  }
   loadScenario(dataSource.value);
+});
+
+btnLoadFile.addEventListener('click', () => fileInput.click());
+fileInput.addEventListener('change', () => {
+  const file = fileInput.files && fileInput.files[0];
+  loadJsonFile(file);
+  fileInput.value = '';
+});
+
+['dragenter', 'dragover'].forEach((eventName) => {
+  canvasArea.addEventListener(eventName, (e) => {
+    e.preventDefault();
+    canvasArea.classList.add('drag-over');
+  });
+});
+canvasArea.addEventListener('dragleave', (e) => {
+  e.preventDefault();
+  if (!canvasArea.contains(e.relatedTarget)) {
+    canvasArea.classList.remove('drag-over');
+  }
+});
+canvasArea.addEventListener('drop', (e) => {
+  e.preventDefault();
+  canvasArea.classList.remove('drag-over');
+  const file = readFirstDroppedFile(e);
+  loadJsonFile(file);
 });
 
 // Keyboard controls
