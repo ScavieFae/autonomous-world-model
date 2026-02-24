@@ -349,7 +349,19 @@
     font-family: var(--mono);
     font-size: 9px;
   }
+  /* -- Render mode loading pulse -- */
+  .ctrl-btn.loading {
+    animation: pulse 1s ease-in-out infinite;
+    pointer-events: none;
+    opacity: 0.7;
+  }
+  @keyframes pulse {
+    0%, 100% { opacity: 0.7; }
+    50% { opacity: 0.4; }
+  }
 </style>
+<!-- fflate: MIT-licensed ZIP decompression (~13KB gzipped) -->
+<script src="https://cdn.jsdelivr.net/npm/fflate@0.8.2/umd/index.js"></script>
 </head>
 <body>
 
@@ -435,8 +447,9 @@
     <button class="ctrl-btn" id="btnNextFrame" title="Next frame">&rarr;</button>
     <button class="ctrl-btn" id="btnSpeed">1x</button>
     <span class="speed-label" id="speedLabel">60 fps</span>
+    <button class="ctrl-btn" id="btnRenderMode">Capsule</button>
     <span class="kb-hint" style="margin-left:auto">
-      <kbd>Space</kbd> play &nbsp; <kbd>&larr;</kbd><kbd>&rarr;</kbd> step &nbsp; <kbd>+</kbd><kbd>-</kbd> speed
+      <kbd>Space</kbd> play &nbsp; <kbd>&larr;</kbd><kbd>&rarr;</kbd> step &nbsp; <kbd>+</kbd><kbd>-</kbd> speed &nbsp; <kbd>C</kbd> render
     </span>
   </div>
 </div>
@@ -536,6 +549,237 @@ const CHARACTERS = {
 };
 
 // =====================================================================
+// CHARACTER ANIMATION DATA (ported from nojohns/SlippiLab, MIT)
+// =====================================================================
+
+// Internal character ID -> external character ID (for animation ZIP lookup)
+const EXTERNAL_ID_BY_INTERNAL_ID = {
+  0: 8, 1: 2, 2: 0, 3: 1, 4: 4, 5: 5, 6: 6, 7: 19, 8: 11, 9: 12,
+  10: 14, 11: 14, 12: 13, 13: 16, 14: 17, 15: 15, 16: 10, 17: 7,
+  18: 9, 19: 18, 20: 21, 21: 22, 22: 20, 23: 24, 24: 3, 25: 25, 26: 23,
+};
+
+// Action state ID -> action name (full 341-entry table from SlippiLab)
+const ACTION_NAME_BY_ID = [
+  "DeadDown", "DeadLeft", "DeadRight", "DeadUp", "DeadUpStar", "DeadUpStarIce",
+  "DeadUpFall", "DeadUpFallHitCamera", "DeadUpFallHitCameraFlat", "DeadUpFallIce",
+  "DeadUpFallHitCameraIce", "Sleep", "Rebirth", "RebirthWait", "Wait", "WalkSlow",
+  "WalkMiddle", "WalkFast", "Turn", "TurnRun", "Dash", "Run", "RunDirect", "RunBrake",
+  "KneeBend", "JumpF", "JumpB", "JumpAerialF", "JumpAerialB", "Fall", "FallF", "FallB",
+  "FallAerial", "FallAerialF", "FallAerialB", "FallSpecial", "FallSpecialF", "FallSpecialB",
+  "DamageFall", "Squat", "SquatWait", "SquatRv", "Landing", "LandingFallSpecial",
+  "Attack11", "Attack12", "Attack13", "Attack100Start", "Attack100Loop", "Attack100End",
+  "AttackDash", "AttackS3Hi", "AttackS3HiS", "AttackS3S", "AttackS3LwS", "AttackS3Lw",
+  "AttackHi3", "AttackLw3", "AttackS4Hi", "AttackS4HiS", "AttackS4S", "AttackS4LwS",
+  "AttackS4Lw", "AttackHi4", "AttackLw4", "AttackAirN", "AttackAirF", "AttackAirB",
+  "AttackAirHi", "AttackAirLw", "LandingAirN", "LandingAirF", "LandingAirB", "LandingAirHi",
+  "LandingAirLw", "DamageHi1", "DamageHi2", "DamageHi3", "DamageN1", "DamageN2", "DamageN3",
+  "DamageLw1", "DamageLw2", "DamageLw3", "DamageAir1", "DamageAir2", "DamageAir3",
+  "DamageFlyHi", "DamageFlyN", "DamageFlyLw", "DamageFlyTop", "DamageFlyRoll",
+  "LightGet", "HeavyGet", "LightThrowF", "LightThrowB", "LightThrowHi", "LightThrowLw",
+  "LightThrowDash", "LightThrowDrop", "LightThrowAirF", "LightThrowAirB", "LightThrowAirHi",
+  "LightThrowAirLw", "HeavyThrowF", "HeavyThrowB", "HeavyThrowHi", "HeavyThrowLw",
+  "LightThrowF4", "LightThrowB4", "LightThrowHi4", "LightThrowLw4", "LightThrowAirF4",
+  "LightThrowAirB4", "LightThrowAirHi4", "LightThrowAirLw4", "HeavyThrowF4", "HeavyThrowB4",
+  "HeavyThrowHi4", "HeavyThrowLw4", "SwordSwing1", "SwordSwing3", "SwordSwing4",
+  "SwordSwingDash", "BatSwing1", "BatSwing3", "BatSwing4", "BatSwingDash", "ParasolSwing1",
+  "ParasolSwing3", "ParasolSwing4", "ParasolSwingDash", "HarisenSwing1", "HarisenSwing3",
+  "HarisenSwing4", "HarisenSwingDash", "StarRodSwing1", "StarRodSwing3", "StarRodSwing4",
+  "StarRodSwingDash", "LipStickSwing1", "LipStickSwing3", "LipStickSwing4", "LipStickSwingDash",
+  "ItemParasolOpen", "ItemParasolFall", "ItemParasolFallSpecial", "ItemParasolDamageFall",
+  "LGunShoot", "LGunShootAir", "LGunShootEmpty", "LGunShootAirEmpty", "FireFlowerShoot",
+  "FireFlowerShootAir", "ItemScrew", "ItemScrewAir", "DamageScrew", "DamageScrewAir",
+  "ItemScopeStart", "ItemScopeRapid", "ItemScopeFire", "ItemScopeEnd", "ItemScopeAirStart",
+  "ItemScopeAirRapid", "ItemScopeAirFire", "ItemScopeAirEnd", "ItemScopeStartEmpty",
+  "ItemScopeRapidEmpty", "ItemScopeFireEmpty", "ItemScopeEndEmpty", "ItemScopeAirStartEmpty",
+  "ItemScopeAirRapidEmpty", "ItemScopeAirFireEmpty", "ItemScopeAirEndEmpty", "LiftWait",
+  "LiftWalk1", "LiftWalk2", "LiftTurn", "GuardOn", "Guard", "GuardOff", "GuardSetOff",
+  "GuardReflect", "DownBoundU", "DownWaitU", "DownDamageU", "DownStandU", "DownAttackU",
+  "DownFowardU", "DownBackU", "DownSpotU", "DownBoundD", "DownWaitD", "DownDamageD",
+  "DownStandD", "DownAttackD", "DownFowardD", "DownBackD", "DownSpotD", "Passive",
+  "PassiveStandF", "PassiveStandB", "PassiveWall", "PassiveWallJump", "PassiveCeil",
+  "ShieldBreakFly", "ShieldBreakFall", "ShieldBreakDownU", "ShieldBreakDownD",
+  "ShieldBreakStandU", "ShieldBreakStandD", "FuraFura", "Catch", "CatchPull", "CatchDash",
+  "CatchDashPull", "CatchWait", "CatchAttack", "CatchCut", "ThrowF", "ThrowB", "ThrowHi",
+  "ThrowLw", "CapturePulledHi", "CaptureWaitHi", "CaptureDamageHi", "CapturePulledLw",
+  "CaptureWaitLw", "CaptureDamageLw", "CaptureCut", "CaptureJump", "CaptureNeck",
+  "CaptureFoot", "EscapeF", "EscapeB", "Escape", "EscapeAir", "ReboundStop", "Rebound",
+  "ThrownF", "ThrownB", "ThrownHi", "ThrownLw", "ThrownLwWomen", "Pass", "Ottotto",
+  "OttottoWait", "FlyReflectWall", "FlyReflectCeil", "StopWall", "StopCeil", "MissFoot",
+  "CliffCatch", "CliffWait", "CliffClimbSlow", "CliffClimbQuick", "CliffAttackSlow",
+  "CliffAttackQuick", "CliffEscapeSlow", "CliffEscapeQuick", "CliffJumpSlow1",
+  "CliffJumpSlow2", "CliffJumpQuick1", "CliffJumpQuick2", "AppealR", "AppealL",
+  "ShoulderedWait", "ShoulderedWalkSlow", "ShoulderedWalkMiddle", "ShoulderedWalkFast",
+  "ShoulderedTurn", "ThrownFF", "ThrownFB", "ThrownFHi", "ThrownFLw", "CaptureCaptain",
+  "CaptureYoshi", "YoshiEgg", "CaptureKoopa", "CaptureDamageKoopa", "CaptureWaitKoopa",
+  "ThrownKoopaF", "ThrownKoopaB", "CaptureKoopaAir", "CaptureDamageKoopaAir",
+  "CaptureWaitKoopaAir", "ThrownKoopaAirF", "ThrownKoopaAirB", "CaptureKirby",
+  "CaptureWaitKirby", "ThrownKirbyStar", "ThrownCopyStar", "ThrownKirby", "BarrelWait",
+  "Bury", "BuryWait", "BuryJump", "DamageSong", "DamageSongWait", "DamageSongRv",
+  "DamageBind", "CaptureMewtwo", "CaptureMewtwoAir", "ThrownMewtwo", "ThrownMewtwoAir",
+  "WarpStarJump", "WarpStarFall", "HammerWait", "HammerWalk", "HammerTurn", "HammerKneeBend",
+  "HammerFall", "HammerJump", "HammerLanding", "KinokoGiantStart", "KinokoGiantStartAir",
+  "KinokoGiantEnd", "KinokoGiantEndAir", "KinokoSmallStart", "KinokoSmallStartAir",
+  "KinokoSmallEnd", "KinokoSmallEndAir", "Entry", "EntryStart", "EntryEnd", "DamageIce",
+  "DamageIceJump", "CaptureMasterhand", "CapturedamageMasterhand", "CapturewaitMasterhand",
+  "ThrownMasterhand", "CaptureCrazyhand", "CapturedamageCrazyhand", "CapturewaitCrazyhand",
+  "ThrownCrazyhand", "CaptureKirbyYoshi", "KirbyYoshiEgg", "CaptureLeadead",
+  "CaptureLikelike", "DownReflect", "CaptureCrazyhandAir", "CapturedamageCrazyhandAir",
+  "CapturewaitCrazyhandAir", "ThrownCrazyhandAir", "CaptureMasterhandAir",
+  "CapturedamageMasterhandAir", "CapturewaitMasterhandAir", "ThrownMasterhandAir",
+];
+
+// Animation name remaps (common across characters)
+const ANIMATION_REMAPS = {
+  "AppealL": "Appeal",
+  "AppealR": "Appeal",
+  "Escape": "EscapeN",
+  "GuardReflect": "Guard",
+  "GuardSetOff": "GuardDamage",
+  "KneeBend": "Landing",
+  "LandingFallSpecial": "Landing",
+  "CatchDashPull": "CatchWait",
+  "CatchPull": "CatchWait",
+  "EntryEnd": "Entry",
+  "EntryStart": "Entry",
+  "Wait": "Wait1",
+};
+
+// Per-character scale factors (indexed by external ID)
+const CHAR_SCALE = {
+  0: 1.12, 1: 1.30, 2: 0.96, 3: 0.85, 4: 0.82, 5: 0.90,
+  6: 1.05, 7: 0.95, 8: 0.95, 9: 1.05, 10: 1.30, 11: 0.90,
+  12: 0.95, 13: 0.85, 14: 0.90, 15: 0.70, 16: 1.10, 17: 1.00,
+  18: 1.00, 19: 0.96, 20: 0.98, 21: 1.05, 22: 0.95, 23: 1.05,
+  24: 0.55, 25: 1.20,
+};
+
+// External character ID -> ZIP filename (without .zip extension)
+const CHAR_ZIP = {
+  0: "captainFalcon", 1: "donkeyKong", 2: "fox", 3: "mrGameAndWatch", 4: "kirby",
+  5: "bowser", 6: "link", 7: "luigi", 8: "mario", 9: "marth", 10: "mewtwo",
+  11: "ness", 12: "peach", 13: "pikachu", 14: "iceClimbers", 15: "jigglypuff",
+  16: "samus", 17: "yoshi", 18: "zelda", 19: "sheik", 20: "falco",
+  21: "youngLink", 22: "doctorMario", 23: "roy", 24: "pichu", 25: "ganondorf",
+};
+
+// =====================================================================
+// ANIMATION CACHE
+// =====================================================================
+
+const animCache = new Map();
+const animLoading = new Map();
+const path2dCache = new Map();
+let fflateAvailable = typeof window.fflate !== 'undefined';
+
+async function loadCharAnimations(internalCharId) {
+  const extId = EXTERNAL_ID_BY_INTERNAL_ID[internalCharId];
+  if (extId === undefined) return null;
+  if (animCache.has(extId)) return animCache.get(extId);
+  if (animLoading.has(extId)) return animLoading.get(extId);
+
+  const zipName = CHAR_ZIP[extId];
+  if (!zipName) return null;
+
+  const promise = (async () => {
+    try {
+      const resp = await fetch(`zips/${zipName}.zip`);
+      if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+      const buf = await resp.arrayBuffer();
+      const unzipped = fflate.unzipSync(new Uint8Array(buf));
+      const animations = {};
+      for (const [filename, data] of Object.entries(unzipped)) {
+        if (!filename.endsWith('.json')) continue;
+        const animName = filename.replace('.json', '');
+        animations[animName] = JSON.parse(new TextDecoder().decode(data));
+      }
+      animCache.set(extId, animations);
+      console.log(`[anim] Loaded ${zipName}: ${Object.keys(animations).length} animations`);
+      return animations;
+    } catch (err) {
+      console.error(`[anim] Failed to load ${zipName}.zip:`, err);
+      return null;
+    } finally {
+      animLoading.delete(extId);
+    }
+  })();
+
+  animLoading.set(extId, promise);
+  return promise;
+}
+
+function resolveAnimFrame(animations, actionStateId, stateAge) {
+  if (!animations) return null;
+  const rawName = ACTION_NAME_BY_ID[actionStateId];
+  if (!rawName) return null;
+  const animName = ANIMATION_REMAPS[rawName] || rawName;
+  const frames = animations[animName] || animations['Wait1'];
+  if (!frames || frames.length === 0) return null;
+
+  const frameIdx = Math.floor(Math.max(0, stateAge)) % frames.length;
+  let pathStr = frames[frameIdx];
+
+  if (pathStr && pathStr.startsWith('frame')) {
+    const refIdx = parseInt(pathStr.slice(5), 10);
+    if (refIdx >= 0 && refIdx < frames.length) pathStr = frames[refIdx];
+  }
+
+  return { pathStr, animName, frameIdx };
+}
+
+function getPath2D(extId, animName, frameIdx, pathStr) {
+  const key = `${extId}:${animName}:${frameIdx}`;
+  let cached = path2dCache.get(key);
+  if (cached) return cached;
+  try {
+    cached = new Path2D(pathStr);
+    path2dCache.set(key, cached);
+    return cached;
+  } catch (_) {
+    return null;
+  }
+}
+
+// Returns true if character was drawn, false if fallback to capsule is needed
+function drawCharacter(ctx, p, px, py, pxPerUnit, col) {
+  const extId = EXTERNAL_ID_BY_INTERNAL_ID[p.character];
+  if (extId === undefined) return false;
+  const animations = animCache.get(extId);
+  if (!animations) return false;
+
+  const resolved = resolveAnimFrame(animations, p.action_state, p.state_age);
+  if (!resolved || !resolved.pathStr) return false;
+
+  const path2d = getPath2D(extId, resolved.animName, resolved.frameIdx, resolved.pathStr);
+  if (!path2d) return false;
+
+  const charScale = CHAR_SCALE[extId] || 1.0;
+  const facingDir = p.facing ? 1 : -1;
+
+  ctx.save();
+  ctx.translate(px, py);
+  ctx.scale(pxPerUnit, pxPerUnit);
+  ctx.scale(charScale, charScale);
+  ctx.scale(facingDir, 1);
+  ctx.scale(0.1, 0.1);
+  ctx.translate(-500, -500);
+
+  ctx.fillStyle = col.main;
+  ctx.globalAlpha = 0.9;
+  ctx.fill(path2d);
+
+  ctx.strokeStyle = 'rgba(0,0,0,0.5)';
+  ctx.lineWidth = 5;
+  ctx.stroke(path2d);
+
+  ctx.globalAlpha = 1;
+  ctx.restore();
+  return true;
+}
+
+let renderMode = 'capsule'; // 'capsule' | 'character'
+
+// =====================================================================
 // STAGE GEOMETRY (Final Destination)
 // =====================================================================
 const STAGE = {
@@ -544,6 +788,10 @@ const STAGE = {
   blastzone: { left: -246, right: 246, top: 188, bottom: -140 },
   camera: { left: -170, right: 170, top: 120, bottom: -60 },
 };
+
+// Player capsule dimensions in game units (Melee character ~10 units tall, ~3.5 wide)
+const CAPSULE_GAME_H = 10;
+const CAPSULE_GAME_W = 3.5;
 
 
 // =====================================================================
@@ -1162,13 +1410,20 @@ function detectTransitionsAndTriggerJuice(frame) {
     const otherPrev = prev.players[1 - idx];
 
     // --- HIT DETECTION ---
-    // Detect: opponent's knockback goes from ~0 to nonzero
+    // Primary: knockback velocity spikes from ~0 to nonzero
     const prevKB = Math.sqrt(pp.speed_attack_x ** 2 + pp.speed_attack_y ** 2);
     const curKB = Math.sqrt(cp.speed_attack_x ** 2 + cp.speed_attack_y ** 2);
-    // Also detect hitlag start
     const hitlagStarted = cp.hitlag > 0 && pp.hitlag === 0;
+    const kbHit = curKB > 0.5 && prevKB < 0.2;
 
-    if ((curKB > 0.5 && prevKB < 0.2) || hitlagStarted) {
+    // Fallback: percent increased AND entered a damage action state (75-93)
+    // This works even when knockback/hitlag fields are zeroed (old parquet schema)
+    const pctDelta = cp.percent - pp.percent;
+    const inDamage = cp.action_state >= 75 && cp.action_state <= 93;
+    const wasNotDamage = pp.action_state < 75 || pp.action_state > 93;
+    const pctHit = pctDelta > 0 && inDamage && wasNotDamage;
+
+    if (kbHit || hitlagStarted || pctHit) {
       // This player is getting HIT
       const attacker = other;
       const attackerPrev = otherPrev;
@@ -1177,8 +1432,8 @@ function detectTransitionsAndTriggerJuice(frame) {
       const impX = (cp.x + attacker.x) / 2;
       const impY = (cp.y + attacker.y) / 2;
 
-      // Screen shake proportional to knockback
-      const kb = Math.max(curKB, 1);
+      // Screen shake proportional to knockback (or percent delta as fallback)
+      const kb = curKB > 0.5 ? curKB : Math.max(pctDelta * 0.3, 1);
       shakeMagnitude = Math.min(kb * 3, 15);
 
       // Impact flash
@@ -1220,7 +1475,7 @@ function detectTransitionsAndTriggerJuice(frame) {
     }
 
     // --- HIT FREEZE ---
-    if (hitlagStarted) {
+    if (hitlagStarted || pctHit) {
       hitFreezeFrames = 3;
     }
 
@@ -1253,7 +1508,9 @@ function detectTransitionsAndTriggerJuice(frame) {
     }
 
     // --- JUMP DETECTION ---
-    const jumped = !cp.on_ground && pp.on_ground && cp.speed_y > 0;
+    // Fallback: if speed_y is zeroed (old schema), detect via leaving ground + jump action states
+    const jumpAction = cp.action_state >= 24 && cp.action_state <= 26; // KneeBend, Jump*, JumpAir*
+    const jumped = !cp.on_ground && pp.on_ground && (cp.speed_y > 0 || jumpAction);
     if (jumped) {
       // Jump lines below player
       const lineCount = 2 + Math.floor(Math.random() * 2);
@@ -1499,6 +1756,49 @@ function gameScaleY(units) {
   return (units / (viewTop - viewBottom)) * canvasH;
 }
 
+function drawCapsule(ctx, p, idx, px, py, col, cat, glowColor, glowRadius, capsuleColor) {
+  const capsuleH = gameScaleY(CAPSULE_GAME_H);
+  const capsuleW = gameScaleX(CAPSULE_GAME_W);
+  const ss = squashState[idx];
+  const bodyTop = py - capsuleH;
+  const bodyBot = py;
+
+  ctx.save();
+  ctx.translate(px, py - capsuleH / 2);
+  ctx.scale(ss.scaleX, ss.scaleY);
+  ctx.translate(-px, -(py - capsuleH / 2));
+
+  ctx.shadowColor = glowColor;
+  ctx.shadowBlur = glowRadius;
+
+  ctx.fillStyle = capsuleColor;
+  ctx.beginPath();
+  ctx.moveTo(px - capsuleW, bodyTop + capsuleW);
+  ctx.arc(px, bodyTop + capsuleW, capsuleW, Math.PI, 0);
+  ctx.lineTo(px + capsuleW, bodyBot - capsuleW);
+  ctx.arc(px, bodyBot - capsuleW, capsuleW, 0, Math.PI);
+  ctx.closePath();
+  ctx.fill();
+
+  ctx.shadowColor = 'transparent';
+  ctx.shadowBlur = 0;
+  ctx.restore();
+
+  const fDir = p.facing ? 1 : -1;
+  const triOff = gameScaleX(1);
+  const triLen = gameScaleX(2);
+  const triHalf = gameScaleY(1.2);
+  ctx.fillStyle = capsuleColor;
+  ctx.beginPath();
+  ctx.moveTo(px + fDir * (capsuleW + triOff), py - capsuleH / 2);
+  ctx.lineTo(px + fDir * (capsuleW + triOff + triLen), py - capsuleH / 2 - triHalf);
+  ctx.lineTo(px + fDir * (capsuleW + triOff + triLen), py - capsuleH / 2 + triHalf);
+  ctx.closePath();
+  ctx.fill();
+
+  return { capsuleH, capsuleW, bodyTop, bodyBot };
+}
+
 function drawFrame(frame) {
   // Update camera before drawing
   updateCameraView();
@@ -1609,6 +1909,7 @@ function drawFrame(frame) {
     const [px, py] = gameToScreen(p.x, p.y);
     const cat = actionCategory(p.action_state);
     const catColor = CATEGORY_COLORS[cat];
+    const pxPerUnit = canvasW / (viewRight - viewLeft);
 
     // ========= MOMENTUM TRAILS =========
     const trail = playerTrails[idx];
@@ -1621,9 +1922,9 @@ function drawFrame(frame) {
 
         ctx.globalAlpha = alpha;
         ctx.fillStyle = col.main;
-        // Draw a mini capsule at trail position
-        const cH = 18 * (0.5 + frac * 0.5);
-        const cW = 6 * (0.5 + frac * 0.5);
+        // Draw a mini capsule at trail position (game-unit scaled)
+        const cH = gameScaleY(CAPSULE_GAME_H * (0.5 + frac * 0.5));
+        const cW = gameScaleX(CAPSULE_GAME_W * (0.5 + frac * 0.5));
         ctx.beginPath();
         ctx.moveTo(tx - cW, ty - cH + cW);
         ctx.arc(tx, ty - cH + cW, cW, Math.PI, 0);
@@ -1646,19 +1947,21 @@ function drawFrame(frame) {
       ctx.stroke();
       ctx.setLineDash([]);
       ctx.fillStyle = col.dim;
+      const shadowW = gameScaleX(3);
+      const shadowH = gameScaleY(0.8);
       ctx.beginPath();
-      ctx.ellipse(px, groundY, 6, 2, 0, 0, Math.PI * 2);
+      ctx.ellipse(px, groundY, shadowW, shadowH, 0, 0, Math.PI * 2);
       ctx.fill();
     }
 
     // -- Velocity arrow (self velocity) --
+    // Arrow scale: velocity in game units/frame → screen pixels via gameScale
     const vx = p.on_ground ? p.speed_ground_x : p.speed_air_x;
     const vy = p.speed_y;
     const vMag = Math.sqrt(vx * vx + vy * vy);
     if (vMag > 0.3) {
-      const arrowScale = 8;
-      const ax = px + vx * arrowScale;
-      const ay = py - vy * arrowScale;
+      const ax = px + gameScaleX(vx * 3);
+      const ay = py - gameScaleY(vy * 3);
       ctx.strokeStyle = 'rgba(6,182,212,0.6)';
       ctx.lineWidth = 2;
       ctx.beginPath();
@@ -1666,20 +1969,20 @@ function drawFrame(frame) {
       ctx.lineTo(ax, ay);
       ctx.stroke();
       const angle = Math.atan2(ay - py, ax - px);
+      const arrowHead = Math.max(4, gameScaleX(1.5));
       ctx.fillStyle = 'rgba(6,182,212,0.6)';
       ctx.beginPath();
       ctx.moveTo(ax, ay);
-      ctx.lineTo(ax - 6 * Math.cos(angle - 0.4), ay - 6 * Math.sin(angle - 0.4));
-      ctx.lineTo(ax - 6 * Math.cos(angle + 0.4), ay - 6 * Math.sin(angle + 0.4));
+      ctx.lineTo(ax - arrowHead * Math.cos(angle - 0.4), ay - arrowHead * Math.sin(angle - 0.4));
+      ctx.lineTo(ax - arrowHead * Math.cos(angle + 0.4), ay - arrowHead * Math.sin(angle + 0.4));
       ctx.fill();
     }
 
     // -- Knockback arrow --
     const kMag = Math.sqrt(p.speed_attack_x ** 2 + p.speed_attack_y ** 2);
     if (kMag > 0.3) {
-      const arrowScale = 8;
-      const kx = px + p.speed_attack_x * arrowScale;
-      const ky = py - p.speed_attack_y * arrowScale;
+      const kx = px + gameScaleX(p.speed_attack_x * 3);
+      const ky = py - gameScaleY(p.speed_attack_y * 3);
       ctx.strokeStyle = 'rgba(244,63,94,0.7)';
       ctx.lineWidth = 2;
       ctx.beginPath();
@@ -1687,22 +1990,23 @@ function drawFrame(frame) {
       ctx.lineTo(kx, ky);
       ctx.stroke();
       const angle = Math.atan2(ky - py, kx - px);
+      const arrowHead = Math.max(4, gameScaleX(1.5));
       ctx.fillStyle = 'rgba(244,63,94,0.7)';
       ctx.beginPath();
       ctx.moveTo(kx, ky);
-      ctx.lineTo(kx - 6 * Math.cos(angle - 0.4), ky - 6 * Math.sin(angle - 0.4));
-      ctx.lineTo(kx - 6 * Math.cos(angle + 0.4), ky - 6 * Math.sin(angle + 0.4));
+      ctx.lineTo(kx - arrowHead * Math.cos(angle - 0.4), ky - arrowHead * Math.sin(angle - 0.4));
+      ctx.lineTo(kx - arrowHead * Math.cos(angle + 0.4), ky - arrowHead * Math.sin(angle + 0.4));
       ctx.fill();
     }
 
     // -- Shield bubble --
     if (p.action_state >= 178 && p.action_state <= 182) {
-      const shieldRad = 12 + (p.shield_strength / 60) * 10;
+      const shieldRad = gameScaleY(5 + (p.shield_strength / 60) * 4);
       ctx.strokeStyle = col.glow;
       ctx.lineWidth = 2;
       ctx.globalAlpha = 0.4 + (p.shield_strength / 60) * 0.4;
       ctx.beginPath();
-      ctx.arc(px, py - 6, shieldRad, 0, Math.PI * 2);
+      ctx.arc(px, py - gameScaleY(2), shieldRad, 0, Math.PI * 2);
       ctx.stroke();
       ctx.fillStyle = col.dim;
       ctx.fill();
@@ -1739,55 +2043,25 @@ function drawFrame(frame) {
       glowRadius = Math.max(glowRadius, 10 + t * 4);
     }
 
-    // ========= PLAYER CAPSULE with SQUASH & STRETCH =========
-    const capsuleH = 22;
-    const capsuleW = 8;
-    const ss = squashState[idx];
-
-    ctx.save();
-    ctx.translate(px, py - capsuleH / 2);
-    ctx.scale(ss.scaleX, ss.scaleY);
-    ctx.translate(-px, -(py - capsuleH / 2));
-
-    const bodyTop = py - capsuleH;
-    const bodyBot = py;
-
-    // Glow
-    ctx.shadowColor = glowColor;
-    ctx.shadowBlur = glowRadius;
-
-    // Capsule
-    ctx.fillStyle = capsuleColor;
-    ctx.beginPath();
-    ctx.moveTo(px - capsuleW, bodyTop + capsuleW);
-    ctx.arc(px, bodyTop + capsuleW, capsuleW, Math.PI, 0);
-    ctx.lineTo(px + capsuleW, bodyBot - capsuleW);
-    ctx.arc(px, bodyBot - capsuleW, capsuleW, 0, Math.PI);
-    ctx.closePath();
-    ctx.fill();
-
-    ctx.shadowColor = 'transparent';
-    ctx.shadowBlur = 0;
-
-    ctx.restore();
-
-    // -- Facing indicator (small triangle) --
-    const fDir = p.facing ? 1 : -1;
-    ctx.fillStyle = capsuleColor;
-    ctx.beginPath();
-    ctx.moveTo(px + fDir * (capsuleW + 3), py - capsuleH / 2);
-    ctx.lineTo(px + fDir * (capsuleW + 8), py - capsuleH / 2 - 3);
-    ctx.lineTo(px + fDir * (capsuleW + 8), py - capsuleH / 2 + 3);
-    ctx.closePath();
-    ctx.fill();
+    let drewCharacter = false;
+    let capsuleGeom = null;
+    if (renderMode === 'character') {
+      drewCharacter = drawCharacter(ctx, p, px, py, pxPerUnit, col);
+    }
+    if (!drewCharacter) {
+      capsuleGeom = drawCapsule(ctx, p, idx, px, py, col, cat, glowColor, glowRadius, capsuleColor);
+    }
 
     // -- Hitlag flash --
     if (p.hitlag > 0) {
       ctx.strokeStyle = 'rgba(255,255,255,0.8)';
       ctx.lineWidth = 2;
-      const flashR = 18 + p.hitlag * 2;
+      const flashR = drewCharacter
+        ? (28 + p.hitlag * 2)
+        : (capsuleGeom.capsuleH * 0.8 + p.hitlag * gameScaleY(1));
+      const flashCenterY = drewCharacter ? (py - pxPerUnit * 5) : (py - capsuleGeom.capsuleH / 2);
       ctx.beginPath();
-      ctx.arc(px, py - capsuleH / 2, flashR, 0, Math.PI * 2);
+      ctx.arc(px, flashCenterY, flashR, 0, Math.PI * 2);
       ctx.stroke();
     }
 
@@ -1795,12 +2069,16 @@ function drawFrame(frame) {
     if (cat === 'damage') {
       ctx.strokeStyle = 'rgba(245,158,11,0.4)';
       ctx.lineWidth = 1;
+      const sparkCenterY = drewCharacter ? (py - pxPerUnit * 5) : (py - capsuleGeom.capsuleH / 2);
+      const sparkSpreadX = drewCharacter ? Math.max(18, pxPerUnit * 8) : (capsuleGeom.capsuleW * 4);
+      const sparkSpreadY = drewCharacter ? Math.max(10, pxPerUnit * 4) : capsuleGeom.capsuleH;
       for (let s = 0; s < 3; s++) {
-        const sparkX = px + (Math.random() - 0.5) * 30;
-        const sparkY = py - capsuleH / 2 + (Math.random() - 0.5) * 20;
+        const sparkX = px + (Math.random() - 0.5) * sparkSpreadX;
+        const sparkY = sparkCenterY + (Math.random() - 0.5) * sparkSpreadY;
+        const sparkLen = Math.max(2, gameScaleX(1));
         ctx.beginPath();
-        ctx.moveTo(sparkX - 3, sparkY);
-        ctx.lineTo(sparkX + 3, sparkY);
+        ctx.moveTo(sparkX - sparkLen, sparkY);
+        ctx.lineTo(sparkX + sparkLen, sparkY);
         ctx.stroke();
       }
     }
@@ -1809,18 +2087,18 @@ function drawFrame(frame) {
     ctx.fillStyle = col.main;
     ctx.font = '600 10px system-ui, sans-serif';
     ctx.textAlign = 'center';
-    ctx.fillText(`P${idx + 1}`, px, bodyTop - 6);
+    ctx.fillText(`P${idx + 1}`, px, drewCharacter ? (py - pxPerUnit * 12) : (capsuleGeom.bodyTop - 4));
 
     // -- Action state label (color-coded by category) --
     const actionLabel = actionName(p.action_state);
     ctx.fillStyle = catColor;
     ctx.font = '500 9px monospace';
-    ctx.fillText(actionLabel, px, bodyBot + 14);
+    ctx.fillText(actionLabel, px, (drewCharacter ? py : capsuleGeom.bodyBot) + 12);
 
     // -- Percent near player --
     ctx.fillStyle = p.percent > 100 ? '#f43f5e' : (p.percent > 60 ? '#f59e0b' : 'rgba(255,255,255,0.7)');
     ctx.font = '700 11px monospace';
-    ctx.fillText(`${Math.round(p.percent)}%`, px, bodyBot + 26);
+    ctx.fillText(`${Math.round(p.percent)}%`, px, (drewCharacter ? py : capsuleGeom.bodyBot) + 24);
   });
 
   // ========= IMPACT FLASHES (starburst + ring) =========
@@ -2073,6 +2351,18 @@ const dataSource = document.getElementById('dataSource');
 const dataTag = document.getElementById('dataTag');
 const btnLoadFile = document.getElementById('btnLoadFile');
 const fileInput = document.getElementById('fileInput');
+const btnRenderMode = document.getElementById('btnRenderMode');
+
+function preloadCharacterAnimationsForCurrentData() {
+  if (renderMode !== 'character' || !fflateAvailable || !frames.length) return;
+  const charIds = new Set();
+  const seedFrame = frames[Math.min(currentFrame, frames.length - 1)] || frames[0];
+  if (!seedFrame || !seedFrame.players) return;
+  for (const p of seedFrame.players) charIds.add(p.character);
+  Promise.all([...charIds].map(loadCharAnimations))
+    .then(() => renderCurrentFrame())
+    .catch((err) => console.error('[anim] preload failed:', err));
+}
 
 function setCanvasError(message) {
   canvasErrorMessage = message || '';
@@ -2112,6 +2402,7 @@ function resetPlaybackWithFrames(nextFrames) {
   totalFrames.textContent = frames.length;
   resetJuiceState();
   renderCurrentFrame();
+  preloadCharacterAnimationsForCurrentData();
 }
 
 function loadScenario(name) {
@@ -2413,8 +2704,58 @@ document.addEventListener('keydown', (e) => {
       btnSpeed.textContent = `${playSpeed}x`;
       speedLabel.textContent = `${Math.round(60 * playSpeed)} fps`;
       break;
+    case 'c': case 'C':
+      toggleRenderMode();
+      break;
   }
 });
+
+async function toggleRenderMode() {
+  if (!fflateAvailable) {
+    console.warn('[anim] fflate not available - character mode disabled');
+    return;
+  }
+
+  if (renderMode === 'capsule') {
+    btnRenderMode.textContent = 'Loading...';
+    btnRenderMode.classList.add('loading');
+
+    const charIds = new Set();
+    if (frames.length) {
+      const frame = frames[currentFrame] || frames[0];
+      if (frame && frame.players) {
+        for (const p of frame.players) charIds.add(p.character);
+      }
+    }
+
+    try {
+      await Promise.all([...charIds].map(loadCharAnimations));
+    } catch (err) {
+      console.error('[anim] Failed to load animations:', err);
+    }
+
+    renderMode = 'character';
+    btnRenderMode.textContent = 'Character';
+    btnRenderMode.classList.remove('loading');
+    btnRenderMode.classList.add('active');
+    renderCurrentFrame();
+    return;
+  }
+
+  renderMode = 'capsule';
+  btnRenderMode.textContent = 'Capsule';
+  btnRenderMode.classList.remove('loading');
+  btnRenderMode.classList.remove('active');
+  renderCurrentFrame();
+}
+
+btnRenderMode.addEventListener('click', toggleRenderMode);
+
+if (!fflateAvailable) {
+  btnRenderMode.disabled = true;
+  btnRenderMode.title = 'fflate CDN unavailable';
+  btnRenderMode.style.opacity = '0.4';
+}
 
 // -- Resize --
 window.addEventListener('resize', () => {

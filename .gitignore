@@ -7,3 +7,6 @@ __pycache__/
 target/
 *.so
 *.o
+
+# Animation data (88MB, copied from nojohns/SlippiLab)
+viz/zips/
