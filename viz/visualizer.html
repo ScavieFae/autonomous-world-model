@@ -1,0 +1,1433 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Autonomous World Model — State Visualizer</title>
+<style>
+  :root {
+    --bg: #0a0a0f;
+    --surface: #111827;
+    --surface2: #1a2235;
+    --surface-el: #1e293b;
+    --border: rgba(255,255,255,0.06);
+    --border-b: rgba(255,255,255,0.12);
+    --text: #e2e8f0;
+    --dim: #64748b;
+    --p1: #22c55e;
+    --p1-dim: rgba(34,197,94,0.15);
+    --p1-glow: rgba(34,197,94,0.4);
+    --p2: #f59e0b;
+    --p2-dim: rgba(245,158,11,0.15);
+    --p2-glow: rgba(245,158,11,0.4);
+    --red: #f43f5e;
+    --cyan: #06b6d4;
+    --violet: #a78bfa;
+    --mono: 'SF Mono', 'Cascadia Code', 'JetBrains Mono', Consolas, monospace;
+    --body: system-ui, -apple-system, sans-serif;
+  }
+  * { margin:0; padding:0; box-sizing:border-box; }
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: var(--body);
+    height: 100vh;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  /* ── Header ── */
+  .header {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    padding: 12px 20px;
+    border-bottom: 1px solid var(--border);
+    background: var(--surface);
+    flex-shrink: 0;
+  }
+  .header h1 {
+    font-size: 15px;
+    font-weight: 600;
+    letter-spacing: -0.3px;
+  }
+  .header h1 span { color: var(--p1); }
+  .header .tag {
+    font-family: var(--mono);
+    font-size: 10px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 1.5px;
+    padding: 3px 8px;
+    border-radius: 4px;
+    background: var(--p1-dim);
+    color: var(--p1);
+    border: 1px solid rgba(34,197,94,0.2);
+  }
+  .header .frame-counter {
+    margin-left: auto;
+    font-family: var(--mono);
+    font-size: 13px;
+    color: var(--dim);
+    font-variant-numeric: tabular-nums;
+  }
+  .header .frame-counter b { color: var(--text); }
+
+  /* ── Main layout ── */
+  .main {
+    flex: 1;
+    display: flex;
+    min-height: 0;
+  }
+
+  /* ── Canvas area ── */
+  .canvas-area {
+    flex: 1;
+    position: relative;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background:
+      radial-gradient(ellipse at 50% 100%, rgba(34,197,94,0.04) 0%, transparent 60%),
+      var(--bg);
+  }
+  canvas {
+    display: block;
+    max-width: 100%;
+    max-height: 100%;
+  }
+
+  /* ── Side panel ── */
+  .panel {
+    width: 280px;
+    flex-shrink: 0;
+    border-left: 1px solid var(--border);
+    background: var(--surface);
+    overflow-y: auto;
+    display: flex;
+    flex-direction: column;
+  }
+  .panel-section {
+    padding: 16px;
+    border-bottom: 1px solid var(--border);
+  }
+  .panel-section:last-child { border-bottom: none; }
+  .panel-label {
+    font-family: var(--mono);
+    font-size: 9px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 2px;
+    color: var(--dim);
+    margin-bottom: 10px;
+  }
+
+  /* Player cards */
+  .player-card {
+    background: var(--surface2);
+    border-radius: 8px;
+    padding: 12px;
+    margin-bottom: 8px;
+    border: 1px solid var(--border);
+  }
+  .player-card.p1 { border-left: 3px solid var(--p1); }
+  .player-card.p2 { border-left: 3px solid var(--p2); }
+  .pc-header {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 8px;
+  }
+  .pc-name {
+    font-weight: 600;
+    font-size: 13px;
+  }
+  .pc-char {
+    font-family: var(--mono);
+    font-size: 10px;
+    color: var(--dim);
+    margin-left: auto;
+  }
+  .pc-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    font-size: 12px;
+    line-height: 1.8;
+  }
+  .pc-row .label { color: var(--dim); font-size: 11px; }
+  .pc-row .value {
+    font-family: var(--mono);
+    font-size: 11px;
+    font-weight: 500;
+    font-variant-numeric: tabular-nums;
+  }
+  .pc-percent {
+    font-family: var(--mono);
+    font-size: 22px;
+    font-weight: 700;
+    font-variant-numeric: tabular-nums;
+    letter-spacing: -0.5px;
+  }
+  .pc-percent.high { color: var(--red); }
+  .pc-action {
+    font-family: var(--mono);
+    font-size: 10px;
+    padding: 2px 6px;
+    border-radius: 3px;
+    background: rgba(255,255,255,0.06);
+    display: inline-block;
+    margin-top: 4px;
+  }
+  .stocks-row {
+    display: flex;
+    gap: 4px;
+    margin-top: 4px;
+  }
+  .stock-pip {
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+    border: 1px solid var(--border-b);
+  }
+  .stock-pip.alive.p1 { background: var(--p1); border-color: var(--p1); }
+  .stock-pip.alive.p2 { background: var(--p2); border-color: var(--p2); }
+  .stock-pip.dead { background: transparent; opacity: 0.3; }
+
+  /* Data inspector */
+  .inspector {
+    font-family: var(--mono);
+    font-size: 10px;
+    line-height: 1.7;
+    color: var(--dim);
+  }
+  .inspector .key { color: var(--cyan); }
+  .inspector .val { color: var(--text); }
+
+  /* ── Playback controls ── */
+  .controls {
+    flex-shrink: 0;
+    padding: 10px 20px 14px;
+    border-top: 1px solid var(--border);
+    background: var(--surface);
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+  .timeline-row {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+  }
+  .timeline {
+    flex: 1;
+    -webkit-appearance: none;
+    appearance: none;
+    height: 4px;
+    border-radius: 2px;
+    background: var(--surface2);
+    outline: none;
+    cursor: pointer;
+  }
+  .timeline::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    width: 14px;
+    height: 14px;
+    border-radius: 50%;
+    background: var(--p1);
+    cursor: pointer;
+    box-shadow: 0 0 6px var(--p1-glow);
+  }
+  .timeline::-moz-range-thumb {
+    width: 14px;
+    height: 14px;
+    border-radius: 50%;
+    background: var(--p1);
+    cursor: pointer;
+    border: none;
+  }
+  .btn-row {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+  .ctrl-btn {
+    font-family: var(--mono);
+    font-size: 11px;
+    font-weight: 600;
+    padding: 6px 12px;
+    border-radius: 6px;
+    border: 1px solid var(--border-b);
+    background: var(--surface2);
+    color: var(--text);
+    cursor: pointer;
+    transition: all 0.1s;
+    user-select: none;
+  }
+  .ctrl-btn:hover { background: var(--surface-el); }
+  .ctrl-btn:active { transform: scale(0.97); }
+  .ctrl-btn.active { background: var(--p1); color: var(--bg); border-color: var(--p1); }
+  .ctrl-btn.play { min-width: 50px; }
+  .speed-label {
+    font-family: var(--mono);
+    font-size: 10px;
+    color: var(--dim);
+    margin-left: auto;
+    user-select: none;
+  }
+
+  /* ── Data source selector ── */
+  .data-source {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .data-source label {
+    font-family: var(--mono);
+    font-size: 10px;
+    color: var(--dim);
+    text-transform: uppercase;
+    letter-spacing: 1px;
+  }
+  .data-source select {
+    font-family: var(--mono);
+    font-size: 11px;
+    padding: 4px 8px;
+    border-radius: 4px;
+    border: 1px solid var(--border-b);
+    background: var(--surface2);
+    color: var(--text);
+    cursor: pointer;
+  }
+
+  /* ── Keyboard hint ── */
+  .kb-hint {
+    font-family: var(--mono);
+    font-size: 9px;
+    color: var(--dim);
+    text-align: center;
+    padding: 4px;
+    opacity: 0.6;
+  }
+  kbd {
+    display: inline-block;
+    padding: 1px 5px;
+    border-radius: 3px;
+    border: 1px solid var(--border-b);
+    background: var(--surface2);
+    font-family: var(--mono);
+    font-size: 9px;
+  }
+</style>
+</head>
+<body>
+
+<div class="header">
+  <h1>World Model <span>State Visualizer</span></h1>
+  <span class="tag">Mock Data</span>
+  <div class="data-source">
+    <label>Source:</label>
+    <select id="dataSource">
+      <option value="neutral">Neutral game</option>
+      <option value="combo">Combo sequence</option>
+      <option value="edgeguard">Edgeguard</option>
+    </select>
+  </div>
+  <div class="frame-counter">Frame <b id="frameNum">0</b> / <b id="totalFrames">0</b></div>
+</div>
+
+<div class="main">
+  <div class="canvas-area">
+    <canvas id="stage"></canvas>
+  </div>
+  <div class="panel">
+    <div class="panel-section">
+      <div class="panel-label">Player 1</div>
+      <div class="player-card p1">
+        <div class="pc-header">
+          <span class="pc-name" style="color:var(--p1)" id="p1Name">P1</span>
+          <span class="pc-char" id="p1Char">Marth</span>
+        </div>
+        <div class="pc-percent" id="p1Pct">0%</div>
+        <div class="stocks-row" id="p1Stocks"></div>
+        <div class="pc-action" id="p1Action">Wait (14)</div>
+        <div style="margin-top:8px">
+          <div class="pc-row"><span class="label">Position</span><span class="value" id="p1Pos">0, 0</span></div>
+          <div class="pc-row"><span class="label">Velocity</span><span class="value" id="p1Vel">0, 0</span></div>
+          <div class="pc-row"><span class="label">Facing</span><span class="value" id="p1Face">Right</span></div>
+          <div class="pc-row"><span class="label">Airborne</span><span class="value" id="p1Air">No</span></div>
+          <div class="pc-row"><span class="label">Shield</span><span class="value" id="p1Shield">60.0</span></div>
+          <div class="pc-row"><span class="label">Jumps</span><span class="value" id="p1Jumps">2</span></div>
+          <div class="pc-row"><span class="label">State age</span><span class="value" id="p1StateAge">0</span></div>
+          <div class="pc-row"><span class="label">Hitlag</span><span class="value" id="p1Hitlag">0</span></div>
+        </div>
+      </div>
+    </div>
+    <div class="panel-section">
+      <div class="panel-label">Player 2</div>
+      <div class="player-card p2">
+        <div class="pc-header">
+          <span class="pc-name" style="color:var(--p2)" id="p2Name">P2</span>
+          <span class="pc-char" id="p2Char">Fox</span>
+        </div>
+        <div class="pc-percent" id="p2Pct">0%</div>
+        <div class="stocks-row" id="p2Stocks"></div>
+        <div class="pc-action" id="p2Action">Wait (14)</div>
+        <div style="margin-top:8px">
+          <div class="pc-row"><span class="label">Position</span><span class="value" id="p2Pos">0, 0</span></div>
+          <div class="pc-row"><span class="label">Velocity</span><span class="value" id="p2Vel">0, 0</span></div>
+          <div class="pc-row"><span class="label">Facing</span><span class="value" id="p2Face">Left</span></div>
+          <div class="pc-row"><span class="label">Airborne</span><span class="value" id="p2Air">No</span></div>
+          <div class="pc-row"><span class="label">Shield</span><span class="value" id="p2Shield">60.0</span></div>
+          <div class="pc-row"><span class="label">Jumps</span><span class="value" id="p2Jumps">2</span></div>
+          <div class="pc-row"><span class="label">State age</span><span class="value" id="p2StateAge">0</span></div>
+          <div class="pc-row"><span class="label">Hitlag</span><span class="value" id="p2Hitlag">0</span></div>
+        </div>
+      </div>
+    </div>
+    <div class="panel-section" style="flex:1">
+      <div class="panel-label">Raw Frame Data</div>
+      <div class="inspector" id="inspector"></div>
+    </div>
+  </div>
+</div>
+
+<div class="controls">
+  <div class="timeline-row">
+    <input type="range" class="timeline" id="timeline" min="0" max="0" value="0">
+  </div>
+  <div class="btn-row">
+    <button class="ctrl-btn" id="btnPrevFrame" title="Previous frame">&larr;</button>
+    <button class="ctrl-btn play" id="btnPlay" title="Play/Pause">&#9654;</button>
+    <button class="ctrl-btn" id="btnNextFrame" title="Next frame">&rarr;</button>
+    <button class="ctrl-btn" id="btnSpeed">1x</button>
+    <span class="speed-label" id="speedLabel">60 fps</span>
+    <span class="kb-hint" style="margin-left:auto">
+      <kbd>Space</kbd> play &nbsp; <kbd>&larr;</kbd><kbd>&rarr;</kbd> step &nbsp; <kbd>+</kbd><kbd>-</kbd> speed
+    </span>
+  </div>
+</div>
+
+<script>
+// ═══════════════════════════════════════════════════════════════
+// ACTION STATE NAMES (subset — the important ones for display)
+// ═══════════════════════════════════════════════════════════════
+const ACTION_NAMES = {
+  0: 'DeadDown', 1: 'DeadLeft', 2: 'DeadRight', 3: 'DeadUp',
+  14: 'Wait', 15: 'WalkSlow', 16: 'WalkMiddle', 17: 'WalkFast',
+  20: 'Dash', 21: 'Run', 22: 'RunDirect', 23: 'RunBrake',
+  24: 'KneeBend', 25: 'JumpF', 26: 'JumpB', 27: 'JumpAerialF',
+  28: 'JumpAerialB', 29: 'Fall', 30: 'FallF', 31: 'FallB',
+  32: 'FallAerial', 33: 'FallAerialF', 34: 'FallAerialB',
+  35: 'FallSpecial', 36: 'FallSpecialF', 37: 'FallSpecialB',
+  39: 'SquatWait', 40: 'Squat', 41: 'SquatRv',
+  42: 'AttackS3Hi', 43: 'AttackS3HiS', 44: 'AttackS3S',
+  45: 'AttackS3LwS', 46: 'AttackS3Lw',
+  47: 'AttackHi3', 48: 'AttackLw3',
+  49: 'AttackS4Hi', 50: 'AttackS4HiS', 51: 'AttackS4S',
+  52: 'AttackS4LwS', 53: 'AttackS4Lw',
+  54: 'AttackHi4', 55: 'AttackLw4',
+  56: 'AttackAirN', 57: 'AttackAirF', 58: 'AttackAirB',
+  59: 'AttackAirHi', 60: 'AttackAirLw',
+  61: 'LandingAirN', 62: 'LandingAirF', 63: 'LandingAirB',
+  64: 'LandingAirHi', 65: 'LandingAirLw',
+  75: 'DamageFlyHi', 76: 'DamageFlyN', 77: 'DamageFlyLw',
+  78: 'DamageFlyTop', 79: 'DamageFlyRoll',
+  85: 'DamageHi1', 86: 'DamageHi2', 87: 'DamageHi3',
+  88: 'DamageN1', 89: 'DamageN2', 90: 'DamageN3',
+  91: 'DamageLw1', 92: 'DamageLw2', 93: 'DamageLw3',
+  178: 'GuardOn', 179: 'Guard', 180: 'GuardOff',
+  181: 'GuardSetOff', 182: 'GuardReflect',
+  183: 'EscapeF', 184: 'EscapeB',
+  199: 'ReboundStop',
+  212: 'Catch', 214: 'CatchWait',
+  233: 'Landing', 234: 'LandingFallSpecial',
+  253: 'CliffCatch', 254: 'CliffWait',
+  255: 'CliffClimbSlow', 256: 'CliffClimbQuick',
+  263: 'CliffJumpSlow1', 264: 'CliffJumpQuick1',
+};
+
+function actionName(id) {
+  return ACTION_NAMES[id] || `State_${id}`;
+}
+
+// Action state categories for coloring
+function actionCategory(id) {
+  if (id <= 10) return 'dead';
+  if (id === 14) return 'neutral';
+  if (id >= 15 && id <= 23) return 'movement';
+  if (id >= 24 && id <= 37) return 'aerial';
+  if (id >= 39 && id <= 41) return 'movement';
+  if (id >= 42 && id <= 65) return 'attack';
+  if (id >= 75 && id <= 93) return 'damage';
+  if (id >= 178 && id <= 184) return 'defense';
+  if (id >= 212 && id <= 214) return 'grab';
+  if (id >= 253 && id <= 264) return 'ledge';
+  return 'other';
+}
+
+const CATEGORY_COLORS = {
+  neutral:  'rgba(255,255,255,0.5)',
+  movement: 'rgba(6,182,212,0.8)',
+  aerial:   'rgba(167,139,250,0.8)',
+  attack:   'rgba(244,63,94,0.9)',
+  damage:   'rgba(245,158,11,0.9)',
+  defense:  'rgba(34,197,94,0.7)',
+  grab:     'rgba(236,72,153,0.8)',
+  ledge:    'rgba(99,102,241,0.8)',
+  dead:     'rgba(107,114,128,0.5)',
+  other:    'rgba(148,163,184,0.5)',
+};
+
+const CHARACTERS = {
+  0: 'Mario', 1: 'Fox', 2: 'Cpt. Falcon', 3: 'DK', 4: 'Kirby',
+  5: 'Bowser', 6: 'Link', 7: 'Sheik', 8: 'Ness', 9: 'Peach',
+  10: 'Popo', 12: 'Pikachu', 13: 'Samus', 17: 'Luigi',
+  18: 'Marth', 19: 'Zelda', 20: 'Young Link', 21: 'Doc',
+  22: 'Falco', 23: 'Pichu', 24: 'G&W', 25: 'Ganondorf',
+  26: 'Roy', 31: 'Mewtwo', 32: 'Jigglypuff',
+};
+
+// ═══════════════════════════════════════════════════════════════
+// STAGE GEOMETRY (Final Destination)
+// Game units — the model outputs position in these coordinates
+// ═══════════════════════════════════════════════════════════════
+const STAGE = {
+  name: 'Final Destination',
+  ground: { x1: -85.5606, x2: 85.5606, y: 0 },
+  blastzone: { left: -246, right: 246, top: 188, bottom: -140 },
+  camera: { left: -170, right: 170, top: 120, bottom: -60 },
+};
+
+// ═══════════════════════════════════════════════════════════════
+// FRAME DATA FORMAT
+// Matches v2 encoding output — swap mock data for real model output
+// ═══════════════════════════════════════════════════════════════
+// Each frame: { players: [p0, p1], stage: stageId }
+// Each player: {
+//   x, y,                          // position (game units)
+//   percent,                       // 0-999
+//   shield_strength,               // 0-60
+//   speed_air_x, speed_y,          // self-velocity
+//   speed_ground_x,                // ground velocity
+//   speed_attack_x, speed_attack_y,// knockback velocity
+//   state_age,                     // frames in current state
+//   hitlag,                        // hitlag frames remaining
+//   stocks,                        // 0-4
+//   facing,                        // 1 = right, 0 = left
+//   on_ground,                     // 1 = grounded, 0 = airborne
+//   action_state,                  // 0-399
+//   jumps_left,                    // 0-7
+//   character,                     // 0-32
+// }
+
+// ═══════════════════════════════════════════════════════════════
+// MOCK DATA GENERATOR
+// ═══════════════════════════════════════════════════════════════
+
+function generateMockData(scenario) {
+  const gen = {
+    neutral: generateNeutral,
+    combo: generateCombo,
+    edgeguard: generateEdgeguard,
+  };
+  return (gen[scenario] || gen.neutral)();
+}
+
+function makePlayer(x, y, char, facing) {
+  return {
+    x, y, percent: 0, shield_strength: 60,
+    speed_air_x: 0, speed_y: 0, speed_ground_x: 0,
+    speed_attack_x: 0, speed_attack_y: 0,
+    state_age: 0, hitlag: 0, stocks: 4,
+    facing, on_ground: y <= 1 ? 1 : 0,
+    action_state: 14, jumps_left: 2, character: char,
+  };
+}
+
+function clonePlayer(p) { return { ...p }; }
+
+function applyGravity(p) {
+  if (!p.on_ground) {
+    p.speed_y -= 0.13; // gravity
+    if (p.speed_y < -3.5) p.speed_y = -3.5; // terminal velocity
+  }
+}
+
+function applyMovement(p) {
+  if (p.on_ground) {
+    p.x += p.speed_ground_x;
+    p.speed_ground_x *= 0.9; // friction
+  } else {
+    p.x += p.speed_air_x;
+    p.y += p.speed_y;
+  }
+  // knockback
+  p.x += p.speed_attack_x;
+  p.y += p.speed_attack_y;
+  p.speed_attack_x *= 0.95;
+  p.speed_attack_y *= 0.95;
+  if (Math.abs(p.speed_attack_x) < 0.05) p.speed_attack_x = 0;
+  if (Math.abs(p.speed_attack_y) < 0.05) p.speed_attack_y = 0;
+}
+
+function applyStageCollision(p) {
+  // Ground
+  if (p.y <= STAGE.ground.y && p.x >= STAGE.ground.x1 && p.x <= STAGE.ground.x2) {
+    if (!p.on_ground) {
+      p.y = STAGE.ground.y;
+      p.on_ground = 1;
+      p.speed_y = 0;
+      p.speed_air_x = 0;
+      p.jumps_left = p.character === 4 ? 6 : 2; // Kirby has 6
+    }
+  }
+  // Fell off stage
+  if (p.on_ground && (p.x < STAGE.ground.x1 || p.x > STAGE.ground.x2)) {
+    p.on_ground = 0;
+  }
+}
+
+function generateNeutral() {
+  const frames = [];
+  const p0 = makePlayer(-30, 0, 18, 1); // Marth, facing right
+  const p1 = makePlayer(30, 0, 1, 0);   // Fox, facing left
+  const N = 360; // 6 seconds
+
+  for (let i = 0; i < N; i++) {
+    const f0 = clonePlayer(p0);
+    const f1 = clonePlayer(p1);
+
+    // Phase-based mock behavior
+    const phase = Math.floor(i / 60);
+    const t = (i % 60) / 60;
+
+    if (phase === 0) {
+      // Neutral: both idle, slight movement
+      f0.action_state = 14; // Wait
+      f1.action_state = 14;
+      p0.speed_ground_x = Math.sin(i * 0.05) * 0.3;
+      p1.speed_ground_x = -Math.sin(i * 0.07) * 0.2;
+    }
+    else if (phase === 1) {
+      // P1 dashes in
+      if (t < 0.3) {
+        f0.action_state = 20; // Dash
+        p0.speed_ground_x = 2.0;
+      } else if (t < 0.5) {
+        f0.action_state = 44; // AttackS3S (ftilt)
+        p0.speed_ground_x *= 0.3;
+        // Hit connects at t=0.45
+        if (t > 0.4 && t < 0.5 && Math.abs(p0.x - p1.x) < 20) {
+          f1.action_state = 88; // DamageN2
+          p1.speed_attack_x = 2.5;
+          p1.speed_attack_y = 1.5;
+          p1.on_ground = 0;
+          p1.percent += 12;
+        }
+      } else {
+        f0.action_state = 14; // back to wait
+        p0.speed_ground_x *= 0.8;
+      }
+      // P2 gets knocked back then falls
+      if (f1.action_state >= 75 && f1.action_state <= 93) {
+        f1.state_age = Math.floor((t - 0.4) * 60);
+      } else if (!p1.on_ground && p1.y > 0) {
+        f1.action_state = 29; // Fall
+      } else {
+        f1.action_state = 14;
+      }
+    }
+    else if (phase === 2) {
+      // P2 approaches with short hop aerial
+      if (t < 0.15) {
+        f1.action_state = 24; // KneeBend
+        f1.facing = 0; // face left (toward p0)
+      } else if (t < 0.2) {
+        f1.action_state = 25; // JumpF
+        p1.speed_y = 3.2;
+        p1.speed_air_x = -1.5;
+        p1.on_ground = 0;
+        p1.jumps_left = 1;
+      } else if (t < 0.45) {
+        f1.action_state = 57; // AttackAirF (fair)
+        f1.on_ground = 0;
+      } else if (t < 0.6) {
+        f1.action_state = 29; // Fall
+        f1.on_ground = 0;
+      } else {
+        f1.action_state = 233; // Landing
+        if (t > 0.7) f1.action_state = 14;
+      }
+      // P1 shields
+      if (t > 0.3 && t < 0.6) {
+        f0.action_state = 179; // Guard (shield)
+        p0.shield_strength = Math.max(30, p0.shield_strength - 0.3);
+      } else {
+        f0.action_state = 14;
+      }
+    }
+    else if (phase === 3) {
+      // Both dash dance
+      const dd0 = Math.sin(i * 0.15) > 0;
+      const dd1 = Math.sin(i * 0.12 + 1) > 0;
+      f0.action_state = 20;
+      f1.action_state = 20;
+      f0.facing = dd0 ? 1 : 0;
+      f1.facing = dd1 ? 1 : 0;
+      p0.speed_ground_x = dd0 ? 1.8 : -1.8;
+      p1.speed_ground_x = dd1 ? 1.6 : -1.6;
+    }
+    else if (phase === 4) {
+      // P1 grabs P2
+      if (t < 0.2) {
+        f0.action_state = 20; // dash in
+        p0.speed_ground_x = 2.0;
+      } else if (t < 0.35) {
+        f0.action_state = 212; // Catch (grab)
+        p0.speed_ground_x = 0;
+      } else if (t < 0.7) {
+        f0.action_state = 214; // CatchWait (holding)
+        f1.action_state = 224; // CaptureWait
+        p0.speed_ground_x = 0;
+        p1.x = p0.x + (f0.facing ? 8 : -8);
+      } else {
+        // Throw
+        f0.action_state = 14;
+        f1.action_state = 76; // DamageFlyN
+        p1.speed_attack_x = f0.facing ? 3 : -3;
+        p1.speed_attack_y = 2;
+        p1.on_ground = 0;
+        p1.percent += 8;
+      }
+    }
+    else {
+      // Loop back to neutral-ish movement
+      f0.action_state = 14;
+      f1.action_state = 14;
+      // drift back to starting positions
+      p0.speed_ground_x += (-30 - p0.x) * 0.02;
+      p1.speed_ground_x += (30 - p1.x) * 0.02;
+    }
+
+    f0.state_age = (frames.length > 0 && frames[frames.length-1].players[0].action_state === f0.action_state)
+      ? frames[frames.length-1].players[0].state_age + 1 : 0;
+    f1.state_age = (frames.length > 0 && frames[frames.length-1].players[1].action_state === f1.action_state)
+      ? frames[frames.length-1].players[1].state_age + 1 : 0;
+
+    applyGravity(p0); applyGravity(p1);
+    applyMovement(p0); applyMovement(p1);
+    applyStageCollision(p0); applyStageCollision(p1);
+
+    // Sync render state from sim state
+    f0.x = p0.x; f0.y = p0.y;
+    f0.speed_air_x = p0.speed_air_x; f0.speed_y = p0.speed_y;
+    f0.speed_ground_x = p0.speed_ground_x;
+    f0.speed_attack_x = p0.speed_attack_x; f0.speed_attack_y = p0.speed_attack_y;
+    f0.on_ground = p0.on_ground; f0.percent = p0.percent;
+    f0.shield_strength = p0.shield_strength;
+    f0.jumps_left = p0.jumps_left;
+
+    f1.x = p1.x; f1.y = p1.y;
+    f1.speed_air_x = p1.speed_air_x; f1.speed_y = p1.speed_y;
+    f1.speed_ground_x = p1.speed_ground_x;
+    f1.speed_attack_x = p1.speed_attack_x; f1.speed_attack_y = p1.speed_attack_y;
+    f1.on_ground = p1.on_ground; f1.percent = p1.percent;
+    f1.shield_strength = p1.shield_strength;
+    f1.jumps_left = p1.jumps_left;
+
+    frames.push({ players: [f0, f1], stage: 31 }); // 31 = Final Destination
+  }
+  return frames;
+}
+
+function generateCombo() {
+  const frames = [];
+  const p0 = makePlayer(-20, 0, 2, 1);  // Captain Falcon, facing right
+  const p1 = makePlayer(20, 0, 22, 0);   // Falco, facing left
+  const N = 300;
+
+  // Simulates a Falcon combo: grab → upthrow → knee → uair chain
+  const script = [
+    // 0-30: grab approach
+    { dur: 30, p0a: 20, p1a: 14, p0vx: 2.2, setup: (i, f0, f1, pp0, pp1) => {
+      if (i > 20) { f0.action_state = 212; pp0.speed_ground_x = 0; }
+    }},
+    // 30-60: holding
+    { dur: 30, p0a: 214, p1a: 224, setup: (i, f0, f1, pp0, pp1) => {
+      pp1.x = pp0.x + 8;
+    }},
+    // 60-75: upthrow
+    { dur: 15, p0a: 14, p1a: 78, setup: (i, f0, f1, pp0, pp1) => {
+      if (i === 0) {
+        pp1.speed_attack_y = 4; pp1.speed_attack_x = 0.3;
+        pp1.on_ground = 0; pp1.percent += 7;
+      }
+    }},
+    // 75-95: knee bend + jump chase
+    { dur: 20, p0a: 24, setup: (i, f0, f1, pp0, pp1) => {
+      if (i === 5) { pp0.speed_y = 4.5; pp0.speed_air_x = 1.2; pp0.on_ground = 0; pp0.jumps_left = 1; f0.action_state = 27; }
+      if (i > 5) f0.action_state = 27;
+      f1.action_state = pp1.speed_attack_y > 0.3 ? 78 : 29;
+    }},
+    // 95-115: nair connects
+    { dur: 20, p0a: 56, setup: (i, f0, f1, pp0, pp1) => {
+      f0.on_ground = 0;
+      if (i === 8 && Math.abs(pp0.y - pp1.y) < 25) {
+        f1.action_state = 76; pp1.speed_attack_x = 1.5; pp1.speed_attack_y = 2;
+        pp1.percent += 14; f0.hitlag = 4; f1.hitlag = 4;
+      } else {
+        f1.action_state = pp1.speed_attack_y > 0.3 ? 76 : 29;
+      }
+    }},
+    // 115-140: fall + another jump
+    { dur: 25, p0a: 29, setup: (i, f0, f1, pp0, pp1) => {
+      f0.on_ground = 0;
+      f1.action_state = pp1.speed_attack_y > 0.3 ? 76 : 29;
+      f1.on_ground = 0;
+      if (i === 10 && pp0.jumps_left > 0) {
+        pp0.speed_y = 3.8; pp0.jumps_left = 0; f0.action_state = 28;
+      }
+    }},
+    // 140-160: uair
+    { dur: 20, p0a: 59, setup: (i, f0, f1, pp0, pp1) => {
+      f0.on_ground = 0;
+      if (i === 6) {
+        f1.action_state = 75; pp1.speed_attack_y = 3.5; pp1.speed_attack_x = 0.5;
+        pp1.percent += 13; f0.hitlag = 5; f1.hitlag = 5;
+      } else {
+        f1.action_state = pp1.speed_attack_y > 0.3 ? 75 : 29;
+      }
+      f1.on_ground = 0;
+    }},
+    // 160-220: both fall
+    { dur: 60, p0a: 29, setup: (i, f0, f1, pp0, pp1) => {
+      f1.action_state = pp1.speed_attack_y > 0.3 ? 75 : 29;
+      f0.on_ground = pp0.on_ground; f1.on_ground = pp1.on_ground;
+      if (pp0.on_ground) f0.action_state = 233;
+      if (pp1.on_ground) f1.action_state = 233;
+      if (pp0.on_ground && i > 10) f0.action_state = 14;
+      if (pp1.on_ground && i > 15) f1.action_state = 14;
+    }},
+  ];
+
+  let scriptFrame = 0;
+  let phaseIdx = 0;
+  let phaseFrame = 0;
+
+  for (let i = 0; i < N; i++) {
+    const f0 = clonePlayer(p0);
+    const f1 = clonePlayer(p1);
+
+    if (phaseIdx < script.length) {
+      const phase = script[phaseIdx];
+      f0.action_state = phase.p0a || f0.action_state;
+      if (phase.p1a !== undefined) f1.action_state = phase.p1a;
+      if (phase.p0vx !== undefined && phaseFrame === 0) p0.speed_ground_x = phase.p0vx;
+      if (phase.setup) phase.setup(phaseFrame, f0, f1, p0, p1);
+      phaseFrame++;
+      if (phaseFrame >= phase.dur) { phaseIdx++; phaseFrame = 0; }
+    } else {
+      // Post-script: idle
+      f0.action_state = p0.on_ground ? 14 : 29;
+      f1.action_state = p1.on_ground ? 14 : 29;
+      p0.speed_ground_x += (-20 - p0.x) * 0.02;
+      p1.speed_ground_x += (20 - p1.x) * 0.02;
+    }
+
+    f0.state_age = (frames.length > 0 && frames[frames.length-1].players[0].action_state === f0.action_state)
+      ? frames[frames.length-1].players[0].state_age + 1 : 0;
+    f1.state_age = (frames.length > 0 && frames[frames.length-1].players[1].action_state === f1.action_state)
+      ? frames[frames.length-1].players[1].state_age + 1 : 0;
+
+    applyGravity(p0); applyGravity(p1);
+    applyMovement(p0); applyMovement(p1);
+    applyStageCollision(p0); applyStageCollision(p1);
+
+    f0.x = p0.x; f0.y = p0.y; f0.on_ground = p0.on_ground;
+    f0.speed_air_x = p0.speed_air_x; f0.speed_y = p0.speed_y;
+    f0.speed_ground_x = p0.speed_ground_x;
+    f0.speed_attack_x = p0.speed_attack_x; f0.speed_attack_y = p0.speed_attack_y;
+    f0.percent = p0.percent; f0.shield_strength = p0.shield_strength;
+    f0.jumps_left = p0.jumps_left; f0.hitlag = Math.max(0, (f0.hitlag || 0) - 1);
+
+    f1.x = p1.x; f1.y = p1.y; f1.on_ground = p1.on_ground;
+    f1.speed_air_x = p1.speed_air_x; f1.speed_y = p1.speed_y;
+    f1.speed_ground_x = p1.speed_ground_x;
+    f1.speed_attack_x = p1.speed_attack_x; f1.speed_attack_y = p1.speed_attack_y;
+    f1.percent = p1.percent; f1.shield_strength = p1.shield_strength;
+    f1.jumps_left = p1.jumps_left; f1.hitlag = Math.max(0, (f1.hitlag || 0) - 1);
+
+    frames.push({ players: [f0, f1], stage: 31 });
+  }
+  return frames;
+}
+
+function generateEdgeguard() {
+  const frames = [];
+  const p0 = makePlayer(40, 0, 18, 0);   // Marth at ledge, facing left
+  const p1 = makePlayer(-120, -30, 1, 1); // Fox recovering from offstage
+  p1.on_ground = 0;
+  p1.percent = 80;
+  p1.jumps_left = 0;
+  p1.speed_air_x = 2.5;
+  p1.speed_y = 1.5;
+  const N = 300;
+
+  for (let i = 0; i < N; i++) {
+    const f0 = clonePlayer(p0);
+    const f1 = clonePlayer(p1);
+    const t = i / 60;
+
+    if (t < 1.5) {
+      // Fox recovering with Firefox trajectory
+      f1.action_state = 35; // FallSpecial (post up-B)
+      if (t < 0.5) {
+        p1.speed_air_x = 2.8;
+        p1.speed_y = 2.0;
+      } else if (t < 1.0) {
+        // Sweetspot attempt
+        p1.speed_air_x = 1.5;
+        p1.speed_y = 0.5;
+      }
+      // Marth waits at edge
+      f0.action_state = 14;
+      if (t > 0.8 && t < 1.2) {
+        f0.action_state = 20; // Dash toward edge
+        p0.speed_ground_x = -1.5;
+      }
+      if (t > 1.2) {
+        f0.action_state = 57; // AttackAirF (fair)
+        if (t > 1.0) { p0.on_ground = 0; p0.speed_y = 1; p0.speed_air_x = -1; }
+        // Hit connects
+        if (t > 1.3 && t < 1.4 && Math.abs(p0.x - p1.x) < 25) {
+          f1.action_state = 77; // DamageFlyLw
+          p1.speed_attack_x = -3;
+          p1.speed_attack_y = -2;
+          p1.percent += 14;
+          f0.hitlag = 6; f1.hitlag = 6;
+        }
+      }
+    } else if (t < 3.0) {
+      // Fox tumbling offstage
+      if (p1.speed_attack_y < -0.2 || p1.speed_attack_x < -0.2) {
+        f1.action_state = 79; // DamageFlyRoll (tumble)
+      } else {
+        f1.action_state = 29; // Fall
+      }
+      f1.on_ground = 0;
+      // Marth recovers back to stage
+      f0.action_state = p0.on_ground ? 14 : 29;
+      if (!p0.on_ground) {
+        p0.speed_air_x += (40 - p0.x) * 0.01;
+      } else {
+        p0.speed_ground_x += (40 - p0.x) * 0.03;
+        f0.action_state = 14;
+      }
+    } else {
+      // Fox dead, Marth waits
+      if (p1.y < STAGE.blastzone.bottom || p1.x < STAGE.blastzone.left) {
+        p1.stocks = Math.max(0, p1.stocks - 1);
+        // Respawn
+        p1.x = 0; p1.y = 50; p1.on_ground = 0;
+        p1.speed_air_x = 0; p1.speed_y = 0;
+        p1.speed_attack_x = 0; p1.speed_attack_y = 0;
+        p1.percent = 0;
+        p1.jumps_left = 2;
+        f1.action_state = 29;
+      }
+      f0.action_state = p0.on_ground ? 14 : 29;
+      f1.action_state = p1.on_ground ? 14 : 29;
+      p0.speed_ground_x += (40 - p0.x) * 0.02;
+      p1.speed_ground_x += (-20 - p1.x) * 0.01;
+    }
+
+    f0.state_age = (frames.length > 0 && frames[frames.length-1].players[0].action_state === f0.action_state)
+      ? frames[frames.length-1].players[0].state_age + 1 : 0;
+    f1.state_age = (frames.length > 0 && frames[frames.length-1].players[1].action_state === f1.action_state)
+      ? frames[frames.length-1].players[1].state_age + 1 : 0;
+
+    applyGravity(p0); applyGravity(p1);
+    applyMovement(p0); applyMovement(p1);
+    applyStageCollision(p0); applyStageCollision(p1);
+
+    f0.x = p0.x; f0.y = p0.y; f0.on_ground = p0.on_ground;
+    f0.speed_air_x = p0.speed_air_x; f0.speed_y = p0.speed_y;
+    f0.speed_ground_x = p0.speed_ground_x;
+    f0.speed_attack_x = p0.speed_attack_x; f0.speed_attack_y = p0.speed_attack_y;
+    f0.percent = p0.percent; f0.shield_strength = p0.shield_strength;
+    f0.jumps_left = p0.jumps_left; f0.hitlag = Math.max(0, (f0.hitlag || 0) - 1);
+    f0.stocks = p0.stocks;
+
+    f1.x = p1.x; f1.y = p1.y; f1.on_ground = p1.on_ground;
+    f1.speed_air_x = p1.speed_air_x; f1.speed_y = p1.speed_y;
+    f1.speed_ground_x = p1.speed_ground_x;
+    f1.speed_attack_x = p1.speed_attack_x; f1.speed_attack_y = p1.speed_attack_y;
+    f1.percent = p1.percent; f1.shield_strength = p1.shield_strength;
+    f1.jumps_left = p1.jumps_left; f1.hitlag = Math.max(0, (f1.hitlag || 0) - 1);
+    f1.stocks = p1.stocks;
+
+    frames.push({ players: [f0, f1], stage: 31 });
+  }
+  return frames;
+}
+
+
+// ═══════════════════════════════════════════════════════════════
+// RENDERER
+// ═══════════════════════════════════════════════════════════════
+
+const canvas = document.getElementById('stage');
+const ctx = canvas.getContext('2d');
+const DPR = window.devicePixelRatio || 1;
+
+let canvasW, canvasH;
+let viewLeft, viewRight, viewTop, viewBottom;
+
+function resizeCanvas() {
+  const area = document.querySelector('.canvas-area');
+  canvasW = area.clientWidth;
+  canvasH = area.clientHeight;
+  canvas.width = canvasW * DPR;
+  canvas.height = canvasH * DPR;
+  canvas.style.width = canvasW + 'px';
+  canvas.style.height = canvasH + 'px';
+  ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
+
+  // Camera: show stage + some offstage
+  viewLeft = STAGE.camera.left;
+  viewRight = STAGE.camera.right;
+  viewTop = STAGE.camera.top;
+  viewBottom = STAGE.camera.bottom;
+}
+
+function gameToScreen(gx, gy) {
+  const sx = ((gx - viewLeft) / (viewRight - viewLeft)) * canvasW;
+  const sy = ((viewTop - gy) / (viewTop - viewBottom)) * canvasH; // y inverted
+  return [sx, sy];
+}
+
+function gameScaleX(units) {
+  return (units / (viewRight - viewLeft)) * canvasW;
+}
+function gameScaleY(units) {
+  return (units / (viewTop - viewBottom)) * canvasH;
+}
+
+function drawFrame(frame) {
+  ctx.clearRect(0, 0, canvasW, canvasH);
+
+  // ── Blast zone (subtle outline) ──
+  const [bzl, bzt] = gameToScreen(STAGE.blastzone.left, STAGE.blastzone.top);
+  const [bzr, bzb] = gameToScreen(STAGE.blastzone.right, STAGE.blastzone.bottom);
+  ctx.strokeStyle = 'rgba(244,63,94,0.1)';
+  ctx.lineWidth = 1;
+  ctx.setLineDash([4, 4]);
+  ctx.strokeRect(bzl, bzt, bzr - bzl, bzb - bzt);
+  ctx.setLineDash([]);
+
+  // ── Stage platform ──
+  const [sl, sy] = gameToScreen(STAGE.ground.x1, STAGE.ground.y);
+  const [sr, _] = gameToScreen(STAGE.ground.x2, STAGE.ground.y);
+  // Platform glow
+  const grd = ctx.createLinearGradient(sl, sy - 20, sl, sy + 8);
+  grd.addColorStop(0, 'transparent');
+  grd.addColorStop(0.7, 'rgba(255,255,255,0.03)');
+  grd.addColorStop(1, 'rgba(255,255,255,0.06)');
+  ctx.fillStyle = grd;
+  ctx.fillRect(sl, sy - 20, sr - sl, 28);
+  // Platform line
+  ctx.strokeStyle = 'rgba(255,255,255,0.25)';
+  ctx.lineWidth = 2;
+  ctx.beginPath();
+  ctx.moveTo(sl, sy);
+  ctx.lineTo(sr, sy);
+  ctx.stroke();
+  // Platform edges
+  ctx.strokeStyle = 'rgba(255,255,255,0.15)';
+  ctx.lineWidth = 1;
+  ctx.beginPath();
+  ctx.moveTo(sl, sy); ctx.lineTo(sl, sy + 60);
+  ctx.moveTo(sr, sy); ctx.lineTo(sr, sy + 60);
+  ctx.stroke();
+
+  // ── Grid lines (subtle) ──
+  ctx.strokeStyle = 'rgba(255,255,255,0.02)';
+  ctx.lineWidth = 1;
+  for (let gx = -150; gx <= 150; gx += 50) {
+    const [sx] = gameToScreen(gx, 0);
+    ctx.beginPath(); ctx.moveTo(sx, 0); ctx.lineTo(sx, canvasH); ctx.stroke();
+  }
+  for (let gy = -100; gy <= 100; gy += 50) {
+    const [, sy2] = gameToScreen(0, gy);
+    ctx.beginPath(); ctx.moveTo(0, sy2); ctx.lineTo(canvasW, sy2); ctx.stroke();
+  }
+
+  // ── Center marker ──
+  const [cx, cy] = gameToScreen(0, 0);
+  ctx.strokeStyle = 'rgba(255,255,255,0.08)';
+  ctx.beginPath();
+  ctx.moveTo(cx - 4, cy); ctx.lineTo(cx + 4, cy);
+  ctx.moveTo(cx, cy - 4); ctx.lineTo(cx, cy + 4);
+  ctx.stroke();
+
+  // ── Draw players ──
+  const colors = [
+    { main: '#22c55e', glow: 'rgba(34,197,94,0.35)', dim: 'rgba(34,197,94,0.15)' },
+    { main: '#f59e0b', glow: 'rgba(245,158,11,0.35)', dim: 'rgba(245,158,11,0.15)' },
+  ];
+
+  frame.players.forEach((p, idx) => {
+    const col = colors[idx];
+    const [px, py] = gameToScreen(p.x, p.y);
+    const cat = actionCategory(p.action_state);
+    const catColor = CATEGORY_COLORS[cat];
+
+    // ── Shadow / ground indicator ──
+    if (!p.on_ground && p.x >= STAGE.ground.x1 && p.x <= STAGE.ground.x2) {
+      const [, groundY] = gameToScreen(p.x, STAGE.ground.y);
+      ctx.strokeStyle = col.dim;
+      ctx.lineWidth = 1;
+      ctx.setLineDash([2, 2]);
+      ctx.beginPath();
+      ctx.moveTo(px, py); ctx.lineTo(px, groundY);
+      ctx.stroke();
+      ctx.setLineDash([]);
+      // Shadow dot
+      ctx.fillStyle = col.dim;
+      ctx.beginPath();
+      ctx.ellipse(px, groundY, 6, 2, 0, 0, Math.PI * 2);
+      ctx.fill();
+    }
+
+    // ── Velocity arrow (self velocity) ──
+    const vx = p.on_ground ? p.speed_ground_x : p.speed_air_x;
+    const vy = p.speed_y;
+    const vMag = Math.sqrt(vx * vx + vy * vy);
+    if (vMag > 0.3) {
+      const arrowScale = 8;
+      const ax = px + vx * arrowScale;
+      const ay = py - vy * arrowScale; // y inverted
+      ctx.strokeStyle = 'rgba(6,182,212,0.6)';
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.moveTo(px, py);
+      ctx.lineTo(ax, ay);
+      ctx.stroke();
+      // arrowhead
+      const angle = Math.atan2(ay - py, ax - px);
+      ctx.fillStyle = 'rgba(6,182,212,0.6)';
+      ctx.beginPath();
+      ctx.moveTo(ax, ay);
+      ctx.lineTo(ax - 6 * Math.cos(angle - 0.4), ay - 6 * Math.sin(angle - 0.4));
+      ctx.lineTo(ax - 6 * Math.cos(angle + 0.4), ay - 6 * Math.sin(angle + 0.4));
+      ctx.fill();
+    }
+
+    // ── Knockback arrow ──
+    const kMag = Math.sqrt(p.speed_attack_x ** 2 + p.speed_attack_y ** 2);
+    if (kMag > 0.3) {
+      const arrowScale = 8;
+      const kx = px + p.speed_attack_x * arrowScale;
+      const ky = py - p.speed_attack_y * arrowScale;
+      ctx.strokeStyle = 'rgba(244,63,94,0.7)';
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.moveTo(px, py);
+      ctx.lineTo(kx, ky);
+      ctx.stroke();
+      const angle = Math.atan2(ky - py, kx - px);
+      ctx.fillStyle = 'rgba(244,63,94,0.7)';
+      ctx.beginPath();
+      ctx.moveTo(kx, ky);
+      ctx.lineTo(kx - 6 * Math.cos(angle - 0.4), ky - 6 * Math.sin(angle - 0.4));
+      ctx.lineTo(kx - 6 * Math.cos(angle + 0.4), ky - 6 * Math.sin(angle + 0.4));
+      ctx.fill();
+    }
+
+    // ── Shield bubble ──
+    if (p.action_state >= 178 && p.action_state <= 182) {
+      const shieldRad = 12 + (p.shield_strength / 60) * 10;
+      ctx.strokeStyle = col.glow;
+      ctx.lineWidth = 2;
+      ctx.globalAlpha = 0.4 + (p.shield_strength / 60) * 0.4;
+      ctx.beginPath();
+      ctx.arc(px, py - 6, shieldRad, 0, Math.PI * 2);
+      ctx.stroke();
+      ctx.fillStyle = col.dim;
+      ctx.fill();
+      ctx.globalAlpha = 1;
+    }
+
+    // ── Player capsule ──
+    // Body: capsule shape (pill)
+    const capsuleH = 22;
+    const capsuleW = 8;
+    const bodyTop = py - capsuleH;
+    const bodyBot = py;
+
+    // Glow
+    ctx.shadowColor = col.glow;
+    ctx.shadowBlur = cat === 'attack' ? 16 : (cat === 'damage' ? 12 : 8);
+
+    // Capsule
+    ctx.fillStyle = col.main;
+    ctx.beginPath();
+    ctx.moveTo(px - capsuleW, bodyTop + capsuleW);
+    ctx.arc(px, bodyTop + capsuleW, capsuleW, Math.PI, 0); // top cap
+    ctx.lineTo(px + capsuleW, bodyBot - capsuleW);
+    ctx.arc(px, bodyBot - capsuleW, capsuleW, 0, Math.PI); // bottom cap
+    ctx.closePath();
+    ctx.fill();
+
+    ctx.shadowColor = 'transparent';
+    ctx.shadowBlur = 0;
+
+    // ── Facing indicator (small triangle) ──
+    const fDir = p.facing ? 1 : -1;
+    ctx.fillStyle = col.main;
+    ctx.beginPath();
+    ctx.moveTo(px + fDir * (capsuleW + 3), py - capsuleH / 2);
+    ctx.lineTo(px + fDir * (capsuleW + 8), py - capsuleH / 2 - 3);
+    ctx.lineTo(px + fDir * (capsuleW + 8), py - capsuleH / 2 + 3);
+    ctx.closePath();
+    ctx.fill();
+
+    // ── Hitlag flash ──
+    if (p.hitlag > 0) {
+      ctx.strokeStyle = 'rgba(255,255,255,0.8)';
+      ctx.lineWidth = 2;
+      const flashR = 18 + p.hitlag * 2;
+      ctx.beginPath();
+      ctx.arc(px, py - capsuleH / 2, flashR, 0, Math.PI * 2);
+      ctx.stroke();
+    }
+
+    // ── Damage state visual ──
+    if (cat === 'damage') {
+      ctx.strokeStyle = 'rgba(245,158,11,0.4)';
+      ctx.lineWidth = 1;
+      for (let s = 0; s < 3; s++) {
+        const sparkX = px + (Math.random() - 0.5) * 30;
+        const sparkY = py - capsuleH / 2 + (Math.random() - 0.5) * 20;
+        ctx.beginPath();
+        ctx.moveTo(sparkX - 3, sparkY);
+        ctx.lineTo(sparkX + 3, sparkY);
+        ctx.stroke();
+      }
+    }
+
+    // ── Player label ──
+    ctx.fillStyle = col.main;
+    ctx.font = '600 10px system-ui, sans-serif';
+    ctx.textAlign = 'center';
+    ctx.fillText(`P${idx + 1}`, px, bodyTop - 6);
+
+    // ── Action state label (color-coded by category) ──
+    const actionLabel = actionName(p.action_state);
+    ctx.fillStyle = catColor;
+    ctx.font = '500 9px monospace';
+    ctx.fillText(actionLabel, px, bodyBot + 14);
+
+    // ── Percent near player ──
+    ctx.fillStyle = p.percent > 100 ? '#f43f5e' : (p.percent > 60 ? '#f59e0b' : 'rgba(255,255,255,0.7)');
+    ctx.font = '700 11px monospace';
+    ctx.fillText(`${Math.round(p.percent)}%`, px, bodyBot + 26);
+  });
+
+  // ── Legend ──
+  ctx.fillStyle = 'rgba(255,255,255,0.3)';
+  ctx.font = '10px monospace';
+  ctx.textAlign = 'left';
+  ctx.fillText('cyan arrow = velocity', 10, canvasH - 30);
+  ctx.fillText('red arrow = knockback', 10, canvasH - 16);
+
+  // Axis labels
+  ctx.fillStyle = 'rgba(255,255,255,0.15)';
+  ctx.font = '9px monospace';
+  ctx.textAlign = 'center';
+  const [l0] = gameToScreen(-100, 0);
+  const [l1] = gameToScreen(0, 0);
+  const [l2] = gameToScreen(100, 0);
+  ctx.fillText('-100', l0, canvasH - 4);
+  ctx.fillText('0', l1, canvasH - 4);
+  ctx.fillText('100', l2, canvasH - 4);
+}
+
+
+// ═══════════════════════════════════════════════════════════════
+// UI UPDATE
+// ═══════════════════════════════════════════════════════════════
+
+function updatePanel(frame) {
+  frame.players.forEach((p, idx) => {
+    const n = idx + 1;
+    const charName = CHARACTERS[p.character] || `Char_${p.character}`;
+    document.getElementById(`p${n}Char`).textContent = charName;
+    const pctEl = document.getElementById(`p${n}Pct`);
+    pctEl.textContent = `${Math.round(p.percent)}%`;
+    pctEl.classList.toggle('high', p.percent > 100);
+
+    document.getElementById(`p${n}Action`).textContent = `${actionName(p.action_state)} (${p.action_state})`;
+    document.getElementById(`p${n}Pos`).textContent = `${p.x.toFixed(1)}, ${p.y.toFixed(1)}`;
+    const vx = p.on_ground ? p.speed_ground_x : p.speed_air_x;
+    document.getElementById(`p${n}Vel`).textContent = `${vx.toFixed(2)}, ${p.speed_y.toFixed(2)}`;
+    document.getElementById(`p${n}Face`).textContent = p.facing ? 'Right' : 'Left';
+    document.getElementById(`p${n}Air`).textContent = p.on_ground ? 'No' : 'Yes';
+    document.getElementById(`p${n}Shield`).textContent = p.shield_strength.toFixed(1);
+    document.getElementById(`p${n}Jumps`).textContent = p.jumps_left;
+    document.getElementById(`p${n}StateAge`).textContent = p.state_age;
+    document.getElementById(`p${n}Hitlag`).textContent = p.hitlag || 0;
+
+    // Stocks
+    const stocksEl = document.getElementById(`p${n}Stocks`);
+    stocksEl.innerHTML = '';
+    for (let s = 0; s < 4; s++) {
+      const pip = document.createElement('div');
+      pip.className = `stock-pip ${s < p.stocks ? 'alive' : 'dead'} p${n}`;
+      stocksEl.appendChild(pip);
+    }
+  });
+
+  // Raw data inspector
+  const inspEl = document.getElementById('inspector');
+  let html = '';
+  frame.players.forEach((p, idx) => {
+    html += `<div style="margin-bottom:6px;color:${idx === 0 ? 'var(--p1)' : 'var(--p2)'};font-weight:600">P${idx+1}</div>`;
+    for (const [k, v] of Object.entries(p)) {
+      const val = typeof v === 'number' ? (Number.isInteger(v) ? v : v.toFixed(3)) : v;
+      html += `<span class="key">${k}</span>: <span class="val">${val}</span><br>`;
+    }
+    html += '<br>';
+  });
+  html += `<span class="key">stage</span>: <span class="val">${frame.stage}</span>`;
+  inspEl.innerHTML = html;
+}
+
+
+// ═══════════════════════════════════════════════════════════════
+// PLAYBACK ENGINE
+// ═══════════════════════════════════════════════════════════════
+
+let frames = [];
+let currentFrame = 0;
+let playing = false;
+let playSpeed = 1;
+const SPEEDS = [0.1, 0.25, 0.5, 1, 2, 4];
+let speedIdx = 3;
+let lastFrameTime = 0;
+let animId = null;
+
+const timeline = document.getElementById('timeline');
+const frameNum = document.getElementById('frameNum');
+const totalFrames = document.getElementById('totalFrames');
+const btnPlay = document.getElementById('btnPlay');
+const btnSpeed = document.getElementById('btnSpeed');
+const speedLabel = document.getElementById('speedLabel');
+const dataSource = document.getElementById('dataSource');
+
+function loadScenario(name) {
+  frames = generateMockData(name);
+  currentFrame = 0;
+  timeline.max = frames.length - 1;
+  timeline.value = 0;
+  totalFrames.textContent = frames.length;
+  renderCurrentFrame();
+}
+
+function renderCurrentFrame() {
+  if (!frames.length) return;
+  const frame = frames[currentFrame];
+  drawFrame(frame);
+  updatePanel(frame);
+  frameNum.textContent = currentFrame;
+  timeline.value = currentFrame;
+}
+
+function tick(ts) {
+  if (!playing) return;
+  const dt = ts - lastFrameTime;
+  const frameInterval = 1000 / (60 * playSpeed);
+  if (dt >= frameInterval) {
+    lastFrameTime = ts - (dt % frameInterval);
+    currentFrame++;
+    if (currentFrame >= frames.length) {
+      currentFrame = 0; // loop
+    }
+    renderCurrentFrame();
+  }
+  animId = requestAnimationFrame(tick);
+}
+
+function togglePlay() {
+  playing = !playing;
+  btnPlay.textContent = playing ? '\u23F8' : '\u25B6';
+  btnPlay.classList.toggle('active', playing);
+  if (playing) {
+    lastFrameTime = performance.now();
+    animId = requestAnimationFrame(tick);
+  } else if (animId) {
+    cancelAnimationFrame(animId);
+  }
+}
+
+function stepFrame(delta) {
+  if (playing) togglePlay();
+  currentFrame = Math.max(0, Math.min(frames.length - 1, currentFrame + delta));
+  renderCurrentFrame();
+}
+
+function cycleSpeed() {
+  speedIdx = (speedIdx + 1) % SPEEDS.length;
+  playSpeed = SPEEDS[speedIdx];
+  btnSpeed.textContent = playSpeed < 1 ? `${playSpeed}x` : `${playSpeed}x`;
+  speedLabel.textContent = `${Math.round(60 * playSpeed)} fps`;
+}
+
+// ── Event listeners ──
+btnPlay.addEventListener('click', togglePlay);
+document.getElementById('btnPrevFrame').addEventListener('click', () => stepFrame(-1));
+document.getElementById('btnNextFrame').addEventListener('click', () => stepFrame(1));
+btnSpeed.addEventListener('click', cycleSpeed);
+
+timeline.addEventListener('input', () => {
+  currentFrame = parseInt(timeline.value);
+  renderCurrentFrame();
+});
+
+dataSource.addEventListener('change', () => {
+  if (playing) togglePlay();
+  loadScenario(dataSource.value);
+});
+
+// Keyboard controls
+document.addEventListener('keydown', (e) => {
+  if (e.target.tagName === 'INPUT' || e.target.tagName === 'SELECT') return;
+  switch (e.key) {
+    case ' ': e.preventDefault(); togglePlay(); break;
+    case 'ArrowLeft': e.preventDefault(); stepFrame(e.shiftKey ? -10 : -1); break;
+    case 'ArrowRight': e.preventDefault(); stepFrame(e.shiftKey ? 10 : 1); break;
+    case '+': case '=': cycleSpeed(); break;
+    case '-': case '_':
+      speedIdx = (speedIdx - 1 + SPEEDS.length) % SPEEDS.length;
+      playSpeed = SPEEDS[speedIdx];
+      btnSpeed.textContent = `${playSpeed}x`;
+      speedLabel.textContent = `${Math.round(60 * playSpeed)} fps`;
+      break;
+  }
+});
+
+// ── Resize ──
+window.addEventListener('resize', () => {
+  resizeCanvas();
+  renderCurrentFrame();
+});
+
+// ── Init ──
+resizeCanvas();
+loadScenario('neutral');
+</script>
+</body>
+</html>
