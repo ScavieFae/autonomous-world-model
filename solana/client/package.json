@@ -1,0 +1,17 @@
+{
+  "name": "@awm/client",
+  "version": "0.1.0",
+  "description": "Client SDK for the Autonomous World Model",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsc --watch"
+  },
+  "dependencies": {
+    "@solana/web3.js": "^1.87.0"
+  },
+  "devDependencies": {
+    "typescript": "^5.0.0"
+  }
+}

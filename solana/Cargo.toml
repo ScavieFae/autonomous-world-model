@@ -1,0 +1,12 @@
+[workspace]
+members = [
+    "programs/cu-benchmark",
+]
+exclude = [
+    "programs/upload-weights",
+    "programs-ecs",
+]
+resolver = "2"
+
+[profile.release]
+overflow-checks = true

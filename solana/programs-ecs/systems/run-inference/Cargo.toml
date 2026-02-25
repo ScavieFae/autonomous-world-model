@@ -1,0 +1,23 @@
+[package]
+name = "run-inference"
+version = "0.1.0"
+description = "Run inference system — executes Mamba2 forward pass onchain"
+edition = "2021"
+
+[lib]
+crate-type = ["cdylib", "lib"]
+
+[features]
+no-entrypoint = []
+cpi = ["no-entrypoint"]
+default = []
+
+[dependencies]
+anchor-lang = "0.29.0"
+bolt-system = "0.1.0"
+session-state = { path = "../../components/session-state", features = ["cpi"] }
+hidden-state = { path = "../../components/hidden-state", features = ["cpi"] }
+input-buffer = { path = "../../components/input-buffer", features = ["cpi"] }
+frame-log = { path = "../../components/frame-log", features = ["cpi"] }
+model-manifest = { path = "../../components/model-manifest", features = ["cpi"] }
+weight-shard = { path = "../../components/weight-shard", features = ["cpi"] }

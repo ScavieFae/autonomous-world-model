@@ -1,0 +1,219 @@
+use anchor_lang::prelude::*;
+use bolt_system::*;
+use frame_log::FrameLog;
+use hidden_state::HiddenState;
+use input_buffer::InputBuffer;
+use session_state::{
+    PlayerState, SessionState, STATUS_ACTIVE, STATUS_CREATED,
+    STATUS_ENDED, STATUS_WAITING_PLAYERS,
+};
+
+declare_id!("SessLife11111111111111111111111111111111111");
+
+/// Lifecycle action codes
+pub const ACTION_CREATE: u8 = 0;
+pub const ACTION_JOIN: u8 = 1;
+pub const ACTION_END: u8 = 2;
+
+/// Session lifecycle system — manages session creation, joining, and ending.
+///
+/// The "console" metaphor:
+///   CREATE = insert cartridge (select model, allocate accounts)
+///   JOIN   = plug in controller (player 2 connects)
+///   END    = power off (commit state to mainnet, reclaim rent)
+///
+/// Session flow:
+///   1. Player 1 calls CREATE with model reference and character selection
+///      → SessionState: Created → WaitingPlayers
+///      → HiddenState: allocated and zeroed
+///      → InputBuffer: allocated
+///      → FrameLog: allocated
+///      → All accounts delegated to ephemeral rollup
+///
+///   2. Player 2 calls JOIN with session ID and character selection
+///      → SessionState: WaitingPlayers → Active
+///      → Players' initial state set (start positions, 4 stocks, etc.)
+///
+///   3. Either player calls END (or auto-end after max_frames)
+///      → SessionState: Active → Ended
+///      → Accounts undelegated back to mainnet
+///      → Session accounts closeable for rent reclaim
+#[system]
+pub mod session_lifecycle {
+    pub fn execute(
+        ctx: Context<Components>,
+        args: Args,
+    ) -> Result<Components> {
+        let session = &mut ctx.accounts.session_state;
+        let hidden = &mut ctx.accounts.hidden_state;
+        let input_buf = &mut ctx.accounts.input_buffer;
+        let frame_log = &mut ctx.accounts.frame_log;
+
+        match args.action {
+            ACTION_CREATE => create_session(session, hidden, input_buf, frame_log, &args),
+            ACTION_JOIN => join_session(session, &args),
+            ACTION_END => end_session(session),
+            _ => return Err(LifecycleError::InvalidAction.into()),
+        }?;
+
+        Ok(ctx.accounts)
+    }
+
+    #[system_input]
+    pub struct Components {
+        pub session_state: SessionState,
+        pub hidden_state: HiddenState,
+        pub input_buffer: InputBuffer,
+        pub frame_log: FrameLog,
+    }
+
+    #[arguments]
+    pub struct Args {
+        /// Action: 0=create, 1=join, 2=end
+        pub action: u8,
+        /// Player public key
+        pub player: Pubkey,
+        /// Character ID (0-32) for the joining player
+        pub character: u8,
+        /// Stage ID (0-32) — only used on CREATE
+        pub stage: u8,
+        /// Model manifest public key — only used on CREATE
+        pub model: Pubkey,
+        /// Max frames (0 = unlimited) — only used on CREATE
+        pub max_frames: u32,
+        /// Session seed for deterministic init — only used on CREATE
+        pub seed: u64,
+        /// Model d_inner — used to configure hidden state on CREATE
+        pub d_inner: u16,
+        /// Model d_state — used to configure hidden state on CREATE
+        pub d_state: u16,
+        /// Model num_layers — used to configure hidden state on CREATE
+        pub num_layers: u8,
+    }
+}
+
+fn create_session(
+    session: &mut SessionState,
+    hidden: &mut HiddenState,
+    input_buf: &mut InputBuffer,
+    frame_log: &mut FrameLog,
+    args: &session_lifecycle::Args,
+) -> Result<()> {
+    // Can only create from initial state
+    require!(
+        session.status == STATUS_CREATED || session.status == 0,
+        LifecycleError::InvalidStateTransition
+    );
+
+    // Initialize session
+    session.status = STATUS_WAITING_PLAYERS;
+    session.frame = 0;
+    session.max_frames = args.max_frames;
+    session.player1 = args.player;
+    session.player2 = Pubkey::default(); // Empty until join
+    session.stage = args.stage;
+    session.model = args.model;
+    session.seed = args.seed;
+
+    // Set player 1's character
+    session.players[0] = PlayerState::default();
+    session.players[0].character = args.character;
+    session.players[0].stocks = 4;
+
+    // Initialize hidden state dimensions
+    hidden.num_layers = args.num_layers;
+    hidden.d_inner = args.d_inner;
+    hidden.d_state = args.d_state;
+    hidden.data_size = (args.num_layers as u32) * (args.d_inner as u32) * (args.d_state as u32);
+    hidden.frame = 0;
+    hidden.initialized = false;
+
+    // Initialize input buffer
+    input_buf.frame = 0;
+    input_buf.p1_ready = false;
+    input_buf.p2_ready = false;
+
+    // Initialize frame log
+    frame_log.write_index = 0;
+    frame_log.total_frames = 0;
+
+    // Clock timestamp would be set here in production:
+    // session.created_at = Clock::get()?.unix_timestamp;
+
+    msg!("Session created: player1={}, stage={}, model={}",
+         args.player, args.stage, args.model);
+    Ok(())
+}
+
+fn join_session(
+    session: &mut SessionState,
+    args: &session_lifecycle::Args,
+) -> Result<()> {
+    require!(
+        session.status == STATUS_WAITING_PLAYERS,
+        LifecycleError::InvalidStateTransition
+    );
+
+    require!(
+        args.player != session.player1,
+        LifecycleError::CannotJoinOwnSession
+    );
+
+    // Set player 2
+    session.player2 = args.player;
+    session.players[1] = PlayerState::default();
+    session.players[1].character = args.character;
+    session.players[1].stocks = 4;
+
+    // Set initial positions (stage-dependent, using FD defaults)
+    // Player 1: left side, Player 2: right side
+    // Fixed-point: multiply by 256
+    session.players[0].x = -30 * 256;  // -30.0 game units
+    session.players[0].y = 0;
+    session.players[0].facing = 1;     // Facing right
+    session.players[0].on_ground = 1;
+    session.players[0].jumps_left = 2;
+    session.players[0].shield_strength = 60 * 256;
+
+    session.players[1].x = 30 * 256;   // 30.0 game units
+    session.players[1].y = 0;
+    session.players[1].facing = 0;     // Facing left
+    session.players[1].on_ground = 1;
+    session.players[1].jumps_left = 2;
+    session.players[1].shield_strength = 60 * 256;
+
+    // Activate session
+    session.status = STATUS_ACTIVE;
+    // session.last_update = Clock::get()?.unix_timestamp;
+
+    msg!("Player 2 joined: player2={}, character={}", args.player, args.character);
+    msg!("Session ACTIVE — game on!");
+    Ok(())
+}
+
+fn end_session(session: &mut SessionState) -> Result<()> {
+    require!(
+        session.status == STATUS_ACTIVE || session.status == STATUS_WAITING_PLAYERS,
+        LifecycleError::InvalidStateTransition
+    );
+
+    session.status = STATUS_ENDED;
+    msg!("Session ended at frame {}", session.frame);
+
+    // In production:
+    // - Undelegate all session accounts back to mainnet
+    // - Mark accounts as closeable for rent reclaim
+    // - Emit final state as event for indexers
+
+    Ok(())
+}
+
+#[error_code]
+pub enum LifecycleError {
+    #[msg("Invalid lifecycle action code")]
+    InvalidAction,
+    #[msg("Invalid state transition for current session status")]
+    InvalidStateTransition,
+    #[msg("Cannot join your own session")]
+    CannotJoinOwnSession,
+}

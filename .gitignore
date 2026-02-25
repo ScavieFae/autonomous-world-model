@@ -7,6 +7,17 @@ __pycache__/
 target/
 *.so
 *.o
+dist/
 
 # Animation data (88MB, copied from nojohns/SlippiLab)
 viz/zips/
+
+# Quantization output (generated, can be large)
+quantization/output/
+
+# Solana build artifacts
+solana/.anchor/
+solana/test-ledger/
+
+# Weight files (multi-MB, uploaded to chain)
+*.bin

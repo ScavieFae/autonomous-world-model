@@ -1,0 +1,19 @@
+[package]
+name = "submit-input"
+version = "0.1.0"
+description = "Submit input system — players send controller inputs each frame"
+edition = "2021"
+
+[lib]
+crate-type = ["cdylib", "lib"]
+
+[features]
+no-entrypoint = []
+cpi = ["no-entrypoint"]
+default = []
+
+[dependencies]
+anchor-lang = "0.29.0"
+bolt-system = "0.1.0"
+session-state = { path = "../../components/session-state", features = ["cpi"] }
+input-buffer = { path = "../../components/input-buffer", features = ["cpi"] }

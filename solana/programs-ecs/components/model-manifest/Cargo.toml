@@ -1,0 +1,17 @@
+[package]
+name = "model-manifest"
+version = "0.1.0"
+description = "Model manifest component — architecture params, shard keys, LUTs, quant params"
+edition = "2021"
+
+[lib]
+crate-type = ["cdylib", "lib"]
+
+[features]
+no-entrypoint = []
+cpi = ["no-entrypoint"]
+default = []
+
+[dependencies]
+anchor-lang = "0.29.0"
+bolt-component = "0.1.0"

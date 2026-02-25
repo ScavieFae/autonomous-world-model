@@ -1,0 +1,17 @@
+[package]
+name = "weight-shard"
+version = "0.1.0"
+description = "INT8 weight shard component — stores quantized model weights"
+edition = "2021"
+
+[lib]
+crate-type = ["cdylib", "lib"]
+
+[features]
+no-entrypoint = []
+cpi = ["no-entrypoint"]
+default = []
+
+[dependencies]
+anchor-lang = "0.29.0"
+bolt-component = "0.1.0"

@@ -374,9 +374,11 @@
       <option value="neutral">Neutral game</option>
       <option value="combo">Combo sequence</option>
       <option value="edgeguard">Edgeguard</option>
+      <option value="live">Live (WebSocket)</option>
     </select>
     <button class="file-btn" id="btnLoadFile" type="button">Load JSON</button>
     <input id="fileInput" type="file" accept=".json,application/json" hidden>
+    <input id="liveEndpoint" type="text" placeholder="ws://localhost:8900" style="display:none;width:200px;padding:4px 8px;background:var(--surface2);border:1px solid var(--border-b);border-radius:4px;color:var(--text);font-size:12px;font-family:var(--mono)">
   </div>
   <div class="frame-counter">Frame <b id="frameNum">0</b> / <b id="totalFrames">0</b></div>
 </div>
@@ -2655,8 +2657,101 @@ timeline.addEventListener('input', () => {
   renderCurrentFrame();
 });
 
+// ── Live WebSocket mode ──────────────────────────────────────────────────
+const liveEndpoint = document.getElementById('liveEndpoint');
+let liveWs = null;
+let liveMode = false;
+
+function startLiveMode() {
+  const url = liveEndpoint.value || 'ws://localhost:8900';
+  liveMode = true;
+  frames = [];
+  currentFrame = 0;
+  dataTag.textContent = 'Connecting...';
+  dataTag.style.background = 'rgba(245,158,11,0.15)';
+  dataTag.style.color = 'var(--p2)';
+
+  if (liveWs) { liveWs.close(); liveWs = null; }
+
+  try {
+    liveWs = new WebSocket(url);
+
+    liveWs.onopen = () => {
+      dataTag.textContent = 'Live';
+      dataTag.style.background = 'rgba(239,68,68,0.15)';
+      dataTag.style.color = '#ef4444';
+      console.log('[live] Connected to', url);
+    };
+
+    liveWs.onmessage = (event) => {
+      try {
+        const data = JSON.parse(event.data);
+
+        // Accept single frame or array of frames
+        const newFrames = Array.isArray(data) ? data : [data];
+
+        for (const frame of newFrames) {
+          // Validate minimal frame structure
+          if (!frame.players || frame.players.length < 2) continue;
+          frames.push(frame);
+        }
+
+        // In live mode, always show the latest frame
+        if (liveMode) {
+          currentFrame = frames.length - 1;
+          renderCurrentFrame();
+          frameNum.textContent = currentFrame;
+          totalFrames.textContent = frames.length;
+          scrubber.max = Math.max(0, frames.length - 1);
+          scrubber.value = currentFrame;
+        }
+      } catch (e) {
+        console.warn('[live] Failed to parse frame:', e);
+      }
+    };
+
+    liveWs.onclose = () => {
+      dataTag.textContent = 'Disconnected';
+      dataTag.style.background = 'rgba(100,116,139,0.15)';
+      dataTag.style.color = 'var(--dim)';
+      liveMode = false;
+      console.log('[live] Disconnected');
+    };
+
+    liveWs.onerror = (err) => {
+      console.error('[live] WebSocket error:', err);
+      dataTag.textContent = 'Error';
+      dataTag.style.background = 'rgba(244,63,94,0.15)';
+      dataTag.style.color = 'var(--red)';
+      liveMode = false;
+    };
+  } catch (e) {
+    console.error('[live] Failed to connect:', e);
+    dataTag.textContent = 'Error';
+    liveMode = false;
+  }
+}
+
+function stopLiveMode() {
+  liveMode = false;
+  if (liveWs) {
+    liveWs.close();
+    liveWs = null;
+  }
+  dataTag.textContent = 'Mock Data';
+  dataTag.style.background = '';
+  dataTag.style.color = '';
+  liveEndpoint.style.display = 'none';
+}
+
 dataSource.addEventListener('change', () => {
   if (playing) togglePlay();
+  if (dataSource.value === 'live') {
+    liveEndpoint.style.display = '';
+    startLiveMode();
+    return;
+  }
+  stopLiveMode();
   if (dataSource.value === 'loaded') {
     loadLoadedFrames();
     return;
