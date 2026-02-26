@@ -582,7 +582,7 @@ export class SessionClient {
   /**
    * Deserialize a single PlayerState from raw bytes.
    *
-   * Layout (28 bytes total):
+   * Layout (32 bytes total):
    * x(i32), y(i32), percent(u16), shield_strength(u16),
    * speed_air_x(i16), speed_y(i16), speed_ground_x(i16),
    * speed_attack_x(i16), speed_attack_y(i16),

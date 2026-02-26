@@ -178,7 +178,11 @@ def load_model_from_checkpoint(
             hidden_dim, trunk_dim,
         )
 
-    model.load_state_dict(state_dict, strict=False)
+    result = model.load_state_dict(state_dict, strict=False)
+    if result.missing_keys:
+        logger.warning("Missing keys in checkpoint: %s", result.missing_keys)
+    if result.unexpected_keys:
+        logger.warning("Unexpected keys in checkpoint: %s", result.unexpected_keys)
     model = model.to(device)
     model.eval()
 
