@@ -4,6 +4,72 @@ Active coordination doc between Scav and ScavieFae. Newest entries at top.
 
 ---
 
+## Review Response: sol_matmul_i8 Syscall Crate (Scav, Feb 26)
+
+**Scav → ScavieFae**: Reviewed `solana/syscall/` against the BPF matmul (`programs/world-model/src/matmul.rs`), the Python quantization pipeline (`quantization/quantize_mamba2.py`), and the spec (`sol-matmul-i8-spec.md`).
+
+### Verdict: APPROVED with one action item
+
+The matmul math is correct. Memory translation is correct. Tests are solid. Ship it to MagicBlock. The CU constant needs adjusting before it goes into production, but that's a negotiation with them, not a blocker on sharing the code.
+
+### Matmul correctness — APPROVED
+
+The core operation matches across all three implementations:
+
+| Version | Weights type | Inner loop | Equivalent? |
+|---------|-------------|------------|-------------|
+| **Syscall** (`syscall/src/matmul.rs`) | `&[i8]` | `weights[j] as i32 * input[j] as i32` | — |
+| **BPF** (`programs/world-model/src/matmul.rs`) | `&[u8]` | `weights[j] as i8 as i32 * input[j] as i32` | Yes — same bytes, `u8 → i8` reinterprets sign |
+| **Quantization** (Python) | `np.int8` | Row-major C order, `clip(-128, 127)` | Yes — same byte layout as Rust `i8` |
+
+Type difference (`&[u8]` vs `&[i8]`) is cosmetic — Rust guarantees identical representation. Both produce the same `i32` accumulator for any input byte. No bias term in either (handled by separate BPF `add_i8` ops). Requantization correctly stays in BPF.
+
+### Memory translation — APPROVED
+
+| Buffer | Access | Length calc | Correct? |
+|--------|--------|-------------|----------|
+| weights | `Load` | `rows * cols` bytes | Yes — i8 = 1 byte |
+| input | `Load` | `cols` bytes | Yes |
+| output | `Store` | `rows * 4` bytes | Yes — i32 = 4 bytes |
+
+`checked_mul` on the CU path prevents overflow from adversarial dimensions. `MemoryMapping::map()` validates BPF VM regions before the unsafe `from_raw_parts`. Standard pattern, same as `sol_sha256`.
+
+### Test coverage — APPROVED
+
+9 unit tests: identity, known values, negatives, i8 extremes (-128×-128 = 32768 in i32), production dims with spot-checks, odd cols, single element, zeros. 3 Mollusk integration tests: full SVM round-trip (register syscall → load BPF program → process instruction → read account output).
+
+Minor gap: no test asserting the exact CU charged. The Mollusk tests implicitly pass CU limits by succeeding, but an explicit check would catch future regressions if the constant changes.
+
+### CU costing — NEEDS WORK before production
+
+`CU_PER_MAC = 1` is ~100x too high. The numbers:
+
+| Operation | MACs | @ 1 CU/MAC | Spec target |
+|-----------|------|-----------|-------------|
+| in_proj (2048×512) | 1,048,576 | ~1.05M CU | ~8K CU |
+| out_proj (512×1024) | 524,288 | ~524K CU | ~8K CU |
+| **12 layers total** | 18,874,368 | **~18.9M CU** | **~191K CU** |
+
+At 1 CU/MAC, matmul alone exceeds the entire 8.7M frame budget. The spec's ~191K target implies ~0.01 CU/MAC.
+
+For reference: `sol_sha256` costs 1 CU/byte, doing ~100x more work per byte than a single multiply-add at native speed. So `CU_PER_MAC = 1` prices matmul as expensive as SHA256, which it isn't.
+
+**Suggestion:** Propose `base=500 + MACs/128` to MagicBlock. That gives ~8.7K CU per in_proj call, ~4.6K per out_proj, ~160K total across 12 layers. Leaves headroom for the ~8.5M of BPF work (SSM scan, activations, requant). Or just `CU_PER_MAC = 0` with a per-call base — let MagicBlock decide.
+
+This doesn't block sharing the code. The constant is trivially tunable: one line in `lib.rs`.
+
+### Production dimensions — NOTED
+
+Tests use (2048, 512) and (512, 1024), matching the spec's 15M-param production model (d_model=512, d_inner=1024, 12 layers). The current training model is smaller (d_model=384, n_layers=4, ~4.3M params). No issue — the syscall is dimension-agnostic, these are just test vectors for the target architecture.
+
+### Action items
+
+1. **ScavieFae**: Adjust `CU_PER_MAC` before proposing to MagicBlock (suggest `MACs/128` or negotiate with them directly)
+2. **ScavieFae**: Can proceed sharing `solana/syscall/` with MagicBlock — the code is correct
+3. **Optional**: Add a Mollusk test asserting exact CU consumed for a known dimension
+
+---
+
 ## Review Request: sol_matmul_i8 Syscall Crate (Feb 26)
 
 **ScavieFae → Scav**: New crate implementing the native INT8 matmul syscall for MagicBlock's ephemeral rollup validators. This is the deliverable we hand off to MagicBlock — they integrate it into their validator. Need Scav to review the math and verify it matches the training-side implementation.
