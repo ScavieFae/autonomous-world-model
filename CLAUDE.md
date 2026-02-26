@@ -17,14 +17,17 @@ This repo is the right side of that arrow. Everything that takes trained weights
 ```
 autonomous-world-model/
 ├── site/             # "The Wire" — Next.js arena website (ScavieFae)
+├── models/           # PyTorch inference code — Mamba2, PolicyMLP (Scav)
+├── crank/            # Offchain match runner — standalone + Solana (Scav)
 ├── viz/              # State visualizer — renders world model output (Scav)
 ├── quantization/     # INT8 quantization + accuracy testing (Scav)
-├── solana/           # Onchain code (ScavieFae)
+├── solana/           # Onchain code (Codex)
 │   ├── syscall/      # sol_matmul_i8 native syscall implementation
 │   ├── programs/     # Solana programs (world-model, cu-benchmark, syscall-test)
 │   ├── programs-ecs/ # BOLT ECS components + systems
 │   ├── client/       # TypeScript SDK (@awm/client)
-│   └── cli/          # Upload CLI tool
+│   ├── cli/          # Upload CLI tool
+│   └── tests/        # Integration tests (Mocha)
 └── docs/             # Architecture decisions, specs, handoff (shared)
 ```
 
@@ -34,58 +37,81 @@ autonomous-world-model/
 - **Arcade, not MMO.** Persistent weights/rules, not persistent world state. Sessions spin up in ephemeral rollups.
 - **INT8 determinism for free.** Integer math is identical everywhere. Quantization solves both size and determinism.
 
-## Two-Agent Development
+## Three-Agent Development
 
-This project is developed by two Claude Code agents. **Check which agent you are before editing files.**
+This project is developed by three agents. **Check which agent you are before editing files.**
 
-| Agent | Role | Owns | Branch prefix |
-|-------|------|------|---------------|
-| **ScavieFae** | Website, smart contracts, onchain programs | `site/`, `solana/` | `scaviefae/` |
-| **Scav** | Model training, quantization, inference implementation | `quantization/`, `viz/` | `scav/` |
+| Agent | Platform | Role | Owns |
+|-------|----------|------|------|
+| **ScavieFae** | Claude Code | Website, UX, design, overall experience | `site/` |
+| **Scav** | Claude Code | Model training, quantization, inference, offchain crank | `models/`, `crank/`, `quantization/`, `viz/` |
+| **Codex** | OpenAI Codex | Smart contracts, onchain programs, client SDK | `solana/` |
 
-### How to Know Which Agent You Are
+### How to Know Which Agent You Are (Claude agents only)
 
-- **ScavieFae**: Working on the website, Solana programs, BOLT ECS, syscall code, or deployment. On the deployment machine.
-- **Scav**: Working on model training, quantization pipeline, or inference logic. On the training machine.
+- **ScavieFae**: Working on the website, UX, design, product experience, or frontend integration.
+- **Scav**: Working on model training, quantization pipeline, inference logic, or the offchain match runner.
 
-If unclear, ask Mattie.
+If unclear, ask Mattie. If you're Codex, see `AGENTS.md`.
 
 ### Directory Ownership
 
 | Directory | Owner | Notes |
 |-----------|-------|-------|
 | `site/` | **ScavieFae** | Next.js website ("The Wire") |
-| `solana/` | **ScavieFae** | All onchain code — programs, syscall, ECS, client SDK |
+| `models/` | **Scav** | PyTorch inference code (Mamba2, PolicyMLP) |
+| `crank/` | **Scav** | Offchain match runner (standalone + Solana bridge) |
 | `quantization/` | **Scav** | INT8 quantization pipeline |
 | `viz/` | **Scav** | State visualizer, render modes |
-| `docs/` | **Shared** | Both agents can edit |
+| `solana/` | **Codex** | All onchain code — programs, syscall, ECS, client SDK, tests |
+| `docs/` | **Shared** | All agents can edit |
 
-**Do not edit files in another agent's directories.** If you need a change in their code, describe what you need in the handoff doc or a PR comment.
+**Do not edit files in another agent's directories.** If you need a change in their code, describe what you need in `docs/HANDOFF.md`.
 
-### Branches & Review Process
+### Interface Contracts
 
-Two long-lived branches: **`main`** (public-facing) and **`dev`** (integration). Agents work on prefixed branches off `dev`, PRs merge into `dev`, curated releases go `dev` → `main`.
+These are the shared boundaries between agents. Changes require coordination via handoff doc.
 
-**Review is mandatory for:**
-- Onchain programs before any deploy (Scav reviews ScavieFae's Solana code)
-- Quantization pipeline changes that affect weight format (ScavieFae reviews Scav's changes)
-- Any change to the shared interface between training output and onchain inference
-- Large features — open a PR, request review from the other agent
+**1. Scav ↔ Codex: Binary wire format**
+- `PlayerState` = 32 bytes, field order matches Rust `AnchorSerialize`
+- `crank/solana_bridge.py` and `solana/programs-ecs/components/session-state/` must agree byte-for-byte
+- `models/encoding.py` (`EncodingConfig`) defines all normalization scales and vocab sizes
+- Fixed-point: positions/velocities × 256, percent stored directly as u16
 
-**Handoff doc**: `docs/HANDOFF.md` is the coordination point. Use it for:
+**2. ScavieFae ↔ Codex: TypeScript SDK surface**
+- `solana/client/src/` exports functions and types that `site/` imports
+- Codex owns the SDK implementation; ScavieFae consumes it as a dependency
+- Function signatures and type shapes are the contract — changes require handoff
+
+**3. ScavieFae ↔ Scav: JSON frame format**
+- `{ meta, stage_geometry, frames[] }` — consumed by `viz/` and `site/` renderers
+- Already stable. See `viz/visualizer.html` for the exact schema.
+
+### Review Gates
+
+| What changed | Who reviews | Why |
+|--------------|-------------|-----|
+| Onchain programs, syscall, ECS | Scav reviews math/format | Hardest to undo, must match model |
+| Client SDK type changes | ScavieFae reviews | They're the consumer |
+| Weight format / encoding changes | Codex reviews | Must match onchain structs |
+| Binary wire format (PlayerState, etc.) | All three | Shared boundary |
+| Site UX | No gate | Iterative, reversible |
+| Model / crank code | No gate | Offchain, testable |
+
+### Coordination
+
+**Handoff doc**: `docs/HANDOFF.md` is the coordination point for all three agents:
 - Review requests (what changed, what to look at, what questions remain)
 - Review responses (approvals, concerns, action items)
 - Status updates on blockers or external dependencies (e.g., MagicBlock)
 
-**Shared schemas**: The weight format (INT8 layout, shard structure, manifest schema) is the contract between quantization and onchain code. Changes require coordination via handoff doc.
-
 ### For ScavieFae
 
-You own the website and all Solana code. Read `docs/HANDOFF.md` for current status and review items.
+You own the website and overall product experience. You consume `@awm/client` (Codex's SDK) and `viz/` output format (Scav's). Read `docs/HANDOFF.md` for current status.
 
 ### For Scav
 
-You own model training, quantization, and the visualizer. Read `docs/HANDOFF.md` for review requests from ScavieFae.
+You own model training, quantization, inference, and the offchain crank. Your binary format in `crank/solana_bridge.py` must match Codex's Rust structs byte-for-byte. Read `docs/HANDOFF.md` for review requests.
 
 ## Reference Docs
 

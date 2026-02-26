@@ -118,7 +118,8 @@ All weights and activations are INT8. Integer arithmetic is bitwise identical on
 - **Four render modes**: Wire (W), Character (C), Data (D), X-Ray (X).
 
 ### Codebase
-- **Two-agent development**: ScavieFae owns `site/` + `solana/`, Scav owns `models/` + `crank/` + `quantization/` + `viz/`. Coordination via `docs/HANDOFF.md`.
+- **Three-agent development**: ScavieFae (Claude) owns `site/`, Scav (Claude) owns `models/` + `crank/` + `quantization/` + `viz/`, Codex owns `solana/`. Coordination via `docs/HANDOFF.md`.
+- **Codex ownership rules** are in `AGENTS.md` (root). Interface contracts, review gates, and priority work are defined there.
 - **Model code copied from nojohns** (sibling repo) with adapted imports. This repo is inference-only, no training code.
 - **Synthetic seed data**: 10 frames of starting positions (P0 x=-30, P1 x=+30, 4 stocks, facing each other) generated from character/stage selection. No external replay dependency.
 
@@ -259,4 +260,4 @@ All weights and activations are INT8. Integer arithmetic is bitwise identical on
 - **Frame format** (JSON for viz): `{ meta: {...}, stage_geometry: {...}, frames: [{ players: [{x, y, percent, stocks, action_state, ...}, ...], stage: N }] }`
 - **No `int()` for float→fixed-point conversion**. Always `round()`. The `int()` function truncates, causing off-by-one errors on round-trip.
 - **Commit style**: imperative mood, short first line, body explains "why." Co-authored-by line for Claude.
-- **Two-agent ownership**: check `CLAUDE.md` for directory ownership before editing. Coordinate via `docs/HANDOFF.md`.
+- **Three-agent ownership**: Codex owns `solana/`, Scav owns `models/`+`crank/`+`quantization/`+`viz/`, ScavieFae owns `site/`. Rules in `AGENTS.md` (Codex) and `CLAUDE.md` (Claude agents). Coordinate via `docs/HANDOFF.md`.
