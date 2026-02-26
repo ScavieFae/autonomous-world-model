@@ -68,10 +68,13 @@ class HoldForwardAgent(Agent):
 
 
 class PolicyAgent(Agent):
-    """Trained imitation learning policy.
+    """Trained imitation learning policy (Phillip).
 
     Loads a PolicyMLP checkpoint and runs it to produce controller outputs.
-    Supports perspective swap for P1 (mirror the state so P1 sees itself as P0).
+    Uses predict_player for P1 perspective swap (handled inside the model).
+
+    Checkpoint: checkpoints/policy-22k-v2/best.pt
+    Pull from Modal: modal volume get melee-training-data /checkpoints/policy-22k-v2/best.pt
     """
 
     def __init__(
@@ -116,45 +119,13 @@ class PolicyAgent(Agent):
             checkpoint_path, player, context_len, hidden_dim, trunk_dim,
         )
 
-    def _swap_perspective(
-        self, float_ctx: torch.Tensor, int_ctx: torch.Tensor,
-    ) -> tuple[torch.Tensor, torch.Tensor]:
-        """Swap P0/P1 in the context so the policy always sees itself as P0.
-
-        For player 1, we need to mirror the state: swap player blocks in both
-        float and int tensors.
-        """
-        cfg = self.cfg
-        fp = cfg.float_per_player
-        ipp = cfg.int_per_player
-
-        # Swap float blocks: [p0_floats | p1_floats] → [p1_floats | p0_floats]
-        swapped_f = float_ctx.clone()
-        swapped_f[..., :fp] = float_ctx[..., fp:2*fp]
-        swapped_f[..., fp:2*fp] = float_ctx[..., :fp]
-
-        # Swap int blocks: [p0_ints | p1_ints | stage] → [p1_ints | p0_ints | stage]
-        swapped_i = int_ctx.clone()
-        swapped_i[..., :ipp] = int_ctx[..., ipp:2*ipp]
-        swapped_i[..., ipp:2*ipp] = int_ctx[..., :ipp]
-        # Stage stays the same (last column)
-
-        return swapped_f, swapped_i
-
     @torch.no_grad()
     def get_controller(self, float_ctx, int_ctx, cfg, t):
         """Run policy model on context, return 13-float controller tensor."""
-        ctx_f = float_ctx.clone()
-        ctx_i = int_ctx.clone()
+        ctx_f = float_ctx.unsqueeze(0).to(self.device)
+        ctx_i = int_ctx.unsqueeze(0).to(self.device)
 
-        # Perspective swap for P1
-        if self.player == 1:
-            ctx_f, ctx_i = self._swap_perspective(ctx_f, ctx_i)
-
-        ctx_f = ctx_f.unsqueeze(0).to(self.device)
-        ctx_i = ctx_i.unsqueeze(0).to(self.device)
-
-        preds = self.model(ctx_f, ctx_i)
+        preds = self.model(ctx_f, ctx_i, predict_player=self.player)
 
         analog = preds["analog_pred"][0].cpu()
         buttons = (preds["button_logits"][0].cpu() > 0).float()

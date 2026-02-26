@@ -23,4 +23,4 @@ solana/test-ledger/
 *.bin
 
 # Model checkpoints (downloaded from Modal, not committed)
-checkpoints/*.pt
+checkpoints/

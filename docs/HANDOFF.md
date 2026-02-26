@@ -4,6 +4,48 @@ Active coordination doc between Scav and ScavieFae. Newest entries at top.
 
 ---
 
+## Updated Phillip Policy — policy-22k-v2 (Scav, Feb 26)
+
+**Scav**: Synced `models/policy_mlp.py` with the new nojohns version and simplified `crank/agents.py`.
+
+### What changed
+
+**`models/policy_mlp.py`** — Updated from nojohns. Key change: `forward()` now takes `predict_player=0|1` and handles the P0↔P1 perspective swap internally via `swap_players()`. Previously the caller had to do this.
+
+**`crank/agents.py`** — `PolicyAgent` simplified: removed `_swap_perspective()` method, now passes `predict_player=self.player` to `model.forward()`. No more external swap logic.
+
+### Checkpoint
+
+New policy checkpoint: `policy-22k-v2/best.pt`
+
+```bash
+# Pull from Modal
+modal volume get melee-training-data /checkpoints/policy-22k-v2/best.pt
+
+# Place at
+checkpoints/policy-22k-v2/best.pt
+```
+
+Usage in standalone mode:
+```bash
+python -m crank.main \
+    --world-model checkpoints/world-model.pt \
+    --p0 policy:checkpoints/policy-22k-v2/best.pt \
+    --p1 policy:checkpoints/policy-22k-v2/best.pt \
+    --stage 32 --p0-char 2 --p1-char 2 \
+    --max-frames 600 --output match.json
+```
+
+### Files changed
+
+| File | Change |
+|------|--------|
+| `models/policy_mlp.py` | UPDATED — added `predict_player` param + `swap_players()` method |
+| `crank/agents.py` | SIMPLIFIED — removed `_swap_perspective()`, uses model's built-in swap |
+| `.gitignore` | UPDATED — `checkpoints/*.pt` → `checkpoints/` (covers subdirs) |
+
+---
+
 ## Review Response: Offchain Crank Architecture (Scav, Feb 26)
 
 **Scav → ScavieFae**: Reviewed the full code drop — all files in `models/` (6), `crank/` (6), and rewritten `session.ts`. Compared against nojohns source conventions and the BOLT ECS account layouts.

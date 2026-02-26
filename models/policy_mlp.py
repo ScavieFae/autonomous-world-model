@@ -3,12 +3,15 @@
 Same embedding structure and trunk as the world model (FrameStackMLP),
 but with controller prediction heads instead of state prediction heads.
 
+Config-driven: works with any EncodingConfig (including state_age_as_embed).
+
 Input: K frames of full game state (state + controller history)
 Output: predicted controller for the target player on the next frame
   - analog: (5,) — main_x, main_y, c_x, c_y, shoulder [0, 1]
   - button_logits: (8,) — A, B, X, Y, Z, L, R, D_UP (raw logits)
 
 Copied from nojohns/worldmodel/model/policy_mlp.py.
+Checkpoint: policy-22k-v2/best.pt (pull from Modal volume melee-training-data)
 """
 
 import torch
@@ -22,7 +25,11 @@ BUTTON_DIM = 8
 
 
 class PolicyMLP(nn.Module):
-    """Frame-stacking MLP policy for imitation learning."""
+    """Frame-stacking MLP policy for imitation learning.
+
+    Architecture mirrors the world model's trunk (same embeddings, same hidden dims)
+    but replaces the multi-head state predictor with a controller predictor.
+    """
 
     def __init__(
         self,
@@ -36,6 +43,7 @@ class PolicyMLP(nn.Module):
         self.cfg = cfg
         self.context_len = context_len
 
+        # Same learned embeddings as world model
         self.action_embed = nn.Embedding(cfg.action_vocab, cfg.action_embed_dim)
         self.jumps_embed = nn.Embedding(cfg.jumps_vocab, cfg.jumps_embed_dim)
         self.character_embed = nn.Embedding(cfg.character_vocab, cfg.character_embed_dim)
@@ -48,6 +56,7 @@ class PolicyMLP(nn.Module):
         if cfg.state_age_as_embed:
             self.state_age_embed = nn.Embedding(cfg.state_age_embed_vocab, cfg.state_age_embed_dim)
 
+        # Per-frame dim: floats + embeddings
         float_per_frame = cfg.float_per_player * 2
         embed_per_player = (
             cfg.action_embed_dim + cfg.jumps_embed_dim + cfg.character_embed_dim
@@ -61,6 +70,7 @@ class PolicyMLP(nn.Module):
         self.frame_dim = float_per_frame + embed_per_frame
         input_dim = self.frame_dim * context_len
 
+        # Shared trunk (same structure as world model)
         self.trunk = nn.Sequential(
             nn.Linear(input_dim, hidden_dim),
             nn.ReLU(),
@@ -70,14 +80,69 @@ class PolicyMLP(nn.Module):
             nn.Dropout(dropout),
         )
 
+        # Controller prediction heads
         self.analog_head = nn.Linear(trunk_dim, ANALOG_DIM)
         self.button_head = nn.Linear(trunk_dim, BUTTON_DIM)
 
-    def forward(self, float_ctx, int_ctx):
+    def swap_players(
+        self,
+        float_ctx: torch.Tensor,
+        int_ctx: torch.Tensor,
+    ) -> tuple[torch.Tensor, torch.Tensor]:
+        """Swap P0 and P1 columns so a P0-trained model can predict for P1.
+
+        The model always predicts for "P0" in its input layout. To predict P1's
+        controls, swap the player columns before calling forward().
+
+        Args:
+            float_ctx: (B, K, float_per_player*2) — context frames
+            int_ctx:   (B, K, int_per_frame) — context categoricals
+
+        Returns:
+            Swapped (float_ctx, int_ctx) with P0↔P1 columns exchanged.
+        """
+        fp = self.cfg.float_per_player
+        ipp = self.cfg.int_per_player
+
+        # Swap float columns: [P0 floats | P1 floats] → [P1 floats | P0 floats]
+        swapped_float = torch.cat([float_ctx[..., fp:fp*2], float_ctx[..., :fp]], dim=-1)
+
+        # Swap int columns: [P0 ints | P1 ints | stage] → [P1 ints | P0 ints | stage]
+        swapped_int = torch.cat([
+            int_ctx[..., ipp:ipp*2],
+            int_ctx[..., :ipp],
+            int_ctx[..., ipp*2:],  # stage stays at the end
+        ], dim=-1)
+
+        return swapped_float, swapped_int
+
+    def forward(
+        self,
+        float_ctx: torch.Tensor,
+        int_ctx: torch.Tensor,
+        predict_player: int = 0,
+    ) -> dict[str, torch.Tensor]:
+        """Forward pass.
+
+        Args:
+            float_ctx: (B, K, float_per_player*2) — context frames
+            int_ctx:   (B, K, int_per_frame) — context categoricals
+            predict_player: 0 or 1. If 1, swaps player columns internally
+                           so the P0-trained model predicts P1's controls.
+
+        Returns:
+            Dict with:
+                analog_pred: (B, 5) — predicted stick/trigger values (sigmoid, [0,1])
+                button_logits: (B, 8) — predicted button logits (raw)
+        """
+        if predict_player == 1:
+            float_ctx, int_ctx = self.swap_players(float_ctx, int_ctx)
+
         B, K, _ = float_ctx.shape
         cfg = self.cfg
         ipp = cfg.int_per_player
 
+        # Embed categoricals — config-driven column indices
         p0_action_emb = self.action_embed(int_ctx[:, :, 0])
         p0_jumps_emb = self.jumps_embed(int_ctx[:, :, 1])
         p0_char_emb = self.character_embed(int_ctx[:, :, 2])
