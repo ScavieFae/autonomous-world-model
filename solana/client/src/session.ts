@@ -45,6 +45,11 @@ export const INPUT_BUFFER_PROGRAM_ID = new PublicKey(
   "InpBuffer1111111111111111111111111111111111"
 );
 
+/** FrameLog component program ID */
+export const FRAME_LOG_PROGRAM_ID = new PublicKey(
+  "FrameLog11111111111111111111111111111111111"
+);
+
 /** HiddenState component program ID */
 export const HIDDEN_STATE_PROGRAM_ID = new PublicKey(
   "HdnState11111111111111111111111111111111111"
@@ -135,6 +140,13 @@ export class SessionClient {
     return this.accounts;
   }
 
+  /** Attach to an existing session/accounts tuple without sending a JOIN tx. */
+  attachSession(sessionKey: PublicKey, accounts: SessionAccounts, playerNumber: 1 | 2 = 1) {
+    this.sessionKey = sessionKey;
+    this.accounts = accounts;
+    this.playerNumber = playerNumber;
+  }
+
   /** Register a callback for new frames. */
   onFrame(cb: (frame: VizFrame) => void) {
     this.frameCallbacks.push(cb);
@@ -167,7 +179,7 @@ export class SessionClient {
       { keypair: accounts.sessionState, size: SESSION_STATE_SIZE, owner: SESSION_STATE_PROGRAM_ID },
       { keypair: accounts.hiddenState, size: HIDDEN_STATE_SIZE, owner: HIDDEN_STATE_PROGRAM_ID },
       { keypair: accounts.inputBuffer, size: INPUT_BUFFER_SIZE, owner: INPUT_BUFFER_PROGRAM_ID },
-      { keypair: accounts.frameLog, size: FRAME_LOG_SIZE, owner: SESSION_STATE_PROGRAM_ID },
+      { keypair: accounts.frameLog, size: FRAME_LOG_SIZE, owner: FRAME_LOG_PROGRAM_ID },
     ];
 
     for (const { keypair, size, owner } of allocations) {
@@ -233,7 +245,6 @@ export class SessionClient {
         { pubkey: this.accounts.hiddenState.publicKey, isSigner: false, isWritable: true },
         { pubkey: this.accounts.inputBuffer.publicKey, isSigner: false, isWritable: true },
         { pubkey: this.accounts.frameLog.publicKey, isSigner: false, isWritable: true },
-        { pubkey: this.player.publicKey, isSigner: true, isWritable: false },
       ],
       data: createArgs,
     });
@@ -283,7 +294,6 @@ export class SessionClient {
         { pubkey: accounts.hiddenState.publicKey, isSigner: false, isWritable: true },
         { pubkey: accounts.inputBuffer.publicKey, isSigner: false, isWritable: true },
         { pubkey: accounts.frameLog.publicKey, isSigner: false, isWritable: true },
-        { pubkey: this.player.publicKey, isSigner: true, isWritable: false },
       ],
       data: joinArgs,
     });
@@ -331,7 +341,7 @@ export class SessionClient {
   /**
    * Send a single frame's controller input via submit_input system.
    */
-  private async sendInput(input: ControllerInput): Promise<void> {
+  async sendInput(input: ControllerInput): Promise<void> {
     if (!this.sessionKey || !this.accounts) return;
 
     const inputArgs = this.encodeInputArgs({
@@ -351,7 +361,6 @@ export class SessionClient {
       keys: [
         { pubkey: this.accounts.sessionState.publicKey, isSigner: false, isWritable: false },
         { pubkey: this.accounts.inputBuffer.publicKey, isSigner: false, isWritable: true },
-        { pubkey: this.player.publicKey, isSigner: true, isWritable: false },
       ],
       data: inputArgs,
     });
@@ -406,7 +415,6 @@ export class SessionClient {
         { pubkey: this.accounts.hiddenState.publicKey, isSigner: false, isWritable: true },
         { pubkey: this.accounts.inputBuffer.publicKey, isSigner: false, isWritable: true },
         { pubkey: this.accounts.frameLog.publicKey, isSigner: false, isWritable: true },
-        { pubkey: this.player.publicKey, isSigner: true, isWritable: false },
       ],
       data: endArgs,
     });
@@ -611,6 +619,17 @@ export class SessionClient {
       character: data.readUInt8(offset + 31),
     };
   }
+
+  /**
+   * Fetch and deserialize the current SessionState account via raw RPC.
+   * Useful for tests and non-streaming clients.
+   */
+  async fetchSessionState(): Promise<SessionState> {
+    if (!this.sessionKey) throw new Error("No active session");
+    const account = await this.connection.getAccountInfo(this.sessionKey, "confirmed");
+    if (!account) throw new Error("SessionState account not found");
+    return this.deserializeSessionState(account.data);
+  }
 }
 
 // ── Model browser ───────────────────────────────────────────────────────────
@@ -639,4 +658,66 @@ export async function listModels(
 
   // Placeholder: return empty list
   return [];
+}
+
+// ── Convenience wrappers (SDK surface contract) ────────────────────────────
+
+export async function createSession(
+  connection: Connection,
+  payer: Keypair,
+  config: SessionConfig,
+): Promise<SessionAccounts> {
+  const client = new SessionClient(payer, {
+    ...config,
+    cluster: connection.rpcEndpoint,
+  });
+  await client.createSession();
+  const accounts = client.sessionAccounts;
+  if (!accounts) throw new Error("Session account allocation failed");
+  return accounts;
+}
+
+export async function joinSession(
+  connection: Connection,
+  payer: Keypair,
+  sessionKey: PublicKey,
+  accounts: SessionAccounts,
+  config: SessionConfig,
+): Promise<void> {
+  const client = new SessionClient(payer, {
+    ...config,
+    cluster: connection.rpcEndpoint,
+  });
+  await client.joinSession(sessionKey, accounts);
+}
+
+export async function sendInput(
+  connection: Connection,
+  payer: Keypair,
+  sessionKey: PublicKey,
+  accounts: SessionAccounts,
+  input: ControllerInput,
+  config: SessionConfig,
+): Promise<void> {
+  const client = new SessionClient(payer, {
+    ...config,
+    cluster: connection.rpcEndpoint,
+  });
+  client.attachSession(sessionKey, accounts);
+  await client.sendInput(input);
+}
+
+export async function endSession(
+  connection: Connection,
+  payer: Keypair,
+  sessionKey: PublicKey,
+  accounts: SessionAccounts,
+  config: SessionConfig,
+): Promise<void> {
+  const client = new SessionClient(payer, {
+    ...config,
+    cluster: connection.rpcEndpoint,
+  });
+  client.attachSession(sessionKey, accounts);
+  await client.endSession();
 }

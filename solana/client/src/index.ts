@@ -47,8 +47,13 @@ export {
 // Session management
 export {
   type SessionConfig,
+  type SessionAccounts,
   type ModelInfo,
   SessionClient,
+  createSession,
+  joinSession,
+  sendInput,
+  endSession,
   listModels,
 } from "./session";
 
