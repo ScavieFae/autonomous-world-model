@@ -2,9 +2,11 @@
 members = [
     "programs/cu-benchmark",
     "programs/world-model",
+    "syscall",
 ]
 exclude = [
     "programs/upload-weights",
+    "programs/syscall-test",
     "programs-ecs",
 ]
 resolver = "2"

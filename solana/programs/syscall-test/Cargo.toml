@@ -1,0 +1,16 @@
+[package]
+name = "syscall-test"
+version = "0.1.0"
+description = "Minimal SBF program that calls sol_matmul_i8 — test harness for Mollusk"
+edition = "2021"
+
+[lib]
+crate-type = ["cdylib", "lib"]
+
+[features]
+no-entrypoint = []
+
+[dependencies]
+solana-program = "2.1"
+# Pin blake3 below 1.8 — edition2024 in 1.8+ incompatible with BPF toolchain cargo 1.84
+blake3 = ">=1.5.5, <1.8"
