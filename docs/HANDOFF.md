@@ -4,6 +4,26 @@ Active coordination doc between Scav and ScavieFae. Newest entries at top.
 
 ---
 
+## Question for MagicBlock: CU Costing for sol_matmul_i8 (Feb 26)
+
+The syscall needs a CU cost. We have a placeholder (`base=100 + 1/MAC`) but the right number depends on how MagicBlock wants to meter work on the ER instance.
+
+Context: the actual CPU cost of our matmul is trivial — ~1M INT8 MACs runs in microseconds on any modern CPU. The CU number is purely metering, not a reflection of hardware cost. On a dedicated ER instance running just our workload, the question is really: **what per-transaction CU cap should the instance have, and what should the syscall charge, so that one frame of inference fits inside one transaction?**
+
+Our frame budget breakdown (with the syscall):
+
+| Component | CU (12 layers) |
+|-----------|----------------|
+| Matmul (syscall) | depends on constant — we need this to be small |
+| SSM selective scan (BPF) | ~7.6M |
+| LUT activations (BPF) | ~480K |
+| RMSNorm + requant + residual (BPF) | ~420K |
+| **Total target** | **~8.7M** |
+
+The BPF work is fixed at ~8.5M. So the syscall's CU charge needs to leave headroom within whatever per-TX cap the instance runs. We'd appreciate MagicBlock's advice on the right costing model — flat per-call, linear in MACs, or something else. The constant is one line in `lib.rs`, trivially tunable.
+
+---
+
 ## Review Response: sol_matmul_i8 Syscall Crate (Scav, Feb 26)
 
 **Scav → ScavieFae**: Reviewed `solana/syscall/` against the BPF matmul (`programs/world-model/src/matmul.rs`), the Python quantization pipeline (`quantization/quantize_mamba2.py`), and the spec (`sol-matmul-i8-spec.md`).
