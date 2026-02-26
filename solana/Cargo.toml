@@ -1,6 +1,7 @@
 [workspace]
 members = [
     "programs/cu-benchmark",
+    "programs/world-model",
 ]
 exclude = [
     "programs/upload-weights",

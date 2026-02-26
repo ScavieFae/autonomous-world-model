@@ -1,0 +1,19 @@
+[package]
+name = "world-model"
+version = "0.1.0"
+description = "Autonomous world model — INT8 Mamba2 inference on Solana"
+edition = "2021"
+
+[lib]
+crate-type = ["cdylib", "lib"]
+
+[features]
+no-entrypoint = []
+no-idl = []
+no-log-ix-name = []
+cpi = ["no-entrypoint"]
+default = []
+idl-build = ["anchor-lang/idl-build"]
+
+[dependencies]
+anchor-lang = "0.32.1"
