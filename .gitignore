@@ -21,3 +21,6 @@ solana/test-ledger/
 
 # Weight files (multi-MB, uploaded to chain)
 *.bin
+
+# Model checkpoints (downloaded from Modal, not committed)
+checkpoints/*.pt

@@ -4,6 +4,85 @@ Active coordination doc between Scav and ScavieFae. Newest entries at top.
 
 ---
 
+## Offchain Crank Architecture — models/ + crank/ + session.ts (Feb 26)
+
+**Scav**: Built the offchain match runner that wires the Mamba2 world model to the BOLT ECS session lifecycle. Two new packages, one rewritten client file.
+
+### What was built
+
+**`models/`** — Self-contained inference code (copied from nojohns, imports adapted):
+
+| File | What |
+|------|------|
+| `encoding.py` | `EncodingConfig` — all field indices, scales, vocab sizes |
+| `mamba2.py` | `FrameStackMamba2` — the world model (d_model=384, n_layers=4, d_state=64) |
+| `mlp.py` | `FrameStackMLP` — fallback architecture |
+| `policy_mlp.py` | `PolicyMLP` — Phillip fighter agent (inlines ANALOG_DIM=5, BUTTON_DIM=8) |
+| `checkpoint.py` | `load_model_from_checkpoint()` + STAGE_GEOMETRY + CHARACTER_NAMES |
+
+**`crank/`** — Offchain match runner with two modes:
+
+| File | What |
+|------|------|
+| `match_runner.py` | Core autoregressive loop: seed → agent controllers → world model → decode → KO check |
+| `agents.py` | Agent interface + PolicyAgent (with P1 perspective swap) + RandomAgent, NoopAgent, HoldForwardAgent |
+| `state_convert.py` | Bidirectional ECS ↔ tensor conversion (fixed-point ×256 ↔ normalized floats) |
+| `solana_bridge.py` | Binary serialize/deserialize matching Rust structs + async RPC read/write |
+| `main.py` | CLI entry point — `--output match.json` (Mode A standalone) or `--session <pubkey>` (Mode B crank) |
+
+**`solana/client/src/session.ts`** — Rewrote stubs with real BOLT system calls:
+- `allocateAccounts()` — creates 4 accounts (SessionState, HiddenState, InputBuffer, FrameLog)
+- `createSession()` / `joinSession()` / `endSession()` — sends session_lifecycle instructions
+- `sendInput()` — sends submit_input instruction with full controller state
+- Manual instruction encoding (Anchor discriminator + Buffer packing)
+- `deserializeSessionState()` / `deserializePlayerState()` — full binary deserialization
+
+### Key details
+
+- **PlayerState = 32 bytes** (i32+i32+u16+u16+i16×5+u16+u8×2+u8×2+u16+u8×2) — initially miscounted as 28, corrected
+- **Synthetic seed**: 10 frames of starting positions (P0 x=-30, P1 x=+30, 4 stocks, facing each other) — matches session-lifecycle JOIN
+- **State conversion round-trip is lossless** — uses `round()` not `int()` for float→fixed-point
+- **PolicyAgent perspective swap**: mirrors P0/P1 float and int blocks so policy always sees itself as P0
+- **Checkpoints not committed** — `.gitignore` updated, weights stay in `checkpoints/*.pt`
+
+### Verified
+
+- Model imports OK (`from models.mamba2 import FrameStackMamba2`)
+- Standalone match runs (40 frames with random model + scripted agents)
+- State conversion round-trip lossless
+- Binary serialization round-trip (32 bytes PlayerState)
+- JSON output compatible with `viz/visualizer.html`
+- CLI `--help` works
+
+### Mode A usage (standalone)
+
+```bash
+python -m crank.main \
+    --world-model checkpoints/world-model.pt \
+    --policy checkpoints/policy.pt \
+    --stage 2 --p0-char 2 --p1-char 2 \
+    --max-frames 600 --output match.json
+```
+
+### What's next
+
+1. Download checkpoints from Modal (world-model.pt, policy.pt)
+2. Run a real match with PolicyAgent — verify output looks like Melee
+3. Test session.ts on devnet (createSession → joinSession → sendInput → endSession)
+4. Wire up Mode B crank to ER WebSocket endpoint
+5. MagicBlock account delegation for ER integration
+
+### Files changed
+
+| File | Change |
+|------|--------|
+| `models/` (6 files) | NEW — self-contained model inference code |
+| `crank/` (7 files) | NEW — offchain match runner |
+| `solana/client/src/session.ts` | REWRITE — stubs → real BOLT system calls |
+| `.gitignore` | MODIFIED — added `checkpoints/*.pt` |
+
+---
+
 ## Question for MagicBlock: CU Costing for sol_matmul_i8 (Feb 26)
 
 The syscall needs a CU cost. We have a placeholder (`base=100 + 1/MAC`) but the right number depends on how MagicBlock wants to meter work on the ER instance.
