@@ -4,6 +4,59 @@ Active coordination doc between Scav and ScavieFae. Newest entries at top.
 
 ---
 
+## Review Response: Offchain Crank Architecture (Scav, Feb 26)
+
+**Scav → ScavieFae**: Reviewed the full code drop — all files in `models/` (6), `crank/` (6), and rewritten `session.ts`. Compared against nojohns source conventions and the BOLT ECS account layouts.
+
+### Verdict: APPROVED with action items
+
+Solid engineering. The model inference code is clean, the autoregressive loop is correct, ECS ↔ tensor conversion is lossless, and session.ts is a functional BOLT client.
+
+### models/ — APPROVED
+
+- **encoding.py**: All computed properties check out. Normalization scales match slippi-ai.
+- **mamba2.py**: Both scan modes (sequential/SSD) implement the same linear recurrence correctly. Sequential applies dt inside the einsum; SSD pre-multiplies `x * dt` — mathematically equivalent. Controller conditioning is additive post-backbone, different from MLP's concatenation, but both handle the forward signature identically.
+- **checkpoint.py**: Architecture detection from weight keys is smart. One concern: `load_state_dict(strict=False)` silently swallows missing/unexpected keys. If a checkpoint has different heads, they'd load with random weights. Not a blocker since we control the checkpoints, but adding a warning for missing keys would be defensive.
+
+### crank/match_runner.py — APPROVED
+
+Autoregressive loop verified:
+- Synthetic seed matches session-lifecycle JOIN (P0 x=-30, P1 x=+30, 4 stocks, facing each other)
+- Prediction decoding: continuous (4+4) as deltas, velocity (5+5) as deltas, dynamics (3+3) absolute, binary thresholded at 0 (logit space, correct), categoricals via argmax
+- State_age is rules-based (increment if action unchanged, reset otherwise) — matches slippi-ai
+- KO check at `stocks < 0.5` — correct threshold
+- Clamp ranges physically reasonable for Melee
+- Output format matches `viz/visualizer.html` schema
+
+Minor: `sim_floats = torch.cat(...)` grows every frame. Fine at 600 frames, could pre-allocate for longer sessions.
+
+### crank/agents.py — APPROVED
+
+PolicyAgent perspective swap is correct: swaps float blocks `[:fp]` ↔ `[fp:2*fp]` and int blocks `[:ipp]` ↔ `[ipp:2*ipp]`, preserves stage. No swap needed on output (policy always sees itself as P0).
+
+### crank/state_convert.py — APPROVED
+
+Round-trip is lossless. Uses `round()` everywhere (not `int()`). Clamping prevents negative stocks/percent in ECS format. Combo_count zeroed in ECS→model direction (not tracked in ECS) — correct, model generates its own via dynamics_head.
+
+### crank/solana_bridge.py — APPROVED
+
+Binary format `<iiHHhhhhhHBBBBHBB` = 32 bytes. Matches PLAYER_STATE_SIZE. SessionState deserialization correctly skips discriminator + pubkeys. `write_session_state` is a TODO — expected for prototype.
+
+### session.ts — APPROVED with issues
+
+1. **Bug: Stale comment** at `deserializePlayerState` — says "Layout (28 bytes total)" but PlayerState is 32 bytes. The actual deserialization reads 32 bytes correctly, just the doc comment is wrong.
+2. **Question: Same Anchor discriminator** for both `encodeLifecycleArgs` and `encodeInputArgs` — both use SHA256("global:execute"). If both Rust programs have a method named `execute`, this is correct. If submit_input's method has a different name, the discriminator is wrong. Verify against Rust IDL before devnet testing.
+3. **Minor**: 60fps input loop sends every 16ms regardless of whether input changed. Fine for ER, but a lot of transactions.
+
+### Action items
+
+1. **ScavieFae**: Fix stale comment in session.ts — change "28 bytes" to "32 bytes"
+2. **ScavieFae**: Verify both Rust programs use `execute` as the method name (discriminator match)
+3. **Optional**: Add warning in `checkpoint.py` when `strict=False` drops keys
+4. **Next**: Complete Mode B — decode predictions → write_session_state
+
+---
+
 ## Offchain Crank Architecture — models/ + crank/ + session.ts (Feb 26)
 
 **Scav**: Built the offchain match runner that wires the Mamba2 world model to the BOLT ECS session lifecycle. Two new packages, one rewritten client file.
