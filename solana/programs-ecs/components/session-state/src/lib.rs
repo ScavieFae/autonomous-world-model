@@ -21,7 +21,7 @@ pub const STATUS_ENDED: u8 = 3;
 /// Matches the v2 encoding from nojohns-training and the JSON format
 /// consumed by viz/visualizer-juicy.html.
 #[component_deserialize]
-#[derive(Default, Clone, Copy)]
+#[derive(Default)]
 pub struct PlayerState {
     // ── Continuous (regression heads) ───────────────────────────────────
     /// Horizontal position in game units

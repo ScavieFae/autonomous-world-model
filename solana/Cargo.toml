@@ -17,6 +17,15 @@ frame-log = { path = "programs-ecs/components/frame-log", features = ["cpi"] }
 model-manifest = { path = "programs-ecs/components/model-manifest", features = ["cpi"] }
 weight-shard = { path = "programs-ecs/components/weight-shard", features = ["cpi"] }
 
+# Pin blake3 below 1.8 — 1.8+ uses edition="2024" which the SBF
+# toolchain's Cargo 1.84 can't parse. Remove this once platform-tools
+# ships Cargo 1.85+.
+[workspace.dependencies.blake3]
+version = "=1.7.0"
+
+[workspace.dependencies.constant_time_eq]
+version = "=0.3.1"
+
 [profile.release]
 overflow-checks = true
 lto = "fat"

@@ -15,7 +15,7 @@ pub const RING_BUFFER_SIZE: usize = 256;
 ///   - Velocities: quantized to i8 (less precision ok for replay)
 ///   - Action state: absolute (needed for animation lookup)
 #[component_deserialize]
-#[derive(Default, Clone, Copy)]
+#[derive(Default)]
 pub struct CompressedFrame {
     /// Frame number
     pub frame: u32,

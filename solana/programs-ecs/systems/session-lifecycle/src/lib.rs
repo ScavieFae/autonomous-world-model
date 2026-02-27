@@ -1,6 +1,7 @@
 use bolt_lang::*;
 use frame_log::FrameLog;
 use hidden_state::HiddenState;
+use input_buffer::InputBuffer;
 use session_state::{
     PlayerState, SessionState, STATUS_ACTIVE,
     STATUS_CREATED, STATUS_ENDED, STATUS_WAITING_PLAYERS,
