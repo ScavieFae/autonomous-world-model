@@ -32,7 +32,7 @@ export const SESSION_LIFECYCLE_PROGRAM_ID = new PublicKey(
 
 /** Submit input system program ID */
 export const SUBMIT_INPUT_PROGRAM_ID = new PublicKey(
-  "SubInput11111111111111111111111111111111111"
+  "Subinput11111111111111111111111111111111111"
 );
 
 /** SessionState component program ID */
@@ -42,7 +42,7 @@ export const SESSION_STATE_PROGRAM_ID = new PublicKey(
 
 /** InputBuffer component program ID */
 export const INPUT_BUFFER_PROGRAM_ID = new PublicKey(
-  "InpBuffer1111111111111111111111111111111111"
+  "inpBuffer1111111111111111111111111111111111"
 );
 
 /** FrameLog component program ID */
