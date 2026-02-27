@@ -1,4 +1,4 @@
-use anchor_lang::prelude::*;
+use bolt_lang::*;
 
 declare_id!("3R2RbzwP54qdyXcyiwHW2Sj6uVwf4Dhy7Zy8RcSVHFpq");
 
@@ -11,7 +11,8 @@ declare_id!("3R2RbzwP54qdyXcyiwHW2Sj6uVwf4Dhy7Zy8RcSVHFpq");
 ///   - Buttons: digital bitmask
 ///
 /// Total: 8 bytes per player, 16 bytes per frame.
-#[derive(Default, Clone, Copy, AnchorSerialize, AnchorDeserialize)]
+#[component_deserialize]
+#[derive(Default, Clone, Copy)]
 pub struct ControllerInput {
     /// Main stick X axis (-128 = full left, 127 = full right)
     pub stick_x: i8,
@@ -40,7 +41,7 @@ pub struct ControllerInput {
 ///
 /// Lifecycle: Per-session, overwritten every frame.
 /// Size: ~20 bytes (tiny — just two controller states + metadata).
-#[account]
+#[component]
 #[derive(Default)]
 pub struct InputBuffer {
     /// Frame number these inputs are for

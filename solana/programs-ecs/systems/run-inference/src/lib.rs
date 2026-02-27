@@ -1,16 +1,22 @@
-use anchor_lang::prelude::*;
+use bolt_lang::*;
 use frame_log::{CompressedFrame, FrameLog, RING_BUFFER_SIZE};
 use hidden_state::HiddenState;
 use input_buffer::InputBuffer;
-use model_manifest::ModelManifest;
 use session_state::{PlayerState, SessionState, STATUS_ACTIVE};
-use weight_shard::WeightShard;
 
 pub mod lut;
 pub mod matmul;
 pub mod mamba2;
 
 declare_id!("3tHPJJSNhKwbp7K5vSYCUdYVX9bGxRCmpddwaJWRKPyb");
+
+#[error_code]
+pub enum InferenceError {
+    #[msg("Session is not active")]
+    SessionNotActive,
+    #[msg("Both players must submit inputs before inference")]
+    InputsNotReady,
+}
 
 /// Run inference system — the heart of the autonomous world.
 ///
@@ -26,21 +32,15 @@ declare_id!("3tHPJJSNhKwbp7K5vSYCUdYVX9bGxRCmpddwaJWRKPyb");
 ///   - InputBuffer: controller inputs for current frame
 ///   - SessionState: current world state
 ///   - HiddenState: Mamba2 recurrent state
-///   - WeightShard[0..1]: INT8 model weights (Phase 4)
-///   - ModelManifest: architecture params + LUTs (Phase 4)
 ///
 /// Accounts written:
 ///   - SessionState: updated with new frame state
 ///   - HiddenState: updated recurrent state
 ///   - FrameLog: compressed frame appended to ring buffer
-#[program]
+#[system]
 pub mod run_inference {
-    use super::*;
 
-    pub fn execute(
-        ctx: Context<Components>,
-        _args: Args,
-    ) -> Result<()> {
+    pub fn execute(ctx: Context<Components>, _args: Vec<u8>) -> Result<Components> {
         let session = &mut ctx.accounts.session_state;
         let hidden = &mut ctx.accounts.hidden_state;
         let input_buf = &ctx.accounts.input_buffer;
@@ -127,7 +127,7 @@ pub mod run_inference {
         hidden.frame = frame;
 
         // Write to frame log ring buffer
-        let log_entry = compress_frame(frame, &session.players, session.stage, input_buf);
+        let _log_entry = compress_frame(frame, &session.players, session.stage, input_buf);
         let write_idx = (frame_log.write_index as usize) % RING_BUFFER_SIZE;
         // In production, write directly to account data via zero-copy:
         //   let offset = HEADER_SIZE + write_idx * COMPRESSED_FRAME_SIZE;
@@ -136,30 +136,20 @@ pub mod run_inference {
         frame_log.write_index = ((write_idx + 1) % RING_BUFFER_SIZE) as u16;
         frame_log.total_frames = frame;
 
-        Ok(())
+        Ok(ctx.accounts)
     }
-}
 
-#[derive(Accounts)]
-pub struct Components<'info> {
-    #[account(mut)]
-    pub session_state: Account<'info, SessionState>,
-    #[account(mut)]
-    pub hidden_state: Account<'info, HiddenState>,
-    pub input_buffer: Account<'info, InputBuffer>,
-    #[account(mut)]
-    pub frame_log: Account<'info, FrameLog>,
+    #[system_input]
+    pub struct Components {
+        pub session_state: SessionState,
+        pub hidden_state: HiddenState,
+        pub input_buffer: InputBuffer,
+        pub frame_log: FrameLog,
+    }
     // Phase 4 will add:
     // pub model_manifest: ModelManifest,
     // pub weight_shard_0: WeightShard,
     // pub weight_shard_1: WeightShard,
-}
-
-#[derive(AnchorSerialize, AnchorDeserialize, Clone)]
-pub struct Args {
-    // Phase 4 may add:
-    // pub layer_start: u8,  // For multi-tx pipeline: which layer to start at
-    // pub layer_end: u8,    // Which layer to end at
 }
 
 /// Compress a full frame state into the compact ring buffer format.
@@ -167,7 +157,7 @@ fn compress_frame(
     frame: u32,
     players: &[PlayerState; 2],
     stage: u8,
-    input: &InputBuffer,
+    input: &Account<InputBuffer>,
 ) -> CompressedFrame {
     let p1 = &players[0];
     let p2 = &players[1];
@@ -208,12 +198,4 @@ fn pack_input(input: &input_buffer::ControllerInput) -> u32 {
         | ((input.stick_y as u8 as u32) << 16)
         | ((input.c_stick_x as u8 as u32) << 8)
         | (input.buttons as u32)
-}
-
-#[error_code]
-pub enum InferenceError {
-    #[msg("Session is not active")]
-    SessionNotActive,
-    #[msg("Both players must submit inputs before inference")]
-    InputsNotReady,
 }

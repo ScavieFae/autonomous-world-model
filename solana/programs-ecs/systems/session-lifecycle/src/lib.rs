@@ -1,9 +1,9 @@
-use anchor_lang::prelude::*;
+use bolt_lang::*;
 use frame_log::FrameLog;
 use hidden_state::HiddenState;
 use session_state::{
-    PlayerState, SessionState, STATUS_ACTIVE, STATUS_CREATED,
-    STATUS_ENDED, STATUS_WAITING_PLAYERS,
+    PlayerState, SessionState, STATUS_ACTIVE,
+    STATUS_CREATED, STATUS_ENDED, STATUS_WAITING_PLAYERS,
 };
 
 declare_id!("4ozheJvvMhG7yMrp1UR2kq1fhRvjXoY5Pn3NJ4nvAcyE");
@@ -12,6 +12,16 @@ declare_id!("4ozheJvvMhG7yMrp1UR2kq1fhRvjXoY5Pn3NJ4nvAcyE");
 pub const ACTION_CREATE: u8 = 0;
 pub const ACTION_JOIN: u8 = 1;
 pub const ACTION_END: u8 = 2;
+
+#[error_code]
+pub enum LifecycleError {
+    #[msg("Invalid lifecycle action code")]
+    InvalidAction,
+    #[msg("Invalid state transition for current session status")]
+    InvalidStateTransition,
+    #[msg("Cannot join your own session")]
+    CannotJoinOwnSession,
+}
 
 /// Session lifecycle system — manages session creation, joining, and ending.
 ///
@@ -36,78 +46,62 @@ pub const ACTION_END: u8 = 2;
 ///      → SessionState: Active → Ended
 ///      → Accounts undelegated back to mainnet
 ///      → Session accounts closeable for rent reclaim
-#[program]
+#[system]
 pub mod session_lifecycle {
-    use super::*;
 
-    pub fn execute(
-        ctx: Context<Components>,
-        args: Args,
-    ) -> Result<()> {
-        let session_info = ctx.accounts.session_state.to_account_info();
-        let hidden_info = ctx.accounts.hidden_state.to_account_info();
-        let frame_log_info = ctx.accounts.frame_log.to_account_info();
-
-        let mut session = load_component::<SessionState>(&session_info)?;
-        let mut hidden = load_component::<HiddenState>(&hidden_info)?;
-        let mut frame_log = load_component::<FrameLog>(&frame_log_info)?;
+    pub fn execute(ctx: Context<Components>, args: Args) -> Result<Components> {
+        let session = &mut ctx.accounts.session_state;
+        let hidden = &mut ctx.accounts.hidden_state;
+        let frame_log = &mut ctx.accounts.frame_log;
 
         match args.action {
-            ACTION_CREATE => create_session(&mut session, &mut hidden, &mut frame_log, &args),
-            ACTION_JOIN => join_session(&mut session, &args),
-            ACTION_END => end_session(&mut session),
+            ACTION_CREATE => create_session(session, hidden, frame_log, &args),
+            ACTION_JOIN => join_session(session, &args),
+            ACTION_END => end_session(session),
             _ => return Err(LifecycleError::InvalidAction.into()),
         }?;
 
-        store_component(&session_info, &session)?;
-        store_component(&hidden_info, &hidden)?;
-        store_component(&frame_log_info, &frame_log)?;
+        Ok(ctx.accounts)
+    }
 
-        Ok(())
+    #[system_input]
+    pub struct Components {
+        pub session_state: SessionState,
+        pub hidden_state: HiddenState,
+        pub input_buffer: InputBuffer,
+        pub frame_log: FrameLog,
+    }
+
+    #[arguments]
+    pub struct Args {
+        /// Action: 0=create, 1=join, 2=end
+        pub action: u8,
+        /// Player public key
+        pub player: Pubkey,
+        /// Character ID (0-32) for the joining player
+        pub character: u8,
+        /// Stage ID (0-32) — only used on CREATE
+        pub stage: u8,
+        /// Model manifest public key — only used on CREATE
+        pub model: Pubkey,
+        /// Max frames (0 = unlimited) — only used on CREATE
+        pub max_frames: u32,
+        /// Session seed for deterministic init — only used on CREATE
+        pub seed: u64,
+        /// Model d_inner — used to configure hidden state on CREATE
+        pub d_inner: u16,
+        /// Model d_state — used to configure hidden state on CREATE
+        pub d_state: u16,
+        /// Model num_layers — used to configure hidden state on CREATE
+        pub num_layers: u8,
     }
 }
 
-#[derive(Accounts)]
-pub struct Components<'info> {
-    #[account(mut)]
-    pub session_state: UncheckedAccount<'info>,
-    #[account(mut)]
-    pub hidden_state: UncheckedAccount<'info>,
-    #[account(mut)]
-    pub input_buffer: UncheckedAccount<'info>,
-    #[account(mut)]
-    pub frame_log: UncheckedAccount<'info>,
-}
-
-#[derive(AnchorSerialize, AnchorDeserialize, Clone)]
-pub struct Args {
-    /// Action: 0=create, 1=join, 2=end
-    pub action: u8,
-    /// Player public key
-    pub player: Pubkey,
-    /// Character ID (0-32) for the joining player
-    pub character: u8,
-    /// Stage ID (0-32) — only used on CREATE
-    pub stage: u8,
-    /// Model manifest public key — only used on CREATE
-    pub model: Pubkey,
-    /// Max frames (0 = unlimited) — only used on CREATE
-    pub max_frames: u32,
-    /// Session seed for deterministic init — only used on CREATE
-    pub seed: u64,
-    /// Model d_inner — used to configure hidden state on CREATE
-    pub d_inner: u16,
-    /// Model d_state — used to configure hidden state on CREATE
-    pub d_state: u16,
-    /// Model num_layers — used to configure hidden state on CREATE
-    pub num_layers: u8,
-}
-
 fn create_session(
-    session: &mut SessionState,
-    hidden: &mut HiddenState,
-    frame_log: &mut FrameLog,
-    args: &Args,
+    session: &mut Account<SessionState>,
+    hidden: &mut Account<HiddenState>,
+    frame_log: &mut Account<FrameLog>,
+    args: &session_lifecycle::Args,
 ) -> Result<()> {
     // Can only create from initial state
     require!(
@@ -151,8 +145,8 @@ fn create_session(
 }
 
 fn join_session(
-    session: &mut SessionState,
-    args: &Args,
+    session: &mut Account<SessionState>,
+    args: &session_lifecycle::Args,
 ) -> Result<()> {
     require!(
         session.status == STATUS_WAITING_PLAYERS,
@@ -196,7 +190,7 @@ fn join_session(
     Ok(())
 }
 
-fn end_session(session: &mut SessionState) -> Result<()> {
+fn end_session(session: &mut Account<SessionState>) -> Result<()> {
     require!(
         session.status == STATUS_ACTIVE || session.status == STATUS_WAITING_PLAYERS,
         LifecycleError::InvalidStateTransition
@@ -211,40 +205,4 @@ fn end_session(session: &mut SessionState) -> Result<()> {
     // - Emit final state as event for indexers
 
     Ok(())
-}
-
-#[error_code]
-pub enum LifecycleError {
-    #[msg("Invalid lifecycle action code")]
-    InvalidAction,
-    #[msg("Invalid state transition for current session status")]
-    InvalidStateTransition,
-    #[msg("Cannot join your own session")]
-    CannotJoinOwnSession,
-    #[msg("Failed to deserialize component data")]
-    DeserializeFailed,
-    #[msg("Failed to serialize component data")]
-    SerializeFailed,
-}
-
-fn load_component<T: AnchorDeserialize + Default>(info: &AccountInfo) -> Result<T> {
-    let data = info.try_borrow_data()?;
-    if data.len() <= 8 {
-        return Ok(T::default());
-    }
-
-    let mut slice: &[u8] = &data[8..];
-    T::deserialize(&mut slice).map_err(|_| LifecycleError::DeserializeFailed.into())
-}
-
-fn store_component<T: AnchorSerialize>(info: &AccountInfo, value: &T) -> Result<()> {
-    let mut data = info.try_borrow_mut_data()?;
-    if data.len() <= 8 {
-        return Err(LifecycleError::SerializeFailed.into());
-    }
-
-    let mut dst = &mut data[8..];
-    value
-        .serialize(&mut dst)
-        .map_err(|_| LifecycleError::SerializeFailed.into())
 }

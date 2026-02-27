@@ -1,4 +1,4 @@
-use anchor_lang::prelude::*;
+use bolt_lang::*;
 
 declare_id!("AucQsnqWYXeVcig4puWFjnd8NXruCtjS8EVgA2B5KxUk");
 
@@ -25,7 +25,7 @@ pub const NUM_LUTS: usize = 4;
 ///
 /// Lifecycle: Permanent on mainnet. Created once per model version.
 /// Size: ~2KB (well within single account limits).
-#[account]
+#[component]
 pub struct ModelManifest {
     /// Human-readable model name (e.g., "melee-mamba2-v1")
     pub name: [u8; 32],
@@ -109,7 +109,7 @@ pub struct ModelManifest {
 
 impl Default for ModelManifest {
     fn default() -> Self {
-        Self {
+        Self::new(ModelManifestInit {
             name: [0u8; 32],
             version: 0,
             d_model: 0,
@@ -131,6 +131,6 @@ impl Default for ModelManifest {
             ready: false,
             total_params: 0,
             total_weight_bytes: 0,
-        }
+        })
     }
 }

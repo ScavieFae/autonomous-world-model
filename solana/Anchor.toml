@@ -1,5 +1,7 @@
+[toolchain]
+
 [features]
-seeds = false
+resolution = true
 skip-lint = false
 
 [programs.localnet]
@@ -17,19 +19,33 @@ run_inference = "3tHPJJSNhKwbp7K5vSYCUdYVX9bGxRCmpddwaJWRKPyb"
 url = "https://api.apr.dev"
 
 [provider]
-cluster = "Localnet"
+cluster = "localnet"
 wallet = "~/.config/solana/id.json"
 
 [workspace]
-members = []
-
-[[test.genesis]]
-address = "4ozheJvvMhG7yMrp1UR2kq1fhRvjXoY5Pn3NJ4nvAcyE"
-program = "target/deploy/session_lifecycle.so"
-
-[[test.genesis]]
-address = "F9ZqWHVDtsXZdHLU8MXfybsS1W3TTGv4NegcJZK9LnWx"
-program = "target/deploy/submit_input.so"
+members = ["programs-ecs/components/*", "programs-ecs/systems/*"]
 
 [scripts]
-test = "npx ts-mocha -p ./tsconfig.json -t 1000000 tests/session.ts"
+test = "npx ts-mocha -p ./tsconfig.json -t 1000000 tests/**/*.ts"
+
+[test]
+startup_wait = 5000
+shutdown_wait = 2000
+upgradeable = false
+
+# BOLT World program — required for all ECS operations
+[[test.genesis]]
+address = "WorLD15A7CrDwLcLy4fRqtaTb9fbd8o8iqiEMUDse2n"
+program = "tests/fixtures/world.so"
+upgradeable = false
+
+[test.validator]
+bind_address = "0.0.0.0"
+url = "https://rpc.magicblock.app/devnet/"
+ledger = ".bolt/test-ledger"
+rpc_port = 8899
+
+# BOLT registry account
+[[test.validator.account]]
+address = "EHLkWwAT9oebVv9ht3mtqrvHhRVMKrt54tF3MfHTey2K"
+filename = "tests/fixtures/registry.json"

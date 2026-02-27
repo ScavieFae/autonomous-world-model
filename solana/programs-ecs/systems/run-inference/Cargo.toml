@@ -9,14 +9,18 @@ crate-type = ["cdylib", "lib"]
 
 [features]
 no-entrypoint = []
+no-idl = []
+no-log-ix-name = []
 cpi = ["no-entrypoint"]
 default = []
+idl-build = ["anchor-lang/idl-build"]
 
 [dependencies]
-anchor-lang = "0.29.0"
-session-state = { path = "../../components/session-state", features = ["cpi"] }
-hidden-state = { path = "../../components/hidden-state", features = ["cpi"] }
-input-buffer = { path = "../../components/input-buffer", features = ["cpi"] }
-frame-log = { path = "../../components/frame-log", features = ["cpi"] }
-model-manifest = { path = "../../components/model-manifest", features = ["cpi"] }
-weight-shard = { path = "../../components/weight-shard", features = ["cpi"] }
+bolt-lang.workspace = true
+anchor-lang.workspace = true
+session-state.workspace = true
+hidden-state.workspace = true
+input-buffer.workspace = true
+frame-log.workspace = true
+model-manifest.workspace = true
+weight-shard.workspace = true

@@ -1,26 +1,28 @@
 /**
- * Session management — create, join, play, and end sessions.
+ * Session management — create, join, play, and end sessions via BOLT ECS.
  *
- * Handles the full session lifecycle:
- *   1. Browse available models (read ModelManifest accounts)
- *   2. Create session (allocate accounts, delegate to ephemeral rollup)
- *   3. Join session (player 2 connects)
- *   4. Play (send inputs at 60fps, receive state via subscription)
- *   5. End session (undelegate, commit to mainnet)
- *
- * Uses BOLT ECS system calls (session_lifecycle, submit_input) via Anchor.
+ * Uses MagicBlock's BOLT SDK to route all system calls through a World program.
+ * Session lifecycle:
+ *   1. Initialize World + Entity + Components (one-time setup)
+ *   2. ApplySystem(session_lifecycle, CREATE) → session active
+ *   3. ApplySystem(session_lifecycle, JOIN) → both players connected
+ *   4. ApplySystem(submit_input, ...) at 60fps per player
+ *   5. ApplySystem(session_lifecycle, END) → session closed
  */
 
 import {
   Connection,
   Keypair,
   PublicKey,
-  Transaction,
-  TransactionInstruction,
-  SystemProgram,
   sendAndConfirmTransaction,
 } from "@solana/web3.js";
-import { SessionState, SessionStatus, PlayerState, VizFrame, sessionToVizFrame } from "./state";
+import {
+  InitializeNewWorld,
+  AddEntity,
+  InitializeComponent,
+  ApplySystem,
+} from "@magicblock-labs/bolt-sdk";
+import { SessionState, SessionStatus, VizFrame, sessionToVizFrame } from "./state";
 import { ControllerInput, defaultInput } from "./input";
 
 // ── Program IDs (must match declare_id! in Rust) ─────────────────────────────
@@ -35,24 +37,23 @@ export const SUBMIT_INPUT_PROGRAM_ID = new PublicKey(
   "F9ZqWHVDtsXZdHLU8MXfybsS1W3TTGv4NegcJZK9LnWx"
 );
 
-/** SessionState component program ID */
+/** Run inference system program ID */
+export const RUN_INFERENCE_PROGRAM_ID = new PublicKey(
+  "3tHPJJSNhKwbp7K5vSYCUdYVX9bGxRCmpddwaJWRKPyb"
+);
+
+/** Component program IDs */
 export const SESSION_STATE_PROGRAM_ID = new PublicKey(
   "FJwbNTbGHSpq4a72ro1aza53kvs7YMNT7J5U34kaosFj"
 );
-
-/** InputBuffer component program ID */
+export const HIDDEN_STATE_PROGRAM_ID = new PublicKey(
+  "Ea3VKF8CW3svQwiT8pn13JVdbVhLHSBURtNuanagc4hs"
+);
 export const INPUT_BUFFER_PROGRAM_ID = new PublicKey(
   "3R2RbzwP54qdyXcyiwHW2Sj6uVwf4Dhy7Zy8RcSVHFpq"
 );
-
-/** FrameLog component program ID */
 export const FRAME_LOG_PROGRAM_ID = new PublicKey(
   "3mWTNv5jhzLnpG4Xt9XqM1b2nbNpizoGEJxepUhhoaNK"
-);
-
-/** HiddenState component program ID */
-export const HIDDEN_STATE_PROGRAM_ID = new PublicKey(
-  "Ea3VKF8CW3svQwiT8pn13JVdbVhLHSBURtNuanagc4hs"
 );
 
 // ── Lifecycle action codes ──────────────────────────────────────────────────
@@ -60,21 +61,6 @@ export const HIDDEN_STATE_PROGRAM_ID = new PublicKey(
 const ACTION_CREATE = 0;
 const ACTION_JOIN = 1;
 const ACTION_END = 2;
-
-// ── Account sizes (for rent calculation) ────────────────────────────────────
-
-/** Anchor discriminator (8) + SessionState fields */
-const PLAYER_STATE_SIZE = 32; // 4+4+2+2+2*5+2+1*2+1*2+2+1*2 = 32 bytes
-const SESSION_STATE_SIZE = 8 + 1 + 4 + 4 + 32 + 32 + 1 + (PLAYER_STATE_SIZE * 2) + 32 + 8 + 8 + 8;
-
-/** Anchor discriminator (8) + HiddenState header + data buffer */
-const HIDDEN_STATE_SIZE = 8 + 1 + 2 + 2 + 4 + 4 + 1 + 200_000;
-
-/** Anchor discriminator (8) + InputBuffer fields */
-const INPUT_BUFFER_SIZE = 8 + 4 + (8 * 2) + 1 + 1;
-
-/** Anchor discriminator (8) + FrameLog header + ring buffer */
-const FRAME_LOG_SIZE = 8 + 4 + 4 + (68 * 256);
 
 // ── Session configuration ───────────────────────────────────────────────────
 
@@ -97,21 +83,22 @@ export interface SessionConfig {
   numLayers?: number;
 }
 
-// ── Session accounts ────────────────────────────────────────────────────────
+// ── BOLT session accounts (PDAs, not keypairs) ─────────────────────────────
 
-export interface SessionAccounts {
-  sessionState: Keypair;
-  hiddenState: Keypair;
-  inputBuffer: Keypair;
-  frameLog: Keypair;
+export interface BoltSessionAccounts {
+  worldPda: PublicKey;
+  entityPda: PublicKey;
+  sessionStatePda: PublicKey;
+  hiddenStatePda: PublicKey;
+  inputBufferPda: PublicKey;
+  frameLogPda: PublicKey;
 }
 
 // ── Session client ──────────────────────────────────────────────────────────
 
 export class SessionClient {
   private connection: Connection;
-  private sessionKey?: PublicKey;
-  private accounts?: SessionAccounts;
+  private accounts?: BoltSessionAccounts;
   private player: Keypair;
   private playerNumber: 1 | 2 = 1;
   private config: SessionConfig;
@@ -130,19 +117,23 @@ export class SessionClient {
     });
   }
 
-  /** Get the session public key (available after create or join). */
-  get sessionPublicKey(): PublicKey | undefined {
-    return this.sessionKey;
+  /** Get the session entity PDA (available after create or join). */
+  get entityPda(): PublicKey | undefined {
+    return this.accounts?.entityPda;
   }
 
-  /** Get the session accounts (available after create). */
-  get sessionAccounts(): SessionAccounts | undefined {
+  /** Get the session state component PDA. */
+  get sessionStatePda(): PublicKey | undefined {
+    return this.accounts?.sessionStatePda;
+  }
+
+  /** Get all BOLT session accounts. */
+  get boltAccounts(): BoltSessionAccounts | undefined {
     return this.accounts;
   }
 
-  /** Attach to an existing session/accounts tuple without sending a JOIN tx. */
-  attachSession(sessionKey: PublicKey, accounts: SessionAccounts, playerNumber: 1 | 2 = 1) {
-    this.sessionKey = sessionKey;
+  /** Attach to an existing session's BOLT accounts. */
+  attachSession(accounts: BoltSessionAccounts, playerNumber: 1 | 2 = 1) {
     this.accounts = accounts;
     this.playerNumber = playerNumber;
   }
@@ -161,170 +152,223 @@ export class SessionClient {
     for (const cb of this.statusCallbacks) cb(status);
   }
 
-  // ── Account allocation ────────────────────────────────────────────────
+  // ── BOLT ECS setup ─────────────────────────────────────────────────
 
   /**
-   * Allocate the 4 session accounts via SystemProgram.createAccount.
-   * Each account needs enough space for the component data + Anchor discriminator.
-   */
-  private async allocateAccounts(): Promise<SessionAccounts> {
-    const accounts: SessionAccounts = {
-      sessionState: Keypair.generate(),
-      hiddenState: Keypair.generate(),
-      inputBuffer: Keypair.generate(),
-      frameLog: Keypair.generate(),
-    };
-
-    const allocations = [
-      { keypair: accounts.sessionState, size: SESSION_STATE_SIZE, owner: SESSION_LIFECYCLE_PROGRAM_ID },
-      { keypair: accounts.hiddenState, size: HIDDEN_STATE_SIZE, owner: SESSION_LIFECYCLE_PROGRAM_ID },
-      { keypair: accounts.inputBuffer, size: INPUT_BUFFER_SIZE, owner: SUBMIT_INPUT_PROGRAM_ID },
-      { keypair: accounts.frameLog, size: FRAME_LOG_SIZE, owner: SESSION_LIFECYCLE_PROGRAM_ID },
-    ];
-
-    for (const { keypair, size, owner } of allocations) {
-      const lamports = await this.connection.getMinimumBalanceForRentExemption(size);
-      const tx = new Transaction().add(
-        SystemProgram.createAccount({
-          fromPubkey: this.player.publicKey,
-          newAccountPubkey: keypair.publicKey,
-          lamports,
-          space: size,
-          programId: owner,
-        })
-      );
-      await sendAndConfirmTransaction(this.connection, tx, [this.player, keypair]);
-    }
-
-    return accounts;
-  }
-
-  // ── Session lifecycle ─────────────────────────────────────────────────
-
-  /**
-   * Create a new session. Allocates 4 accounts and calls session_lifecycle
-   * with ACTION_CREATE.
+   * Create a new session via BOLT ECS.
    *
-   * Returns the session public key.
+   * 1. InitializeNewWorld → worldPda
+   * 2. AddEntity → entityPda
+   * 3. InitializeComponent × 4 (session_state, hidden_state, input_buffer, frame_log)
+   * 4. ApplySystem(session_lifecycle, CREATE args)
    */
   async createSession(): Promise<PublicKey> {
-    this.emitStatus("Creating session...");
-
-    // 1. Allocate session accounts
-    this.accounts = await this.allocateAccounts();
-    this.sessionKey = this.accounts.sessionState.publicKey;
+    this.emitStatus("Creating BOLT world...");
     this.playerNumber = 1;
 
-    this.emitStatus("Accounts allocated, calling session_lifecycle CREATE...");
-
-    // 2. Build session_lifecycle::execute instruction with ACTION_CREATE
-    //
-    // In a full Anchor/BOLT integration, this would use the generated IDL:
-    //   await sessionLifecycle.methods.execute({ action: 0, ... }).accounts({...}).rpc()
-    //
-    // For the SDK, we build the instruction manually so we don't require
-    // the Anchor workspace to be loaded. The instruction data is:
-    //   [8-byte discriminator][serialized Args struct]
-    const createArgs = this.encodeLifecycleArgs({
-      action: ACTION_CREATE,
-      player: this.player.publicKey,
-      character: this.config.character,
-      stage: this.config.stage,
-      model: this.config.modelManifest,
-      maxFrames: this.config.maxFrames ?? 0,
-      seed: BigInt(Date.now()),
-      dInner: this.config.dInner ?? 768,
-      dState: this.config.dState ?? 64,
-      numLayers: this.config.numLayers ?? 4,
+    // 1. Initialize World
+    const initWorld = await InitializeNewWorld({
+      payer: this.player.publicKey,
+      connection: this.connection,
     });
+    await sendAndConfirmTransaction(
+      this.connection,
+      initWorld.transaction,
+      [this.player],
+    );
+    const worldPda = initWorld.worldPda;
 
-    const createIx = new TransactionInstruction({
-      programId: SESSION_LIFECYCLE_PROGRAM_ID,
-      keys: [
-        { pubkey: this.accounts.sessionState.publicKey, isSigner: false, isWritable: true },
-        { pubkey: this.accounts.hiddenState.publicKey, isSigner: false, isWritable: true },
-        { pubkey: this.accounts.inputBuffer.publicKey, isSigner: false, isWritable: true },
-        { pubkey: this.accounts.frameLog.publicKey, isSigner: false, isWritable: true },
-      ],
-      data: createArgs,
+    this.emitStatus("Adding entity...");
+
+    // 2. Add Entity
+    const addEntity = await AddEntity({
+      payer: this.player.publicKey,
+      world: worldPda,
+      connection: this.connection,
     });
+    await sendAndConfirmTransaction(
+      this.connection,
+      addEntity.transaction,
+      [this.player],
+    );
+    const entityPda = addEntity.entityPda;
 
-    const tx = new Transaction().add(createIx);
-    await sendAndConfirmTransaction(this.connection, tx, [this.player]);
+    this.emitStatus("Initializing components...");
 
-    this.emitStatus(`Session created: ${this.sessionKey.toBase58().slice(0, 8)}...`);
+    // 3. Initialize Components
+    // Order matters: must match #[system_input] struct order for systems
+    const componentIds = [
+      SESSION_STATE_PROGRAM_ID,
+      HIDDEN_STATE_PROGRAM_ID,
+      INPUT_BUFFER_PROGRAM_ID,
+      FRAME_LOG_PROGRAM_ID,
+    ];
+
+    const componentPdas: PublicKey[] = [];
+    for (const componentId of componentIds) {
+      const initComp = await InitializeComponent({
+        payer: this.player.publicKey,
+        entity: entityPda,
+        componentId,
+      });
+      await sendAndConfirmTransaction(
+        this.connection,
+        initComp.transaction,
+        [this.player],
+      );
+      componentPdas.push(initComp.componentPda);
+    }
+
+    this.accounts = {
+      worldPda,
+      entityPda,
+      sessionStatePda: componentPdas[0],
+      hiddenStatePda: componentPdas[1],
+      inputBufferPda: componentPdas[2],
+      frameLogPda: componentPdas[3],
+    };
+
+    this.emitStatus("Calling session_lifecycle CREATE...");
+
+    // 4. ApplySystem — CREATE
+    const createResult = await ApplySystem({
+      authority: this.player.publicKey,
+      systemId: SESSION_LIFECYCLE_PROGRAM_ID,
+      world: worldPda,
+      entities: [{
+        entity: entityPda,
+        components: [
+          { componentId: SESSION_STATE_PROGRAM_ID },
+          { componentId: HIDDEN_STATE_PROGRAM_ID },
+          { componentId: INPUT_BUFFER_PROGRAM_ID },
+          { componentId: FRAME_LOG_PROGRAM_ID },
+        ],
+      }],
+      args: {
+        action: ACTION_CREATE,
+        player: this.player.publicKey.toBase58(),
+        character: this.config.character,
+        stage: this.config.stage,
+        model: (this.config.modelManifest).toBase58(),
+        max_frames: this.config.maxFrames ?? 0,
+        seed: Date.now(),
+        d_inner: this.config.dInner ?? 768,
+        d_state: this.config.dState ?? 64,
+        num_layers: this.config.numLayers ?? 4,
+      },
+    });
+    await sendAndConfirmTransaction(
+      this.connection,
+      createResult.transaction,
+      [this.player],
+    );
+
+    this.emitStatus(`Session created: entity=${entityPda.toBase58().slice(0, 8)}...`);
     this.emitStatus("Waiting for player 2...");
 
-    // 3. TODO: Delegate accounts to ephemeral rollup via MagicBlock SDK
-    // await delegateToEphemeralRollup(this.connection, this.accounts, this.player);
-
-    return this.sessionKey;
+    return entityPda;
   }
 
   /**
    * Join an existing session as player 2.
-   * Calls session_lifecycle with ACTION_JOIN.
    */
-  async joinSession(
-    sessionKey: PublicKey,
-    accounts: SessionAccounts,
-  ): Promise<void> {
-    this.sessionKey = sessionKey;
+  async joinSession(accounts: BoltSessionAccounts): Promise<void> {
     this.accounts = accounts;
     this.playerNumber = 2;
-    this.emitStatus(`Joining session ${sessionKey.toBase58().slice(0, 8)}...`);
+    this.emitStatus(`Joining session...`);
 
-    const joinArgs = this.encodeLifecycleArgs({
-      action: ACTION_JOIN,
-      player: this.player.publicKey,
-      character: this.config.character,
-      stage: 0,  // Ignored for JOIN
-      model: PublicKey.default,  // Ignored for JOIN
-      maxFrames: 0,
-      seed: BigInt(0),
-      dInner: 0,
-      dState: 0,
-      numLayers: 0,
+    const joinResult = await ApplySystem({
+      authority: this.player.publicKey,
+      systemId: SESSION_LIFECYCLE_PROGRAM_ID,
+      world: accounts.worldPda,
+      entities: [{
+        entity: accounts.entityPda,
+        components: [
+          { componentId: SESSION_STATE_PROGRAM_ID },
+          { componentId: HIDDEN_STATE_PROGRAM_ID },
+          { componentId: INPUT_BUFFER_PROGRAM_ID },
+          { componentId: FRAME_LOG_PROGRAM_ID },
+        ],
+      }],
+      args: {
+        action: ACTION_JOIN,
+        player: this.player.publicKey.toBase58(),
+        character: this.config.character,
+        stage: 0,
+        model: PublicKey.default.toBase58(),
+        max_frames: 0,
+        seed: 0,
+        d_inner: 0,
+        d_state: 0,
+        num_layers: 0,
+      },
     });
-
-    const joinIx = new TransactionInstruction({
-      programId: SESSION_LIFECYCLE_PROGRAM_ID,
-      keys: [
-        { pubkey: accounts.sessionState.publicKey, isSigner: false, isWritable: true },
-        { pubkey: accounts.hiddenState.publicKey, isSigner: false, isWritable: true },
-        { pubkey: accounts.inputBuffer.publicKey, isSigner: false, isWritable: true },
-        { pubkey: accounts.frameLog.publicKey, isSigner: false, isWritable: true },
-      ],
-      data: joinArgs,
-    });
-
-    const tx = new Transaction().add(joinIx);
-    await sendAndConfirmTransaction(this.connection, tx, [this.player]);
+    await sendAndConfirmTransaction(
+      this.connection,
+      joinResult.transaction,
+      [this.player],
+    );
 
     this.emitStatus("Joined! Session active.");
+  }
+
+  /**
+   * Send a single frame's controller input via submit_input system.
+   */
+  async sendInput(input: ControllerInput): Promise<void> {
+    if (!this.accounts) return;
+
+    const inputResult = await ApplySystem({
+      authority: this.player.publicKey,
+      systemId: SUBMIT_INPUT_PROGRAM_ID,
+      world: this.accounts.worldPda,
+      entities: [{
+        entity: this.accounts.entityPda,
+        components: [
+          { componentId: SESSION_STATE_PROGRAM_ID },
+          { componentId: INPUT_BUFFER_PROGRAM_ID },
+        ],
+      }],
+      args: {
+        player: this.player.publicKey.toBase58(),
+        stick_x: input.stickX,
+        stick_y: input.stickY,
+        c_stick_x: input.cStickX,
+        c_stick_y: input.cStickY,
+        trigger_l: input.triggerL,
+        trigger_r: input.triggerR,
+        buttons: input.buttons,
+        buttons_ext: input.buttonsExt,
+      },
+    });
+    await sendAndConfirmTransaction(
+      this.connection,
+      inputResult.transaction,
+      [this.player],
+    );
   }
 
   /**
    * Start the play loop: subscribe to state changes, send inputs at 60fps.
    */
   async startPlaying(getInput: () => ControllerInput): Promise<void> {
-    if (!this.sessionKey) throw new Error("No active session");
+    if (!this.accounts) throw new Error("No active session");
 
     this.emitStatus("Starting play loop...");
 
-    // Subscribe to SessionState account changes
+    // Subscribe to SessionState component account changes
     this.subscriptionId = this.connection.onAccountChange(
-      this.sessionKey,
+      this.accounts.sessionStatePda,
       (accountInfo) => {
         try {
-          const session = this.deserializeSessionState(accountInfo.data);
+          const session = deserializeSessionState(accountInfo.data);
           const frame = sessionToVizFrame(session);
           for (const cb of this.frameCallbacks) cb(frame);
         } catch (e) {
           console.warn("Failed to deserialize frame:", e);
         }
       },
-      "processed" // Fastest commitment for real-time play
+      "processed"
     );
 
     // Send inputs at 60fps
@@ -333,40 +377,9 @@ export class SessionClient {
       this.sendInput(this.currentInput).catch((e) => {
         console.warn("Failed to send input:", e);
       });
-    }, 16); // ~60fps (16.67ms)
+    }, 16);
 
     this.emitStatus("Playing!");
-  }
-
-  /**
-   * Send a single frame's controller input via submit_input system.
-   */
-  async sendInput(input: ControllerInput): Promise<void> {
-    if (!this.sessionKey || !this.accounts) return;
-
-    const inputArgs = this.encodeInputArgs({
-      player: this.player.publicKey,
-      stickX: input.stickX,
-      stickY: input.stickY,
-      cStickX: input.cStickX,
-      cStickY: input.cStickY,
-      triggerL: input.triggerL,
-      triggerR: input.triggerR,
-      buttons: input.buttons,
-      buttonsExt: input.buttonsExt,
-    });
-
-    const inputIx = new TransactionInstruction({
-      programId: SUBMIT_INPUT_PROGRAM_ID,
-      keys: [
-        { pubkey: this.accounts.sessionState.publicKey, isSigner: false, isWritable: false },
-        { pubkey: this.accounts.inputBuffer.publicKey, isSigner: false, isWritable: true },
-      ],
-      data: inputArgs,
-    });
-
-    const tx = new Transaction().add(inputIx);
-    await sendAndConfirmTransaction(this.connection, tx, [this.player]);
   }
 
   /**
@@ -385,251 +398,163 @@ export class SessionClient {
   }
 
   /**
-   * End the session. Calls session_lifecycle with ACTION_END,
-   * then undelegates accounts back to mainnet.
+   * End the session.
    */
   async endSession(): Promise<void> {
     this.stopPlaying();
-
-    if (!this.sessionKey || !this.accounts) return;
+    if (!this.accounts) return;
 
     this.emitStatus("Ending session...");
 
-    const endArgs = this.encodeLifecycleArgs({
-      action: ACTION_END,
-      player: this.player.publicKey,
-      character: 0,
-      stage: 0,
-      model: PublicKey.default,
-      maxFrames: 0,
-      seed: BigInt(0),
-      dInner: 0,
-      dState: 0,
-      numLayers: 0,
+    const endResult = await ApplySystem({
+      authority: this.player.publicKey,
+      systemId: SESSION_LIFECYCLE_PROGRAM_ID,
+      world: this.accounts.worldPda,
+      entities: [{
+        entity: this.accounts.entityPda,
+        components: [
+          { componentId: SESSION_STATE_PROGRAM_ID },
+          { componentId: HIDDEN_STATE_PROGRAM_ID },
+          { componentId: INPUT_BUFFER_PROGRAM_ID },
+          { componentId: FRAME_LOG_PROGRAM_ID },
+        ],
+      }],
+      args: {
+        action: ACTION_END,
+        player: this.player.publicKey.toBase58(),
+        character: 0,
+        stage: 0,
+        model: PublicKey.default.toBase58(),
+        max_frames: 0,
+        seed: 0,
+        d_inner: 0,
+        d_state: 0,
+        num_layers: 0,
+      },
     });
-
-    const endIx = new TransactionInstruction({
-      programId: SESSION_LIFECYCLE_PROGRAM_ID,
-      keys: [
-        { pubkey: this.accounts.sessionState.publicKey, isSigner: false, isWritable: true },
-        { pubkey: this.accounts.hiddenState.publicKey, isSigner: false, isWritable: true },
-        { pubkey: this.accounts.inputBuffer.publicKey, isSigner: false, isWritable: true },
-        { pubkey: this.accounts.frameLog.publicKey, isSigner: false, isWritable: true },
-      ],
-      data: endArgs,
-    });
-
-    const tx = new Transaction().add(endIx);
-    await sendAndConfirmTransaction(this.connection, tx, [this.player]);
-
-    // TODO: Undelegate accounts from ephemeral rollup
-    // TODO: Close session accounts to reclaim rent
+    await sendAndConfirmTransaction(
+      this.connection,
+      endResult.transaction,
+      [this.player],
+    );
 
     this.emitStatus("Session ended.");
-    this.sessionKey = undefined;
     this.accounts = undefined;
   }
 
-  // ── Instruction encoding ──────────────────────────────────────────────
-
   /**
-   * Encode session_lifecycle Args struct to instruction data.
-   * Layout: [8-byte Anchor discriminator][args fields]
-   *
-   * Note: In production with the Anchor IDL loaded, use
-   * program.methods.execute({...}).instruction() instead.
-   */
-  private encodeLifecycleArgs(args: {
-    action: number;
-    player: PublicKey;
-    character: number;
-    stage: number;
-    model: PublicKey;
-    maxFrames: number;
-    seed: bigint;
-    dInner: number;
-    dState: number;
-    numLayers: number;
-  }): Buffer {
-    // Anchor discriminator for "execute" (first 8 bytes of SHA256("global:execute"))
-    const discriminator = Buffer.from([0x82, 0xdd, 0xf2, 0x9a, 0x0d, 0xc1, 0xbd, 0x1d]);
-
-    const buf = Buffer.alloc(
-      8 +     // discriminator
-      1 +     // action (u8)
-      32 +    // player (Pubkey)
-      1 +     // character (u8)
-      1 +     // stage (u8)
-      32 +    // model (Pubkey)
-      4 +     // max_frames (u32)
-      8 +     // seed (u64)
-      2 +     // d_inner (u16)
-      2 +     // d_state (u16)
-      1       // num_layers (u8)
-    );
-
-    let offset = 0;
-    discriminator.copy(buf, offset); offset += 8;
-    buf.writeUInt8(args.action, offset); offset += 1;
-    args.player.toBuffer().copy(buf, offset); offset += 32;
-    buf.writeUInt8(args.character, offset); offset += 1;
-    buf.writeUInt8(args.stage, offset); offset += 1;
-    args.model.toBuffer().copy(buf, offset); offset += 32;
-    buf.writeUInt32LE(args.maxFrames, offset); offset += 4;
-    buf.writeBigUInt64LE(args.seed, offset); offset += 8;
-    buf.writeUInt16LE(args.dInner, offset); offset += 2;
-    buf.writeUInt16LE(args.dState, offset); offset += 2;
-    buf.writeUInt8(args.numLayers, offset); offset += 1;
-
-    return buf;
-  }
-
-  /**
-   * Encode submit_input Args struct to instruction data.
-   */
-  private encodeInputArgs(args: {
-    player: PublicKey;
-    stickX: number;
-    stickY: number;
-    cStickX: number;
-    cStickY: number;
-    triggerL: number;
-    triggerR: number;
-    buttons: number;
-    buttonsExt: number;
-  }): Buffer {
-    const discriminator = Buffer.from([0x82, 0xdd, 0xf2, 0x9a, 0x0d, 0xc1, 0xbd, 0x1d]);
-
-    const buf = Buffer.alloc(
-      8 +     // discriminator
-      32 +    // player (Pubkey)
-      1 + 1 + // stick_x, stick_y (i8)
-      1 + 1 + // c_stick_x, c_stick_y (i8)
-      1 + 1 + // trigger_l, trigger_r (u8)
-      1 + 1   // buttons, buttons_ext (u8)
-    );
-
-    let offset = 0;
-    discriminator.copy(buf, offset); offset += 8;
-    args.player.toBuffer().copy(buf, offset); offset += 32;
-    buf.writeInt8(args.stickX, offset); offset += 1;
-    buf.writeInt8(args.stickY, offset); offset += 1;
-    buf.writeInt8(args.cStickX, offset); offset += 1;
-    buf.writeInt8(args.cStickY, offset); offset += 1;
-    buf.writeUInt8(args.triggerL, offset); offset += 1;
-    buf.writeUInt8(args.triggerR, offset); offset += 1;
-    buf.writeUInt8(args.buttons, offset); offset += 1;
-    buf.writeUInt8(args.buttonsExt, offset); offset += 1;
-
-    return buf;
-  }
-
-  // ── Deserialization ───────────────────────────────────────────────────
-
-  /**
-   * Deserialize raw account data into SessionState.
-   *
-   * Reads the full account layout matching the Rust SessionState component:
-   * [8-byte discriminator][status][frame][max_frames][player1][player2]
-   * [stage][PlayerState×2][model][created_at][last_update][seed]
-   */
-  private deserializeSessionState(data: Buffer): SessionState {
-    let offset = 8; // Skip Anchor discriminator
-
-    const status = data.readUInt8(offset); offset += 1;
-    const frame = data.readUInt32LE(offset); offset += 4;
-    const maxFrames = data.readUInt32LE(offset); offset += 4;
-
-    // Player pubkeys
-    const player1 = new PublicKey(data.subarray(offset, offset + 32)).toBase58();
-    offset += 32;
-    const player2 = new PublicKey(data.subarray(offset, offset + 32)).toBase58();
-    offset += 32;
-
-    const stage = data.readUInt8(offset); offset += 1;
-
-    // Deserialize both PlayerStates
-    const players: [PlayerState, PlayerState] = [
-      this.deserializePlayerState(data, offset),
-      this.deserializePlayerState(data, offset + PLAYER_STATE_SIZE),
-    ];
-    offset += PLAYER_STATE_SIZE * 2;
-
-    const model = new PublicKey(data.subarray(offset, offset + 32)).toBase58();
-    offset += 32;
-
-    const createdAtLow = data.readUInt32LE(offset);
-    const createdAtHigh = data.readInt32LE(offset + 4);
-    const createdAt = createdAtLow + createdAtHigh * 0x100000000;
-    offset += 8;
-
-    const lastUpdateLow = data.readUInt32LE(offset);
-    const lastUpdateHigh = data.readInt32LE(offset + 4);
-    const lastUpdate = lastUpdateLow + lastUpdateHigh * 0x100000000;
-    offset += 8;
-
-    const seedLow = data.readUInt32LE(offset);
-    const seedHigh = data.readUInt32LE(offset + 4);
-    const seed = seedLow + seedHigh * 0x100000000;
-
-    return {
-      status,
-      frame,
-      maxFrames,
-      player1,
-      player2,
-      stage,
-      players,
-      model,
-      createdAt,
-      lastUpdate,
-      seed,
-    };
-  }
-
-  /**
-   * Deserialize a single PlayerState from raw bytes.
-   *
-   * Layout (32 bytes total):
-   * x(i32), y(i32), percent(u16), shield_strength(u16),
-   * speed_air_x(i16), speed_y(i16), speed_ground_x(i16),
-   * speed_attack_x(i16), speed_attack_y(i16),
-   * state_age(u16), hitlag(u8), stocks(u8),
-   * facing(u8), on_ground(u8), action_state(u16),
-   * jumps_left(u8), character(u8)
-   */
-  private deserializePlayerState(data: Buffer, offset: number): PlayerState {
-    return {
-      x: data.readInt32LE(offset),
-      y: data.readInt32LE(offset + 4),
-      percent: data.readUInt16LE(offset + 8),
-      shieldStrength: data.readUInt16LE(offset + 10),
-      speedAirX: data.readInt16LE(offset + 12),
-      speedY: data.readInt16LE(offset + 14),
-      speedGroundX: data.readInt16LE(offset + 16),
-      speedAttackX: data.readInt16LE(offset + 18),
-      speedAttackY: data.readInt16LE(offset + 20),
-      stateAge: data.readUInt16LE(offset + 22),
-      hitlag: data.readUInt8(offset + 24),
-      stocks: data.readUInt8(offset + 25),
-      facing: data.readUInt8(offset + 26),
-      onGround: data.readUInt8(offset + 27),
-      actionState: data.readUInt16LE(offset + 28),
-      jumpsLeft: data.readUInt8(offset + 30),
-      character: data.readUInt8(offset + 31),
-    };
-  }
-
-  /**
-   * Fetch and deserialize the current SessionState account via raw RPC.
-   * Useful for tests and non-streaming clients.
+   * Fetch and deserialize the current SessionState from the component PDA.
    */
   async fetchSessionState(): Promise<SessionState> {
-    if (!this.sessionKey) throw new Error("No active session");
-    const account = await this.connection.getAccountInfo(this.sessionKey, "confirmed");
+    if (!this.accounts) throw new Error("No active session");
+    const account = await this.connection.getAccountInfo(
+      this.accounts.sessionStatePda,
+      "confirmed",
+    );
     if (!account) throw new Error("SessionState account not found");
-    return this.deserializeSessionState(account.data);
+    return deserializeSessionState(account.data);
   }
+}
+
+// ── Deserialization ───────────────────────────────────────────────────────────
+
+// BOLT #[component] may add a bolt_metadata field (Pubkey, 32 bytes) before
+// the Anchor discriminator. The exact offset depends on the BOLT version.
+// We probe for the correct offset by checking known patterns.
+
+const PLAYER_STATE_SIZE = 32; // 4+4+2+2+2*5+2+1*2+1*2+2+1*2 = 32 bytes
+
+/**
+ * Deserialize raw account data into SessionState.
+ *
+ * BOLT components have layout: [8-byte anchor discriminator][bolt_metadata?][fields]
+ * We try the standard 8-byte offset first, then 8+32 if bolt_metadata is present.
+ */
+export function deserializeSessionState(data: Buffer): SessionState {
+  // Standard Anchor: 8-byte discriminator
+  // BOLT may add 32-byte bolt_metadata (Pubkey) after discriminator
+  // Try 8 first — if status looks wrong, try 8+32
+  let offset = 8;
+
+  const status = data.readUInt8(offset);
+  if (status > 3) {
+    // Probably hit bolt_metadata — skip 32 more bytes
+    offset = 8 + 32;
+  }
+
+  return parseSessionStateAt(data, offset);
+}
+
+function parseSessionStateAt(data: Buffer, offset: number): SessionState {
+  const status = data.readUInt8(offset); offset += 1;
+  const frame = data.readUInt32LE(offset); offset += 4;
+  const maxFrames = data.readUInt32LE(offset); offset += 4;
+
+  const player1 = new PublicKey(data.subarray(offset, offset + 32)).toBase58();
+  offset += 32;
+  const player2 = new PublicKey(data.subarray(offset, offset + 32)).toBase58();
+  offset += 32;
+
+  const stage = data.readUInt8(offset); offset += 1;
+
+  const players: [import("./state").PlayerState, import("./state").PlayerState] = [
+    deserializePlayerState(data, offset),
+    deserializePlayerState(data, offset + PLAYER_STATE_SIZE),
+  ];
+  offset += PLAYER_STATE_SIZE * 2;
+
+  const model = new PublicKey(data.subarray(offset, offset + 32)).toBase58();
+  offset += 32;
+
+  const createdAtLow = data.readUInt32LE(offset);
+  const createdAtHigh = data.readInt32LE(offset + 4);
+  const createdAt = createdAtLow + createdAtHigh * 0x100000000;
+  offset += 8;
+
+  const lastUpdateLow = data.readUInt32LE(offset);
+  const lastUpdateHigh = data.readInt32LE(offset + 4);
+  const lastUpdate = lastUpdateLow + lastUpdateHigh * 0x100000000;
+  offset += 8;
+
+  const seedLow = data.readUInt32LE(offset);
+  const seedHigh = data.readUInt32LE(offset + 4);
+  const seed = seedLow + seedHigh * 0x100000000;
+
+  return {
+    status,
+    frame,
+    maxFrames,
+    player1,
+    player2,
+    stage,
+    players,
+    model,
+    createdAt,
+    lastUpdate,
+    seed,
+  };
+}
+
+function deserializePlayerState(data: Buffer, offset: number): import("./state").PlayerState {
+  return {
+    x: data.readInt32LE(offset),
+    y: data.readInt32LE(offset + 4),
+    percent: data.readUInt16LE(offset + 8),
+    shieldStrength: data.readUInt16LE(offset + 10),
+    speedAirX: data.readInt16LE(offset + 12),
+    speedY: data.readInt16LE(offset + 14),
+    speedGroundX: data.readInt16LE(offset + 16),
+    speedAttackX: data.readInt16LE(offset + 18),
+    speedAttackY: data.readInt16LE(offset + 20),
+    stateAge: data.readUInt16LE(offset + 22),
+    hitlag: data.readUInt8(offset + 24),
+    stocks: data.readUInt8(offset + 25),
+    facing: data.readUInt8(offset + 26),
+    onGround: data.readUInt8(offset + 27),
+    actionState: data.readUInt16LE(offset + 28),
+    jumpsLeft: data.readUInt8(offset + 30),
+    character: data.readUInt8(offset + 31),
+  };
 }
 
 // ── Model browser ───────────────────────────────────────────────────────────
@@ -646,78 +571,10 @@ export interface ModelInfo {
   ready: boolean;
 }
 
-/**
- * Browse available models by reading ModelManifest accounts on mainnet.
- */
 export async function listModels(
   connection: Connection,
   programId: PublicKey
 ): Promise<ModelInfo[]> {
-  // In production: use getProgramAccounts with memcmp filter on
-  // the ModelManifest discriminator to find all manifest accounts
-
-  // Placeholder: return empty list
+  // In production: use getProgramAccounts with memcmp filter
   return [];
-}
-
-// ── Convenience wrappers (SDK surface contract) ────────────────────────────
-
-export async function createSession(
-  connection: Connection,
-  payer: Keypair,
-  config: SessionConfig,
-): Promise<SessionAccounts> {
-  const client = new SessionClient(payer, {
-    ...config,
-    cluster: connection.rpcEndpoint,
-  });
-  await client.createSession();
-  const accounts = client.sessionAccounts;
-  if (!accounts) throw new Error("Session account allocation failed");
-  return accounts;
-}
-
-export async function joinSession(
-  connection: Connection,
-  payer: Keypair,
-  sessionKey: PublicKey,
-  accounts: SessionAccounts,
-  config: SessionConfig,
-): Promise<void> {
-  const client = new SessionClient(payer, {
-    ...config,
-    cluster: connection.rpcEndpoint,
-  });
-  await client.joinSession(sessionKey, accounts);
-}
-
-export async function sendInput(
-  connection: Connection,
-  payer: Keypair,
-  sessionKey: PublicKey,
-  accounts: SessionAccounts,
-  input: ControllerInput,
-  config: SessionConfig,
-): Promise<void> {
-  const client = new SessionClient(payer, {
-    ...config,
-    cluster: connection.rpcEndpoint,
-  });
-  client.attachSession(sessionKey, accounts);
-  await client.sendInput(input);
-}
-
-export async function endSession(
-  connection: Connection,
-  payer: Keypair,
-  sessionKey: PublicKey,
-  accounts: SessionAccounts,
-  config: SessionConfig,
-): Promise<void> {
-  const client = new SessionClient(payer, {
-    ...config,
-    cluster: connection.rpcEndpoint,
-  });
-  client.attachSession(sessionKey, accounts);
-  await client.endSession();
 }

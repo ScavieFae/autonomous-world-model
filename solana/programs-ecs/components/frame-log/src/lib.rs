@@ -1,4 +1,4 @@
-use anchor_lang::prelude::*;
+use bolt_lang::*;
 
 declare_id!("3mWTNv5jhzLnpG4Xt9XqM1b2nbNpizoGEJxepUhhoaNK");
 
@@ -14,7 +14,8 @@ pub const RING_BUFFER_SIZE: usize = 256;
 ///   - Positions: absolute (needed for rendering)
 ///   - Velocities: quantized to i8 (less precision ok for replay)
 ///   - Action state: absolute (needed for animation lookup)
-#[derive(Default, Clone, Copy, AnchorSerialize, AnchorDeserialize)]
+#[component_deserialize]
+#[derive(Default, Clone, Copy)]
 pub struct CompressedFrame {
     /// Frame number
     pub frame: u32,
@@ -61,7 +62,7 @@ pub struct CompressedFrame {
 /// the permanent record of what happened in this world.
 ///
 /// Lifecycle: Per-session, written every frame by run_inference.
-#[account]
+#[component]
 #[derive(Default)]
 pub struct FrameLog {
     /// Write index in the ring buffer (wraps at RING_BUFFER_SIZE)

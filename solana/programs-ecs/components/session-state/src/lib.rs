@@ -1,4 +1,4 @@
-use anchor_lang::prelude::*;
+use bolt_lang::*;
 
 declare_id!("FJwbNTbGHSpq4a72ro1aza53kvs7YMNT7J5U34kaosFj");
 
@@ -20,7 +20,8 @@ pub const STATUS_ENDED: u8 = 3;
 ///
 /// Matches the v2 encoding from nojohns-training and the JSON format
 /// consumed by viz/visualizer-juicy.html.
-#[derive(Default, Clone, Copy, AnchorSerialize, AnchorDeserialize)]
+#[component_deserialize]
+#[derive(Default, Clone, Copy)]
 pub struct PlayerState {
     // ── Continuous (regression heads) ───────────────────────────────────
     /// Horizontal position in game units
@@ -69,7 +70,7 @@ pub struct PlayerState {
 /// via WebSocket to receive real-time state updates for rendering.
 ///
 /// Lifecycle: Created per session in ephemeral rollup, committed to mainnet on end.
-#[account]
+#[component]
 #[derive(Default)]
 pub struct SessionState {
     /// Session status (Created → WaitingPlayers → Active → Ended)

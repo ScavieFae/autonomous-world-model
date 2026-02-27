@@ -1,8 +1,16 @@
-use anchor_lang::prelude::*;
+use bolt_lang::*;
 use input_buffer::{ControllerInput, InputBuffer};
 use session_state::{SessionState, STATUS_ACTIVE};
 
 declare_id!("F9ZqWHVDtsXZdHLU8MXfybsS1W3TTGv4NegcJZK9LnWx");
+
+#[error_code]
+pub enum InputError {
+    #[msg("Session is not active")]
+    SessionNotActive,
+    #[msg("Player is not part of this session")]
+    UnauthorizedPlayer,
+}
 
 /// Submit input system — receives controller inputs from a player.
 ///
@@ -17,19 +25,12 @@ declare_id!("F9ZqWHVDtsXZdHLU8MXfybsS1W3TTGv4NegcJZK9LnWx");
 ///
 /// In the ephemeral rollup, this tx is sent via WebSocket for minimal latency.
 /// Expected cadence: 60 calls per second per player (16.67ms intervals).
-#[program]
+#[system]
 pub mod submit_input {
-    use super::*;
 
-    pub fn execute(
-        ctx: Context<Components>,
-        args: Args,
-    ) -> Result<()> {
-        let session_info = ctx.accounts.session_state.to_account_info();
-        let input_info = ctx.accounts.input_buffer.to_account_info();
-
-        let session = load_component::<SessionState>(&session_info)?;
-        let mut input_buf = load_component::<InputBuffer>(&input_info)?;
+    pub fn execute(ctx: Context<Components>, args: Args) -> Result<Components> {
+        let session = &ctx.accounts.session_state;
+        let input_buf = &mut ctx.accounts.input_buffer;
 
         // Validate session is active
         require!(
@@ -81,63 +82,25 @@ pub mod submit_input {
             }
         }
 
-        store_component(&input_info, &input_buf)?;
-        Ok(())
-    }
-}
-
-#[derive(Accounts)]
-pub struct Components<'info> {
-    #[account()]
-    pub session_state: UncheckedAccount<'info>,
-    #[account(mut)]
-    pub input_buffer: UncheckedAccount<'info>,
-}
-
-#[derive(AnchorSerialize, AnchorDeserialize, Clone)]
-pub struct Args {
-    /// Public key of the submitting player (verified against session)
-    pub player: Pubkey,
-    pub stick_x: i8,
-    pub stick_y: i8,
-    pub c_stick_x: i8,
-    pub c_stick_y: i8,
-    pub trigger_l: u8,
-    pub trigger_r: u8,
-    pub buttons: u8,
-    pub buttons_ext: u8,
-}
-
-#[error_code]
-pub enum InputError {
-    #[msg("Session is not active")]
-    SessionNotActive,
-    #[msg("Player is not part of this session")]
-    UnauthorizedPlayer,
-    #[msg("Failed to deserialize component data")]
-    DeserializeFailed,
-    #[msg("Failed to serialize component data")]
-    SerializeFailed,
-}
-
-fn load_component<T: AnchorDeserialize + Default>(info: &AccountInfo) -> Result<T> {
-    let data = info.try_borrow_data()?;
-    if data.len() <= 8 {
-        return Ok(T::default());
+        Ok(ctx.accounts)
     }
 
-    let mut slice: &[u8] = &data[8..];
-    T::deserialize(&mut slice).map_err(|_| InputError::DeserializeFailed.into())
-}
-
-fn store_component<T: AnchorSerialize>(info: &AccountInfo, value: &T) -> Result<()> {
-    let mut data = info.try_borrow_mut_data()?;
-    if data.len() <= 8 {
-        return Err(InputError::SerializeFailed.into());
+    #[system_input]
+    pub struct Components {
+        pub session_state: SessionState,
+        pub input_buffer: InputBuffer,
     }
 
-    let mut dst = &mut data[8..];
-    value
-        .serialize(&mut dst)
-        .map_err(|_| InputError::SerializeFailed.into())
+    #[arguments]
+    pub struct Args {
+        pub player: Pubkey,
+        pub stick_x: i8,
+        pub stick_y: i8,
+        pub c_stick_x: i8,
+        pub c_stick_y: i8,
+        pub trigger_l: u8,
+        pub trigger_r: u8,
+        pub buttons: u8,
+        pub buttons_ext: u8,
+    }
 }

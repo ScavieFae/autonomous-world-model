@@ -1,15 +1,23 @@
 [workspace]
 members = [
-    "programs/cu-benchmark",
-    "programs/world-model",
-    "syscall",
-]
-exclude = [
-    "programs/upload-weights",
-    "programs/syscall-test",
-    "programs-ecs",
+    "programs-ecs/components/*",
+    "programs-ecs/systems/*",
 ]
 resolver = "2"
 
+[workspace.dependencies]
+bolt-lang = "0.2.4"
+anchor-lang = "0.31.1"
+
+# Component path deps (for systems to reference)
+session-state = { path = "programs-ecs/components/session-state", features = ["cpi"] }
+hidden-state = { path = "programs-ecs/components/hidden-state", features = ["cpi"] }
+input-buffer = { path = "programs-ecs/components/input-buffer", features = ["cpi"] }
+frame-log = { path = "programs-ecs/components/frame-log", features = ["cpi"] }
+model-manifest = { path = "programs-ecs/components/model-manifest", features = ["cpi"] }
+weight-shard = { path = "programs-ecs/components/weight-shard", features = ["cpi"] }
+
 [profile.release]
 overflow-checks = true
+lto = "fat"
+codegen-units = 1

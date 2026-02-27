@@ -1,4 +1,4 @@
-use anchor_lang::prelude::*;
+use bolt_lang::*;
 
 declare_id!("Ea3VKF8CW3svQwiT8pn13JVdbVhLHSBURtNuanagc4hs");
 
@@ -25,7 +25,7 @@ pub const MAX_HIDDEN_SIZE: usize = 200_000;
 /// contains a compressed representation of everything that happened —
 /// every hit, every dodge, every stock taken. It's the Mamba2 equivalent
 /// of "experience."
-#[account]
+#[component]
 #[derive(Default)]
 pub struct HiddenState {
     /// Number of layers in the model
