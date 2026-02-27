@@ -1,6 +1,6 @@
-use bolt_component::*;
+use anchor_lang::prelude::*;
 
-declare_id!("FrameLog11111111111111111111111111111111111");
+declare_id!("3mWTNv5jhzLnpG4Xt9XqM1b2nbNpizoGEJxepUhhoaNK");
 
 /// Number of frames in the ring buffer
 pub const RING_BUFFER_SIZE: usize = 256;
@@ -61,7 +61,7 @@ pub struct CompressedFrame {
 /// the permanent record of what happened in this world.
 ///
 /// Lifecycle: Per-session, written every frame by run_inference.
-#[component]
+#[account]
 #[derive(Default)]
 pub struct FrameLog {
     /// Write index in the ring buffer (wraps at RING_BUFFER_SIZE)

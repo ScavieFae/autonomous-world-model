@@ -1,6 +1,6 @@
-use bolt_component::*;
+use anchor_lang::prelude::*;
 
-declare_id!("Manifest11111111111111111111111111111111111");
+declare_id!("AucQsnqWYXeVcig4puWFjnd8NXruCtjS8EVgA2B5KxUk");
 
 /// Maximum number of layers supported
 pub const MAX_LAYERS: usize = 16;
@@ -25,8 +25,7 @@ pub const NUM_LUTS: usize = 4;
 ///
 /// Lifecycle: Permanent on mainnet. Created once per model version.
 /// Size: ~2KB (well within single account limits).
-#[component]
-#[derive(Default)]
+#[account]
 pub struct ModelManifest {
     /// Human-readable model name (e.g., "melee-mamba2-v1")
     pub name: [u8; 32],
@@ -106,4 +105,32 @@ pub struct ModelManifest {
 
     /// Total INT8 weight bytes across all shards
     pub total_weight_bytes: u32,
+}
+
+impl Default for ModelManifest {
+    fn default() -> Self {
+        Self {
+            name: [0u8; 32],
+            version: 0,
+            d_model: 0,
+            d_inner: 0,
+            d_state: 0,
+            num_layers: 0,
+            num_heads: 0,
+            num_shards: 0,
+            shard_keys: [Pubkey::default(); MAX_SHARDS],
+            shard_sizes: [0u32; MAX_SHARDS],
+            layer_input_scales: [0u16; MAX_LAYERS],
+            layer_output_scales: [0u16; MAX_LAYERS],
+            luts: [0u8; LUT_SIZE * NUM_LUTS],
+            num_continuous: 0,
+            num_action_states: 0,
+            num_binary: 0,
+            input_size: 0,
+            authority: Pubkey::default(),
+            ready: false,
+            total_params: 0,
+            total_weight_bytes: 0,
+        }
+    }
 }

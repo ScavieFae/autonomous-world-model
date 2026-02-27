@@ -14,7 +14,6 @@ default = []
 
 [dependencies]
 anchor-lang = "0.29.0"
-bolt-system = "0.1.0"
 session-state = { path = "../../components/session-state", features = ["cpi"] }
 hidden-state = { path = "../../components/hidden-state", features = ["cpi"] }
 input-buffer = { path = "../../components/input-buffer", features = ["cpi"] }

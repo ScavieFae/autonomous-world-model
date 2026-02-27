@@ -27,32 +27,32 @@ import { ControllerInput, defaultInput } from "./input";
 
 /** Session lifecycle system program ID */
 export const SESSION_LIFECYCLE_PROGRAM_ID = new PublicKey(
-  "SessLife11111111111111111111111111111111111"
+  "4ozheJvvMhG7yMrp1UR2kq1fhRvjXoY5Pn3NJ4nvAcyE"
 );
 
 /** Submit input system program ID */
 export const SUBMIT_INPUT_PROGRAM_ID = new PublicKey(
-  "Subinput11111111111111111111111111111111111"
+  "F9ZqWHVDtsXZdHLU8MXfybsS1W3TTGv4NegcJZK9LnWx"
 );
 
 /** SessionState component program ID */
 export const SESSION_STATE_PROGRAM_ID = new PublicKey(
-  "SessState1111111111111111111111111111111111"
+  "FJwbNTbGHSpq4a72ro1aza53kvs7YMNT7J5U34kaosFj"
 );
 
 /** InputBuffer component program ID */
 export const INPUT_BUFFER_PROGRAM_ID = new PublicKey(
-  "inpBuffer1111111111111111111111111111111111"
+  "3R2RbzwP54qdyXcyiwHW2Sj6uVwf4Dhy7Zy8RcSVHFpq"
 );
 
 /** FrameLog component program ID */
 export const FRAME_LOG_PROGRAM_ID = new PublicKey(
-  "FrameLog11111111111111111111111111111111111"
+  "3mWTNv5jhzLnpG4Xt9XqM1b2nbNpizoGEJxepUhhoaNK"
 );
 
 /** HiddenState component program ID */
 export const HIDDEN_STATE_PROGRAM_ID = new PublicKey(
-  "HdnState11111111111111111111111111111111111"
+  "Ea3VKF8CW3svQwiT8pn13JVdbVhLHSBURtNuanagc4hs"
 );
 
 // ── Lifecycle action codes ──────────────────────────────────────────────────
@@ -176,10 +176,10 @@ export class SessionClient {
     };
 
     const allocations = [
-      { keypair: accounts.sessionState, size: SESSION_STATE_SIZE, owner: SESSION_STATE_PROGRAM_ID },
-      { keypair: accounts.hiddenState, size: HIDDEN_STATE_SIZE, owner: HIDDEN_STATE_PROGRAM_ID },
-      { keypair: accounts.inputBuffer, size: INPUT_BUFFER_SIZE, owner: INPUT_BUFFER_PROGRAM_ID },
-      { keypair: accounts.frameLog, size: FRAME_LOG_SIZE, owner: FRAME_LOG_PROGRAM_ID },
+      { keypair: accounts.sessionState, size: SESSION_STATE_SIZE, owner: SESSION_LIFECYCLE_PROGRAM_ID },
+      { keypair: accounts.hiddenState, size: HIDDEN_STATE_SIZE, owner: SESSION_LIFECYCLE_PROGRAM_ID },
+      { keypair: accounts.inputBuffer, size: INPUT_BUFFER_SIZE, owner: SUBMIT_INPUT_PROGRAM_ID },
+      { keypair: accounts.frameLog, size: FRAME_LOG_SIZE, owner: SESSION_LIFECYCLE_PROGRAM_ID },
     ];
 
     for (const { keypair, size, owner } of allocations) {
@@ -452,7 +452,7 @@ export class SessionClient {
     numLayers: number;
   }): Buffer {
     // Anchor discriminator for "execute" (first 8 bytes of SHA256("global:execute"))
-    const discriminator = Buffer.from([0x0b, 0xed, 0x60, 0x84, 0x3d, 0x04, 0xea, 0xf8]);
+    const discriminator = Buffer.from([0x82, 0xdd, 0xf2, 0x9a, 0x0d, 0xc1, 0xbd, 0x1d]);
 
     const buf = Buffer.alloc(
       8 +     // discriminator
@@ -498,7 +498,7 @@ export class SessionClient {
     buttons: number;
     buttonsExt: number;
   }): Buffer {
-    const discriminator = Buffer.from([0x0b, 0xed, 0x60, 0x84, 0x3d, 0x04, 0xea, 0xf8]);
+    const discriminator = Buffer.from([0x82, 0xdd, 0xf2, 0x9a, 0x0d, 0xc1, 0xbd, 0x1d]);
 
     const buf = Buffer.alloc(
       8 +     // discriminator

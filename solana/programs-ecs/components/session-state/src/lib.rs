@@ -1,6 +1,6 @@
-use bolt_component::*;
+use anchor_lang::prelude::*;
 
-declare_id!("SessState1111111111111111111111111111111111");
+declare_id!("FJwbNTbGHSpq4a72ro1aza53kvs7YMNT7J5U34kaosFj");
 
 /// Number of players per session
 pub const NUM_PLAYERS: usize = 2;
@@ -69,7 +69,7 @@ pub struct PlayerState {
 /// via WebSocket to receive real-time state updates for rendering.
 ///
 /// Lifecycle: Created per session in ephemeral rollup, committed to mainnet on end.
-#[component]
+#[account]
 #[derive(Default)]
 pub struct SessionState {
     /// Session status (Created → WaitingPlayers → Active → Ended)

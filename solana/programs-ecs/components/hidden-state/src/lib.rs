@@ -1,6 +1,6 @@
-use bolt_component::*;
+use anchor_lang::prelude::*;
 
-declare_id!("HdnState11111111111111111111111111111111111");
+declare_id!("Ea3VKF8CW3svQwiT8pn13JVdbVhLHSBURtNuanagc4hs");
 
 /// Maximum model dimensions (for sizing the hidden state buffer)
 /// d_inner=1024, d_state=16, num_layers=12 → 1024*16*12 = 196,608 bytes per hidden state
@@ -25,7 +25,7 @@ pub const MAX_HIDDEN_SIZE: usize = 200_000;
 /// contains a compressed representation of everything that happened —
 /// every hit, every dodge, every stock taken. It's the Mamba2 equivalent
 /// of "experience."
-#[component]
+#[account]
 #[derive(Default)]
 pub struct HiddenState {
     /// Number of layers in the model

@@ -4,10 +4,7 @@ import { Keypair, PublicKey } from "@solana/web3.js";
 
 import { defaultInput } from "../client/src/input";
 import {
-  FRAME_LOG_PROGRAM_ID,
-  INPUT_BUFFER_PROGRAM_ID,
   SESSION_LIFECYCLE_PROGRAM_ID,
-  SESSION_STATE_PROGRAM_ID,
   SUBMIT_INPUT_PROGRAM_ID,
   SessionClient,
   type SessionConfig,
@@ -240,15 +237,15 @@ describe("session sdk lifecycle (BOLT ECS localnet)", () => {
     const accounts = p1Client.sessionAccounts;
     expect(accounts, "Session accounts should be populated after create").to.exist;
 
-    // Owner sanity checks for allocated component accounts (catches SDK owner bugs)
+    // Owner sanity checks for allocated runtime accounts.
     const [sessionInfo, inputInfo, frameLogInfo] = await Promise.all([
       provider.connection.getAccountInfo(accounts!.sessionState.publicKey, "confirmed"),
       provider.connection.getAccountInfo(accounts!.inputBuffer.publicKey, "confirmed"),
       provider.connection.getAccountInfo(accounts!.frameLog.publicKey, "confirmed"),
     ]);
-    expect(sessionInfo?.owner.toBase58()).to.equal(SESSION_STATE_PROGRAM_ID.toBase58());
-    expect(inputInfo?.owner.toBase58()).to.equal(INPUT_BUFFER_PROGRAM_ID.toBase58());
-    expect(frameLogInfo?.owner.toBase58()).to.equal(FRAME_LOG_PROGRAM_ID.toBase58());
+    expect(sessionInfo?.owner.toBase58()).to.equal(SESSION_LIFECYCLE_PROGRAM_ID.toBase58());
+    expect(inputInfo?.owner.toBase58()).to.equal(SUBMIT_INPUT_PROGRAM_ID.toBase58());
+    expect(frameLogInfo?.owner.toBase58()).to.equal(SESSION_LIFECYCLE_PROGRAM_ID.toBase58());
 
     let session = await p1Client.fetchSessionState();
     expect(session.status).to.equal(SessionStatus.WaitingPlayers);

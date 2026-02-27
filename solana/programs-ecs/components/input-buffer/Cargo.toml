@@ -14,4 +14,3 @@ default = []
 
 [dependencies]
 anchor-lang = "0.29.0"
-bolt-component = "0.1.0"

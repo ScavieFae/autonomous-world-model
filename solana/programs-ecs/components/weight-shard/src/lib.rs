@@ -1,6 +1,6 @@
-use bolt_component::*;
+use anchor_lang::prelude::*;
 
-declare_id!("WghtShard1111111111111111111111111111111111");
+declare_id!("A56nQANMn1ThuqZLZkAVooDmUMrSoEddyNHF41WbqvXE");
 
 /// INT8 weight shard — stores quantized model weights for onchain inference.
 ///
@@ -12,7 +12,7 @@ declare_id!("WghtShard1111111111111111111111111111111111");
 ///
 /// Layout: Raw INT8 bytes, indexed by offsets from ModelManifest.
 /// The data field is sized at creation and populated via the upload-weights program.
-#[component]
+#[account]
 #[derive(Default)]
 pub struct WeightShard {
     /// Shard index (0 or 1 for 2-shard model)

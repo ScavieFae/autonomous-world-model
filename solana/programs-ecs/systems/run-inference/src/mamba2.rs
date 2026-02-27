@@ -234,7 +234,8 @@ pub fn mamba2_layer_step(
     );
 
     // ── Step 6: Residual add ────────────────────────────────────────────
-    matmul::add_i8(x, &scratch.y_out, x, d_model);
+    let residual = x.to_vec();
+    matmul::add_i8(&residual, &scratch.y_out, x, d_model);
 }
 
 /// Encode game state + controller inputs into model input vector.

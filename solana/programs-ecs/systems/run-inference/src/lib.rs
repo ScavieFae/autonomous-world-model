@@ -1,5 +1,4 @@
 use anchor_lang::prelude::*;
-use bolt_system::*;
 use frame_log::{CompressedFrame, FrameLog, RING_BUFFER_SIZE};
 use hidden_state::HiddenState;
 use input_buffer::InputBuffer;
@@ -11,7 +10,7 @@ pub mod lut;
 pub mod matmul;
 pub mod mamba2;
 
-declare_id!("RunInfer11111111111111111111111111111111111");
+declare_id!("3tHPJJSNhKwbp7K5vSYCUdYVX9bGxRCmpddwaJWRKPyb");
 
 /// Run inference system — the heart of the autonomous world.
 ///
@@ -34,12 +33,14 @@ declare_id!("RunInfer11111111111111111111111111111111111");
 ///   - SessionState: updated with new frame state
 ///   - HiddenState: updated recurrent state
 ///   - FrameLog: compressed frame appended to ring buffer
-#[system]
+#[program]
 pub mod run_inference {
+    use super::*;
+
     pub fn execute(
         ctx: Context<Components>,
         _args: Args,
-    ) -> Result<Components> {
+    ) -> Result<()> {
         let session = &mut ctx.accounts.session_state;
         let hidden = &mut ctx.accounts.hidden_state;
         let input_buf = &ctx.accounts.input_buffer;
@@ -135,27 +136,30 @@ pub mod run_inference {
         frame_log.write_index = ((write_idx + 1) % RING_BUFFER_SIZE) as u16;
         frame_log.total_frames = frame;
 
-        Ok(ctx.accounts)
+        Ok(())
     }
+}
 
-    #[system_input]
-    pub struct Components {
-        pub session_state: SessionState,
-        pub hidden_state: HiddenState,
-        pub input_buffer: InputBuffer,
-        pub frame_log: FrameLog,
-        // Phase 4 will add:
-        // pub model_manifest: ModelManifest,
-        // pub weight_shard_0: WeightShard,
-        // pub weight_shard_1: WeightShard,
-    }
+#[derive(Accounts)]
+pub struct Components<'info> {
+    #[account(mut)]
+    pub session_state: Account<'info, SessionState>,
+    #[account(mut)]
+    pub hidden_state: Account<'info, HiddenState>,
+    pub input_buffer: Account<'info, InputBuffer>,
+    #[account(mut)]
+    pub frame_log: Account<'info, FrameLog>,
+    // Phase 4 will add:
+    // pub model_manifest: ModelManifest,
+    // pub weight_shard_0: WeightShard,
+    // pub weight_shard_1: WeightShard,
+}
 
-    #[arguments]
-    pub struct Args {
-        // Phase 4 may add:
-        // pub layer_start: u8,  // For multi-tx pipeline: which layer to start at
-        // pub layer_end: u8,    // Which layer to end at
-    }
+#[derive(AnchorSerialize, AnchorDeserialize, Clone)]
+pub struct Args {
+    // Phase 4 may add:
+    // pub layer_start: u8,  // For multi-tx pipeline: which layer to start at
+    // pub layer_end: u8,    // Which layer to end at
 }
 
 /// Compress a full frame state into the compact ring buffer format.

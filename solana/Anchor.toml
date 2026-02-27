@@ -3,7 +3,15 @@ seeds = false
 skip-lint = false
 
 [programs.localnet]
-cu_benchmark = "Ecs7bGY1zvN6Desmt1d98PcSicoYc6c93jvQXAosyePF"
+session_state = "FJwbNTbGHSpq4a72ro1aza53kvs7YMNT7J5U34kaosFj"
+hidden_state = "Ea3VKF8CW3svQwiT8pn13JVdbVhLHSBURtNuanagc4hs"
+input_buffer = "3R2RbzwP54qdyXcyiwHW2Sj6uVwf4Dhy7Zy8RcSVHFpq"
+frame_log = "3mWTNv5jhzLnpG4Xt9XqM1b2nbNpizoGEJxepUhhoaNK"
+model_manifest = "AucQsnqWYXeVcig4puWFjnd8NXruCtjS8EVgA2B5KxUk"
+weight_shard = "A56nQANMn1ThuqZLZkAVooDmUMrSoEddyNHF41WbqvXE"
+session_lifecycle = "4ozheJvvMhG7yMrp1UR2kq1fhRvjXoY5Pn3NJ4nvAcyE"
+submit_input = "F9ZqWHVDtsXZdHLU8MXfybsS1W3TTGv4NegcJZK9LnWx"
+run_inference = "3tHPJJSNhKwbp7K5vSYCUdYVX9bGxRCmpddwaJWRKPyb"
 
 [registry]
 url = "https://api.apr.dev"
@@ -12,5 +20,16 @@ url = "https://api.apr.dev"
 cluster = "Localnet"
 wallet = "~/.config/solana/id.json"
 
+[workspace]
+members = []
+
+[[test.genesis]]
+address = "4ozheJvvMhG7yMrp1UR2kq1fhRvjXoY5Pn3NJ4nvAcyE"
+program = "target/deploy/session_lifecycle.so"
+
+[[test.genesis]]
+address = "F9ZqWHVDtsXZdHLU8MXfybsS1W3TTGv4NegcJZK9LnWx"
+program = "target/deploy/submit_input.so"
+
 [scripts]
-test = "npx ts-mocha -p ./tsconfig.json -t 1000000 tests/**/*.ts"
+test = "npx ts-mocha -p ./tsconfig.json -t 1000000 tests/session.ts"

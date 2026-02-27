@@ -1,6 +1,6 @@
-use bolt_component::*;
+use anchor_lang::prelude::*;
 
-declare_id!("InpBuffer1111111111111111111111111111111111");
+declare_id!("3R2RbzwP54qdyXcyiwHW2Sj6uVwf4Dhy7Zy8RcSVHFpq");
 
 /// Melee controller input for one player.
 ///
@@ -40,7 +40,7 @@ pub struct ControllerInput {
 ///
 /// Lifecycle: Per-session, overwritten every frame.
 /// Size: ~20 bytes (tiny — just two controller states + metadata).
-#[component]
+#[account]
 #[derive(Default)]
 pub struct InputBuffer {
     /// Frame number these inputs are for
