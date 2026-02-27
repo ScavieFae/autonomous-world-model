@@ -1,12 +1,11 @@
 'use client';
 
 import { useState, useEffect, useCallback } from 'react';
-import type { PlaybackEngine } from '@/engine/playback';
 import { useArenaStore } from '@/stores/arena';
-import type { RenderMode, CharacterFillMode } from '@/engine/types';
+import type { RenderMode, CharacterFillMode, Engine } from '@/engine/types';
 
 interface PlaybackControlsProps {
-  engine: PlaybackEngine;
+  engine: Engine;
   currentFrame: number;
   totalFrames: number;
   minimal?: boolean;

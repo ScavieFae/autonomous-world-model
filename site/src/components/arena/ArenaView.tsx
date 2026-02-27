@@ -10,16 +10,36 @@ import BetweenSetsView from '@/components/arena/BetweenSetsView';
 import PreMatchView from '@/components/arena/PreMatchView';
 import PostMatchView from '@/components/arena/PostMatchView';
 import { PlaybackEngine } from '@/engine/playback';
+import { LiveEngine, type LiveConnectionState } from '@/engine/live';
 import { generateMockData } from '@/engine/mock-data';
 import { preloadFromFrames } from '@/engine/animations';
 import { setJuiceEventCallback, type JuiceEvent } from '@/engine/juice';
 import { useArenaStore } from '@/stores/arena';
-import type { VizFrame } from '@/engine/types';
+import type { VizFrame, Engine } from '@/engine/types';
+
+/** Read ?live=ws://... from the URL query string. */
+function getLiveUrl(): string | null {
+  if (typeof window === 'undefined') return null;
+  const params = new URLSearchParams(window.location.search);
+  return params.get('live') || null;
+}
+
+const CONNECTION_LABELS: Record<LiveConnectionState, { text: string; className: string }> = {
+  idle: { text: '', className: '' },
+  connecting: { text: 'CONNECTING', className: 'live-badge live-badge--connecting' },
+  live: { text: 'LIVE', className: 'live-badge live-badge--live' },
+  disconnected: { text: 'DISCONNECTED', className: 'live-badge live-badge--disconnected' },
+  error: { text: 'ERROR', className: 'live-badge live-badge--error' },
+};
 
 export default function ArenaView() {
-  const engineRef = useRef<PlaybackEngine | null>(null);
+  const liveUrl = useRef(getLiveUrl());
+  const isLive = liveUrl.current !== null;
+
+  // Create the right engine type once
+  const engineRef = useRef<Engine | null>(null);
   if (!engineRef.current) {
-    engineRef.current = new PlaybackEngine();
+    engineRef.current = isLive ? new LiveEngine() : new PlaybackEngine();
   }
   const engine = engineRef.current;
 
@@ -28,6 +48,7 @@ export default function ArenaView() {
   const [totalFrames, setTotalFrames] = useState(0);
   const phase = useArenaStore((s) => s.phase);
   const currentMatch = useArenaStore((s) => s.currentMatch);
+  const liveConnection = useArenaStore((s) => s.liveConnection);
 
   const onFrameUpdate = useCallback((f: VizFrame, idx: number) => {
     setFrame(f);
@@ -35,8 +56,28 @@ export default function ArenaView() {
     setTotalFrames(engine.totalFrames);
   }, [engine]);
 
-  // Load replay data (or fall back to mock) and start playback
+  // Live mode: connect to WS server
   useEffect(() => {
+    if (!isLive || !(engine instanceof LiveEngine)) return;
+
+    const url = liveUrl.current!;
+    engine.setOnConnectionChange((state) => {
+      useArenaStore.getState().setLiveConnection(state);
+      if (state === 'live') {
+        useArenaStore.getState().setPhase('live');
+      }
+    });
+    engine.connect(url);
+
+    return () => {
+      engine.disconnect();
+    };
+  }, [engine, isLive]);
+
+  // Playback mode: load replay or mock data
+  useEffect(() => {
+    if (isLive) return; // Live mode handles its own data
+
     let cancelled = false;
 
     function startWithFrames(data: VizFrame[]) {
@@ -51,8 +92,10 @@ export default function ArenaView() {
         if (!r.ok) throw new Error('no replay');
         return r.json();
       })
-      .then((data: VizFrame[]) => {
+      .then((raw: VizFrame[] | { meta?: unknown; frames: VizFrame[] }) => {
         if (cancelled) return;
+        // Crank outputs {meta, stage_geometry, frames} — unwrap if needed
+        const data: VizFrame[] = Array.isArray(raw) ? raw : raw.frames;
         useArenaStore.getState().setPhase('live');
         startWithFrames(data);
       })
@@ -67,7 +110,7 @@ export default function ArenaView() {
       cancelled = true;
       engine.pause();
     };
-  }, [engine]);
+  }, [engine, isLive]);
 
   // Wire up juice event callback to push match events
   useEffect(() => {
@@ -99,6 +142,8 @@ export default function ArenaView() {
   const p1Sponsor = currentMatch?.p1.sponsor;
   const p2Sponsor = currentMatch?.p2.sponsor;
 
+  const badge = CONNECTION_LABELS[liveConnection];
+
   return (
     <div className="arena-outer">
       <div className="arena-stage-wrapper crt-screen">
@@ -109,6 +154,11 @@ export default function ArenaView() {
           dimmed={phase !== 'live'}
         />
         <CRTOverlay />
+
+        {/* Live connection indicator */}
+        {isLive && badge.text && (
+          <div className={badge.className}>{badge.text}</div>
+        )}
 
         {phase === 'between-sets' && <BetweenSetsView />}
         {phase === 'pre-match' && <PreMatchView />}
@@ -142,7 +192,7 @@ export default function ArenaView() {
         {phase === 'post-match' && <PostMatchView />}
       </div>
 
-      {phase === 'live' && (
+      {phase === 'live' && !isLive && (
         <PlaybackControls
           engine={engine}
           currentFrame={frameIdx}

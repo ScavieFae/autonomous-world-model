@@ -63,6 +63,9 @@ class EncodingConfig:
     press_events: bool = False  # Exp 2a: 16 binary features for newly-pressed buttons
     lookahead: int = 0  # Exp 3a: predict frame t+d given ctrl(t) through ctrl(t+d)
     projectiles: bool = False  # Exp 4: item/projectile encoding (per-player nearest)
+    state_flags: bool = False  # all 40 bits from 5 state_flags bytes as binary features
+    hitstun: bool = False  # hitstun_remaining as continuous feature
+    hitstun_scale: float = 0.02  # normalization: range 0-50 → 0-1
 
     @property
     def core_continuous_dim(self) -> int:
@@ -74,7 +77,10 @@ class EncodingConfig:
 
     @property
     def dynamics_dim(self) -> int:
-        return 2 if self.state_age_as_embed else 3  # hitlag, stocks [, state_age]
+        base = 2 if self.state_age_as_embed else 3  # hitlag, stocks [, state_age]
+        if self.hitstun:
+            base += 1  # hitstun_remaining
+        return base
 
     @property
     def combat_continuous_dim(self) -> int:
@@ -92,7 +98,10 @@ class EncodingConfig:
 
     @property
     def binary_dim(self) -> int:
-        return 3  # facing, invulnerable, on_ground
+        base = 3  # facing, invulnerable, on_ground
+        if self.state_flags:
+            base += 40  # all 40 bits from 5 state_flags bytes
+        return base
 
     @property
     def controller_dim(self) -> int:
@@ -133,12 +142,19 @@ class EncodingConfig:
         return self.float_per_player + self.embed_dim
 
     @property
+    def predicted_binary_dim(self) -> int:
+        return self.binary_dim * 2  # both players
+
+    @property
     def predicted_velocity_dim(self) -> int:
         return self.velocity_dim * 2  # 10 — both players
 
     @property
     def predicted_dynamics_dim(self) -> int:
-        return 6  # hitlag + stocks + combo, both players
+        base = 6  # hitlag + stocks + combo, both players
+        if self.hitstun:
+            base += 2  # hitstun × 2 players
+        return base
 
     @property
     def target_int_dim(self) -> int:

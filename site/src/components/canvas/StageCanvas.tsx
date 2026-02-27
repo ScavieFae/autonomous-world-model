@@ -1,7 +1,6 @@
 'use client';
 
 import { useRef, useEffect, useCallback } from 'react';
-import { PlaybackEngine } from '@/engine/playback';
 import { generateMockData, type MockScenario } from '@/engine/mock-data';
 import { drawFrame } from '@/engine/renderers/common';
 import { drawWirePlayer } from '@/engine/renderers/wire';
@@ -9,12 +8,12 @@ import { drawCharacterPlayer } from '@/engine/renderers/character';
 import { setGameToScreen } from '@/engine/juice';
 import { preloadFromFrames } from '@/engine/animations';
 import { useArenaStore } from '@/stores/arena';
-import type { VizFrame, RenderMode, CharacterFillMode } from '@/engine/types';
+import type { VizFrame, RenderMode, CharacterFillMode, Engine } from '@/engine/types';
 
 interface StageCanvasProps {
   scenario?: MockScenario;
   frames?: VizFrame[];
-  engine: PlaybackEngine;
+  engine: Engine;
   onFrameUpdate?: (frame: VizFrame, index: number) => void;
   dimmed?: boolean;
 }

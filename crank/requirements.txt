@@ -1,4 +1,5 @@
 torch>=2.0
+websockets>=13.0
 # For crank mode (Mode B):
 # solana>=0.35.0
 # solders>=0.25.0

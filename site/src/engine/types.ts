@@ -48,3 +48,23 @@ export const PLAYER_COLORS: [PlayerColors, PlayerColors] = [
   { main: '#22c55e', glow: 'rgba(34,197,94,0.35)', dim: 'rgba(34,197,94,0.15)', r: 34, g: 197, b: 94 },
   { main: '#f59e0b', glow: 'rgba(245,158,11,0.35)', dim: 'rgba(245,158,11,0.15)', r: 245, g: 158, b: 11 },
 ];
+
+/** Shared engine interface — both PlaybackEngine and LiveEngine implement this. */
+export interface Engine {
+  frames: VizFrame[];
+  currentFrame: number;
+  playing: boolean;
+  playSpeed: number;
+  speedIdx: number;
+  readonly totalFrames: number;
+  readonly currentVizFrame: VizFrame | null;
+  setOnFrame(cb: (frame: VizFrame, index: number) => void): void;
+  loadFrames(frames: VizFrame[]): void;
+  play(): void;
+  pause(): void;
+  togglePlay(): void;
+  stepFrame(delta: number): void;
+  seekTo(frameIdx: number): void;
+  cycleSpeed(direction?: 1 | -1): void;
+  destroy(): void;
+}

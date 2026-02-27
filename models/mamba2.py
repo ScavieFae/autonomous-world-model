@@ -272,7 +272,7 @@ class FrameStackMamba2(nn.Module):
 
         # --- Prediction heads ---
         self.continuous_head = nn.Linear(d_model, 8)
-        self.binary_head = nn.Linear(d_model, 6)
+        self.binary_head = nn.Linear(d_model, cfg.predicted_binary_dim)
         self.velocity_head = nn.Linear(d_model, cfg.predicted_velocity_dim)
         self.dynamics_head = nn.Linear(d_model, cfg.predicted_dynamics_dim)
         self.p0_action_head = nn.Linear(d_model, cfg.action_vocab)

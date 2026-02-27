@@ -14,6 +14,13 @@ Mode B (Solana crank): reads/writes ER accounts.
         --world-model checkpoints/world-model.pt \
         --policy checkpoints/policy.pt \
         --session <pubkey> --rpc <er-endpoint>
+
+Mode C (WebSocket server): stream live matches to browser clients.
+    python -m crank.main \
+        --world-model checkpoints/world-model.pt \
+        --p0 policy:checkpoints/policy.pt \
+        --p1 policy:checkpoints/policy.pt \
+        --serve --port 8765 --loop
 """
 
 import argparse
@@ -30,6 +37,25 @@ from crank.agents import make_agent
 from crank.match_runner import run_match
 
 logger = logging.getLogger(__name__)
+
+
+def run_serve(args):
+    """Mode C: WebSocket server — stream matches to connected clients."""
+    from crank.ws_server import serve
+
+    asyncio.run(serve(
+        world_model_path=args.world_model,
+        p0_spec=args.p0,
+        p1_spec=args.p1,
+        stage=args.stage,
+        p0_char=args.p0_char,
+        p1_char=args.p1_char,
+        max_frames=args.max_frames,
+        device=args.device,
+        no_early_ko=args.no_early_ko,
+        port=args.port,
+        loop=args.loop,
+    ))
 
 
 def run_standalone(args):
@@ -190,6 +216,12 @@ def main():
     crank.add_argument("--rpc", help="Solana RPC endpoint (ER)")
     crank.add_argument("--policy", help="Policy checkpoint for both players")
 
+    # Mode C: WebSocket server
+    ws = parser.add_argument_group("serve mode")
+    ws.add_argument("--serve", action="store_true", help="Start WebSocket server")
+    ws.add_argument("--port", type=int, default=8765, help="WebSocket port (default: 8765)")
+    ws.add_argument("--loop", action="store_true", help="Loop matches continuously")
+
     args = parser.parse_args()
 
     logging.basicConfig(
@@ -198,7 +230,10 @@ def main():
         datefmt="%H:%M:%S",
     )
 
-    if args.session and args.rpc:
+    if args.serve:
+        # Mode C: WebSocket server
+        run_serve(args)
+    elif args.session and args.rpc:
         # Mode B: Solana crank
         if not args.policy:
             parser.error("--policy is required for crank mode")

@@ -594,6 +594,56 @@ a { color: inherit; text-decoration: none; }
   background: var(--p1);
 }
 
+/* Live page */
+.live-header {
+  padding: 12px 16px 8px;
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+}
+.live-title {
+  font-size: 16px;
+  font-weight: 700;
+  color: var(--fg);
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+.live-subtitle {
+  font-size: 11px;
+  color: var(--dim);
+  font-family: var(--font-mono);
+}
+.live-empty {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  color: var(--dim);
+  font-size: 14px;
+  gap: 8px;
+  z-index: 10;
+}
+.live-empty-hint {
+  font-size: 11px;
+  font-family: var(--font-mono);
+  color: var(--muted);
+}
+.live-empty code {
+  background: rgba(255,255,255,0.06);
+  padding: 2px 6px;
+  border-radius: 3px;
+  font-size: 10px;
+}
+.live-frame-counter {
+  padding: 4px 16px;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--dim);
+  text-align: right;
+}
+
 /* Arena layout — CRT centerpiece */
 .arena-outer {
   display: flex;
@@ -679,6 +729,48 @@ a { color: inherit; text-decoration: none; }
   padding: 12px;
   border: 1px solid var(--border);
   pointer-events: auto;
+}
+
+/* Live connection badge */
+.live-badge {
+  position: absolute;
+  top: 12px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 20;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  padding: 4px 12px;
+  border-radius: 4px;
+  pointer-events: none;
+}
+.live-badge--connecting {
+  background: rgba(245,158,11,0.15);
+  color: #f59e0b;
+  border: 1px solid rgba(245,158,11,0.3);
+  animation: pulse-badge 1.5s ease-in-out infinite;
+}
+.live-badge--live {
+  background: rgba(239,68,68,0.15);
+  color: #ef4444;
+  border: 1px solid rgba(239,68,68,0.3);
+  animation: pulse-badge 2s ease-in-out infinite;
+}
+.live-badge--disconnected {
+  background: rgba(100,116,139,0.15);
+  color: #94a3b8;
+  border: 1px solid rgba(100,116,139,0.3);
+}
+.live-badge--error {
+  background: rgba(244,63,94,0.15);
+  color: #f43f5e;
+  border: 1px solid rgba(244,63,94,0.3);
+}
+@keyframes pulse-badge {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.6; }
 }
 
 /* ======================== */

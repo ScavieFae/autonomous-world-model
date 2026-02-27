@@ -1,6 +1,7 @@
 import { create } from 'zustand';
 import type { RenderMode, CharacterFillMode } from '@/engine/types';
 import { CHARACTER_FILL_MODES } from '@/engine/types';
+import type { LiveConnectionState } from '@/engine/live';
 
 export type ArenaPhase = 'between-sets' | 'pre-match' | 'live' | 'post-match';
 
@@ -30,6 +31,7 @@ interface ArenaStore {
   phase: ArenaPhase;
   renderMode: RenderMode;
   characterFill: CharacterFillMode;
+  liveConnection: LiveConnectionState;
   nextMatch: MatchPreview | null;
   currentMatch: MatchPreview | null;
   matchResult: MatchResult | null;
@@ -39,6 +41,7 @@ interface ArenaStore {
   setPhase: (phase: ArenaPhase) => void;
   setRenderMode: (mode: RenderMode) => void;
   cycleCharacterFill: () => void;
+  setLiveConnection: (state: LiveConnectionState) => void;
   pushEvent: (event: MatchEvent) => void;
   runDemoCycle: () => void;
   stopDemoCycle: () => void;
@@ -83,8 +86,9 @@ function pickNextMatch(): MatchPreview {
 
 export const useArenaStore = create<ArenaStore>((set, get) => ({
   phase: 'between-sets',
-  renderMode: 'capsule',
-  characterFill: 'stroke',
+  renderMode: 'xray',
+  characterFill: 'hologram',
+  liveConnection: 'idle',
   nextMatch: pickNextMatch(),
   currentMatch: null,
   matchResult: null,
@@ -93,6 +97,7 @@ export const useArenaStore = create<ArenaStore>((set, get) => ({
 
   setPhase: (phase) => set({ phase }),
   setRenderMode: (renderMode) => set({ renderMode }),
+  setLiveConnection: (liveConnection) => set({ liveConnection }),
   cycleCharacterFill: () => set((s) => {
     const idx = CHARACTER_FILL_MODES.indexOf(s.characterFill);
     const next = CHARACTER_FILL_MODES[(idx + 1) % CHARACTER_FILL_MODES.length];

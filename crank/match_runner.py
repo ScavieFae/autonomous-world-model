@@ -59,7 +59,11 @@ def clamp_frame(next_float: torch.Tensor, cfg: EncodingConfig) -> torch.Tensor:
 
 
 def decode_continuous(normalized: torch.Tensor, cfg: EncodingConfig) -> dict:
-    """Decode a player's continuous floats back to game units."""
+    """Decode a player's continuous floats back to game units.
+
+    Layout: [core(4) | velocity(5) | dynamics(2-4) | combat(1) | projectile(0-3)]
+    Dynamics = [state_age?] hitlag stocks [hitstun?]
+    """
     result = {
         "percent": normalized[0].item() / cfg.percent_scale,
         "x": normalized[1].item() / cfg.xy_scale,
@@ -71,16 +75,18 @@ def decode_continuous(normalized: torch.Tensor, cfg: EncodingConfig) -> dict:
         "speed_attack_x": normalized[7].item() / cfg.velocity_scale,
         "speed_attack_y": normalized[8].item() / cfg.velocity_scale,
     }
+    i = 9  # index into dynamics region
     if not cfg.state_age_as_embed:
-        result["state_age"] = normalized[9].item() / cfg.state_age_scale
-        result["hitlag"] = normalized[10].item() / cfg.hitlag_scale
-        result["stocks"] = normalized[11].item() / cfg.stocks_scale
-        result["combo_count"] = normalized[12].item() / cfg.combo_count_scale
+        result["state_age"] = normalized[i].item() / cfg.state_age_scale
+        i += 1
     else:
         result["state_age"] = 0  # stored as int embed
-        result["hitlag"] = normalized[9].item() / cfg.hitlag_scale
-        result["stocks"] = normalized[10].item() / cfg.stocks_scale
-        result["combo_count"] = normalized[11].item() / cfg.combo_count_scale
+    result["hitlag"] = normalized[i].item() / cfg.hitlag_scale
+    result["stocks"] = normalized[i + 1].item() / cfg.stocks_scale
+    i += 2
+    if cfg.hitstun:
+        i += 1  # skip hitstun_remaining (not in VizFrame)
+    result["combo_count"] = normalized[i].item() / cfg.combo_count_scale
     return result
 
 
@@ -116,11 +122,15 @@ def generate_synthetic_seed(
     stage: int,
     p0_char: int,
     p1_char: int,
+    noise: float = 0.0,
 ) -> tuple[torch.Tensor, torch.Tensor]:
     """Generate K frames of synthetic seed data from starting positions.
 
     Uses the same starting positions as session-lifecycle JOIN:
     P0 at x=-30, P1 at x=+30, on ground, facing each other.
+
+    If noise > 0, adds small Gaussian perturbations to positions and
+    percent so that identical character pairs produce different matches.
     """
     K = context_len
     fp = cfg.float_per_player
@@ -136,17 +146,19 @@ def generate_synthetic_seed(
         float_data[t, 2] = 0.0  # y = 0 (on ground)
         float_data[t, 3] = 60.0 * cfg.shield_scale  # full shield
         # velocities 4-8 = 0
-        # state_age / hitlag / stocks / combo
+        # Dynamics: [state_age?] hitlag stocks [hitstun?] combo_count
         vel_end = cfg.core_continuous_dim + cfg.velocity_dim
+        di = vel_end
         if not cfg.state_age_as_embed:
-            float_data[t, vel_end] = 0.0  # state_age
-            float_data[t, vel_end + 1] = 0.0  # hitlag
-            float_data[t, vel_end + 2] = 4.0 * cfg.stocks_scale  # 4 stocks
-            float_data[t, vel_end + 3] = 0.0  # combo_count
-        else:
-            float_data[t, vel_end] = 0.0  # hitlag
-            float_data[t, vel_end + 1] = 4.0 * cfg.stocks_scale  # 4 stocks
-            float_data[t, vel_end + 2] = 0.0  # combo_count
+            float_data[t, di] = 0.0  # state_age
+            di += 1
+        float_data[t, di] = 0.0  # hitlag
+        float_data[t, di + 1] = 4.0 * cfg.stocks_scale  # 4 stocks
+        di += 2
+        if cfg.hitstun:
+            float_data[t, di] = 0.0  # hitstun_remaining
+            di += 1
+        float_data[t, di] = 0.0  # combo_count
         cd = cfg.continuous_dim
         float_data[t, cd] = 1.0  # facing right
         float_data[t, cd + 1] = 0.0  # not invulnerable
@@ -163,15 +175,17 @@ def generate_synthetic_seed(
         float_data[t, fp + 1] = 30.0 * cfg.xy_scale  # x = +30
         float_data[t, fp + 2] = 0.0  # y = 0
         float_data[t, fp + 3] = 60.0 * cfg.shield_scale  # full shield
+        di = fp + vel_end
         if not cfg.state_age_as_embed:
-            float_data[t, fp + vel_end] = 0.0
-            float_data[t, fp + vel_end + 1] = 0.0
-            float_data[t, fp + vel_end + 2] = 4.0 * cfg.stocks_scale
-            float_data[t, fp + vel_end + 3] = 0.0
-        else:
-            float_data[t, fp + vel_end] = 0.0
-            float_data[t, fp + vel_end + 1] = 4.0 * cfg.stocks_scale
-            float_data[t, fp + vel_end + 2] = 0.0
+            float_data[t, di] = 0.0  # state_age
+            di += 1
+        float_data[t, di] = 0.0  # hitlag
+        float_data[t, di + 1] = 4.0 * cfg.stocks_scale  # 4 stocks
+        di += 2
+        if cfg.hitstun:
+            float_data[t, di] = 0.0  # hitstun_remaining
+            di += 1
+        float_data[t, di] = 0.0  # combo_count
         float_data[t, fp + cd] = 0.0  # facing left
         float_data[t, fp + cd + 1] = 0.0
         float_data[t, fp + cd + 2] = 1.0  # on ground
@@ -200,11 +214,20 @@ def generate_synthetic_seed(
 
         int_data[t, ipp * 2] = stage  # stage ID
 
+    # Add small noise to break determinism across matches
+    if noise > 0:
+        for t in range(K):
+            # Jitter starting positions slightly (x and y)
+            float_data[t, 1] += torch.randn(1).item() * noise * cfg.xy_scale
+            float_data[t, fp + 1] += torch.randn(1).item() * noise * cfg.xy_scale
+            float_data[t, 2] += torch.randn(1).item() * noise * 0.1 * cfg.xy_scale
+            float_data[t, fp + 2] += torch.randn(1).item() * noise * 0.1 * cfg.xy_scale
+
     return float_data, int_data
 
 
 @torch.no_grad()
-def run_match(
+def run_match_iter(
     world_model: torch.nn.Module,
     cfg: EncodingConfig,
     p0_agent: Agent,
@@ -215,19 +238,25 @@ def run_match(
     max_frames: int = 600,
     device: str = "cpu",
     no_early_ko: bool = False,
-) -> dict:
-    """Run a two-agent match inside the world model.
+    seed_noise: float = 2.0,
+):
+    """Generator that yields one VizFrame dict per timestep.
 
     Seeds with synthetic starting positions, then autoregressively predicts
-    frames using both agents' controller inputs.
+    frames using both agents' controller inputs.  Callers can iterate for
+    streaming (WebSocket) or collect into a list for batch JSON output.
 
-    Returns a complete match dict compatible with viz/visualizer.html.
+    seed_noise: standard deviation (in game units) of random perturbation
+    added to starting positions. Default 2.0 = ~2 units of jitter, enough
+    to produce different trajectories each match.
     """
     world_model.eval()
     K = world_model.context_len
 
     # Generate synthetic seed
-    sim_floats, sim_ints = generate_synthetic_seed(cfg, K, stage, p0_char, p1_char)
+    sim_floats, sim_ints = generate_synthetic_seed(
+        cfg, K, stage, p0_char, p1_char, noise=seed_noise,
+    )
 
     fp = cfg.float_per_player
     ipp = cfg.int_per_player
@@ -238,17 +267,19 @@ def run_match(
     vel_start = cfg.core_continuous_dim
     vel_end = vel_start + cfg.velocity_dim
     dyn_start = vel_end + (0 if cfg.state_age_as_embed else 1)
-    p0_dyn_idx = [dyn_start, dyn_start + 1, dyn_start + 2]
+    # Dynamics region: hitlag, stocks, [hitstun], then combat: combo_count
+    # Model predicts all of these as a flat vector per player
+    dyn_count = cfg.dynamics_dim + cfg.combat_continuous_dim  # 3 or 4 per player
+    p0_dyn_idx = [dyn_start + i for i in range(dyn_count)]
     p1_dyn_idx = [fp + i for i in p0_dyn_idx]
 
     if not cfg.state_age_as_embed:
         p0_state_age_idx = vel_end
         p1_state_age_idx = fp + vel_end
 
-    # Collect frames
-    frames = []
+    # Yield seed frames
     for i in range(K):
-        frames.append(decode_frame(sim_floats[i], sim_ints[i], cfg))
+        yield decode_frame(sim_floats[i], sim_ints[i], cfg)
 
     for t in range(K, K + max_frames):
         ctx_f = sim_floats[-K:]
@@ -283,18 +314,18 @@ def run_match(
             next_float[vel_start:vel_end] += vel_d[0:5]
             next_float[fp + vel_start:fp + vel_end] += vel_d[5:10]
 
-        # Dynamics (absolute: hitlag, stocks, combo)
+        # Dynamics (absolute: hitlag, stocks, [hitstun], combo)
         if "dynamics_pred" in preds:
             dyn = preds["dynamics_pred"][0].cpu()
             for i, idx in enumerate(p0_dyn_idx):
                 next_float[idx] = dyn[i]
             for i, idx in enumerate(p1_dyn_idx):
-                next_float[idx] = dyn[3 + i]
+                next_float[idx] = dyn[dyn_count + i]
 
         # Binary predictions
         binary = (preds["binary_logits"][0].cpu() > 0).float()
-        next_float[cd:cd + bd] = binary[0:3]
-        next_float[fp + cd:fp + cd + bd] = binary[3:6]
+        next_float[cd:cd + bd] = binary[0:bd]
+        next_float[fp + cd:fp + cd + bd] = binary[bd:bd * 2]
 
         # Store controller inputs in the frame
         next_float[ctrl_start:ctrl_end] = p0_ctrl
@@ -335,12 +366,12 @@ def run_match(
         # Clamp
         next_float = clamp_frame(next_float, cfg)
 
-        # Append
+        # Append to context
         sim_floats = torch.cat([sim_floats, next_float.unsqueeze(0)], dim=0)
         sim_ints = torch.cat([sim_ints, next_int.unsqueeze(0)], dim=0)
 
         frame = decode_frame(next_float, next_int, cfg)
-        frames.append(frame)
+        yield frame
 
         # KO check
         if not no_early_ko:
@@ -348,9 +379,33 @@ def run_match(
             p1_stocks = frame["players"][1]["stocks"]
             if p0_stocks < 0.5 or p1_stocks < 0.5:
                 logger.info("KO detected at frame %d", t)
-                break
+                return
+
+
+def run_match(
+    world_model: torch.nn.Module,
+    cfg: EncodingConfig,
+    p0_agent: Agent,
+    p1_agent: Agent,
+    stage: int,
+    p0_char: int,
+    p1_char: int,
+    max_frames: int = 600,
+    device: str = "cpu",
+    no_early_ko: bool = False,
+) -> dict:
+    """Run a two-agent match inside the world model.
+
+    Collects all frames from run_match_iter() and returns a complete match
+    dict compatible with viz/visualizer.html.
+    """
+    frames = list(run_match_iter(
+        world_model, cfg, p0_agent, p1_agent,
+        stage, p0_char, p1_char, max_frames, device, no_early_ko,
+    ))
 
     # Build output
+    K = world_model.context_len
     stage_geo = STAGE_GEOMETRY.get(stage, {
         "name": f"Stage {stage}",
         "ground_y": 0, "ground_x_range": [-85, 85],
