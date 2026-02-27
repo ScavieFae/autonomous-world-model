@@ -8,6 +8,7 @@ const NAV_LINKS = [
   { href: '/live', label: 'Live' },
   { href: '/agents', label: 'Agents' },
   { href: '/leaderboard', label: 'Leaderboard' },
+  { href: '/model', label: 'Model' },
 ];
 
 export default function NavBar() {

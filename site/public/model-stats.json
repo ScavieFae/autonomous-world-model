@@ -1,0 +1,1165 @@
+{
+  "generated_at": "2026-02-27",
+  "world_model": {
+    "format": "mamba2_int8_v1",
+    "architecture": {
+      "model_type": "mamba2",
+      "d_model": 384,
+      "d_inner": 768,
+      "d_state": 64,
+      "n_layers": 4,
+      "nheads": 12,
+      "headdim": 64
+    },
+    "total_weight_bytes": 4347748,
+    "fp32_bytes": 17406361,
+    "compression_ratio": 4.0,
+    "context_len": 10,
+    "shard_map": {
+      "num_shards": 2,
+      "shards": [
+        {
+          "index": 0,
+          "offset": 0,
+          "size": 2174976
+        },
+        {
+          "index": 1,
+          "offset": 2174976,
+          "size": 2172772
+        }
+      ]
+    },
+    "error_summary": {
+      "num_2d_weights": 39,
+      "mean_snr_db": 44.617675854609566,
+      "min_snr_db": 10.210227012634277,
+      "max_snr_db": 53.78899002075195
+    },
+    "weight_groups": {
+      "layer_weights": {
+        "count": 36,
+        "total_bytes": 3776656
+      },
+      "embeddings": {
+        "count": 9,
+        "total_bytes": 15080
+      },
+      "projections": {
+        "count": 5,
+        "total_bytes": 120192
+      },
+      "heads": {
+        "count": 32,
+        "total_bytes": 435820
+      }
+    },
+    "weights": [
+      {
+        "key": "action_embed.weight",
+        "group": "embeddings",
+        "shape": [
+          400,
+          32
+        ],
+        "size": 12800,
+        "quantization": "per_channel_symmetric",
+        "snr_db": 45.5
+      },
+      {
+        "key": "binary_head.bias",
+        "group": "heads",
+        "shape": [
+          86
+        ],
+        "size": 86,
+        "quantization": "per_tensor_symmetric",
+        "snr_db": 47.3
+      },
+      {
+        "key": "binary_head.weight",
+        "group": "heads",
+        "shape": [
+          86,
+          384
+        ],
+        "size": 33024,
+        "quantization": "per_channel_symmetric",
+        "snr_db": 42.1
+      },
+      {
+        "key": "character_embed.weight",
+        "group": "embeddings",
+        "shape": [
+          33,
+          8
+        ],
+        "size": 264,
+        "quantization": "per_channel_symmetric",
+        "snr_db": 48.4
+      },
+      {
+        "key": "continuous_head.bias",
+        "group": "heads",
+        "shape": [
+          8
+        ],
+        "size": 8,
+        "quantization": "per_tensor_symmetric",
+        "snr_db": 50.1
+      },
+      {
+        "key": "continuous_head.weight",
+        "group": "heads",
+        "shape": [
+          8,
+          384
+        ],
+        "size": 3072,
+        "quantization": "per_channel_symmetric",
+        "snr_db": 43.3
+      },
+      {
+        "key": "ctrl_proj.bias",
+        "group": "projections",
+        "shape": [
+          384
+        ],
+        "size": 384,
+        "quantization": "per_tensor_symmetric",
+        "snr_db": 45.6
+      },
+      {
+        "key": "ctrl_proj.weight",
+        "group": "projections",
+        "shape": [
+          384,
+          26
+        ],
+        "size": 9984,
+        "quantization": "per_channel_symmetric",
+        "snr_db": 46.0
+      },
+      {
+        "key": "dynamics_head.bias",
+        "group": "heads",
+        "shape": [
+          8
+        ],
+        "size": 8,
+        "quantization": "per_tensor_symmetric",
+        "snr_db": 47.6
+      },
+      {
+        "key": "dynamics_head.weight",
+        "group": "heads",
+        "shape": [
+          8,
+          384
+        ],
+        "size": 3072,
+        "quantization": "per_channel_symmetric",
+        "snr_db": 43.3
+      },
+      {
+        "key": "final_norm.weight",
+        "group": "projections",
+        "shape": [
+          384
+        ],
+        "size": 384,
+        "quantization": "per_tensor_symmetric",
+        "snr_db": 52.2
+      },
+      {
+        "key": "frame_proj.bias",
+        "group": "projections",
+        "shape": [
+          384
+        ],
+        "size": 384,
+        "quantization": "per_tensor_symmetric",
+        "snr_db": 45.6
+      },
+      {
+        "key": "frame_proj.weight",
+        "group": "projections",
+        "shape": [
+          384,
+          284
+        ],
+        "size": 109056,
+        "quantization": "per_channel_symmetric",
+        "snr_db": 39.3
+      },
+      {
+        "key": "ground_embed.weight",
+        "group": "embeddings",
+        "shape": [
+          32,
+          4
+        ],
+        "size": 128,
+        "quantization": "per_channel_symmetric",
+        "snr_db": 50.2
+      },
+      {
+        "key": "hurtbox_embed.weight",
+        "group": "embeddings",
+        "shape": [
+          3,
+          2
+        ],
+        "size": 6,
+        "quantization": "per_channel_symmetric",
+        "snr_db": 53.8
+      },
+      {
+        "key": "jumps_embed.weight",
+        "group": "embeddings",
+        "shape": [
+          8,
+          4
+        ],
+        "size": 32,
+        "quantization": "per_channel_symmetric",
+        "snr_db": 51.0
+      },
+      {
+        "key": "l_cancel_embed.weight",
+        "group": "embeddings",
+        "shape": [
+          3,
+          2
+        ],
+        "size": 6,
+        "quantization": "per_channel_symmetric",
+        "snr_db": 51.9
+      },
+      {
+        "key": "last_attack_embed.weight",
+        "group": "embeddings",
+        "shape": [
+          64,
+          8
+        ],
+        "size": 512,
+        "quantization": "per_channel_symmetric",
+        "snr_db": 47.9
+      },
+      {
+        "key": "layers.0.mamba.A_log",
+        "group": "layer_weights",
+        "shape": [
+          12
+        ],
+        "size": 12,
+        "quantization": "per_tensor_symmetric",
+        "snr_db": 50.1
+      },
+      {
+        "key": "layers.0.mamba.D",
+        "group": "layer_weights",
+        "shape": [
+          12
+        ],
+        "size": 12,
+        "quantization": "per_tensor_symmetric",
+        "snr_db": 52.0
+      },
+      {
+        "key": "layers.0.mamba.conv1d.bias",
+        "group": "layer_weights",
+        "shape": [
+          896
+        ],
+        "size": 896,
+        "quantization": "per_tensor_symmetric",
+        "snr_db": 47.9
+      },
+      {
+        "key": "layers.0.mamba.conv1d.weight",
+        "group": "layer_weights",
+        "shape": [
+          896,
+          1,
+          4
+        ],
+        "size": 3584,
+        "quantization": "per_channel_symmetric",
+        "snr_db": 50.8
+      },
+      {
+        "key": "layers.0.mamba.dt_bias",
+        "group": "layer_weights",
+        "shape": [
+          12
+        ],
+        "size": 12,
+        "quantization": "per_tensor_symmetric",
+        "snr_db": 52.8
+      },
+      {
+        "key": "layers.0.mamba.in_proj.weight",
+        "group": "layer_weights",
+        "shape": [
+          1676,
+          384
+        ],
+        "size": 643584,
+        "quantization": "per_channel_symmetric",
+        "snr_db": 43.2
+      },
+      {
+        "key": "layers.0.mamba.norm.weight",
+        "group": "layer_weights",
+        "shape": [
+          768
+        ],
+        "size": 768,
+        "quantization": "per_tensor_symmetric",
+        "snr_db": 50.7
+      },
+      {
+        "key": "layers.0.mamba.out_proj.weight",
+        "group": "layer_weights",
+        "shape": [
+          384,
+          768
+        ],
+        "size": 294912,
+        "quantization": "per_channel_symmetric",
+        "snr_db": 41.9
+      },
+      {
+        "key": "layers.0.norm.weight",
+        "group": "layer_weights",
+        "shape": [
+          384
+        ],
+        "size": 384,
+        "quantization": "per_tensor_symmetric",
+        "snr_db": 51.5
+      },
+      {
+        "key": "layers.1.mamba.A_log",
+        "group": "layer_weights",
+        "shape": [
+          12
+        ],
+        "size": 12,
+        "quantization": "per_tensor_symmetric",
+        "snr_db": 51.0
+      },
+      {
+        "key": "layers.1.mamba.D",
+        "group": "layer_weights",
+        "shape": [
+          12
+        ],
+        "size": 12,
+        "quantization": "per_tensor_symmetric",
+        "snr_db": 53.5
+      },
+      {
+        "key": "layers.1.mamba.conv1d.bias",
+        "group": "layer_weights",
+        "shape": [
+          896
+        ],
+        "size": 896,
+        "quantization": "per_tensor_symmetric",
+        "snr_db": 47.6
+      },
+      {
+        "key": "layers.1.mamba.conv1d.weight",
+        "group": "layer_weights",
+        "shape": [
+          896,
+          1,
+          4
+        ],
+        "size": 3584,
+        "quantization": "per_channel_symmetric",
+        "snr_db": 51.0
+      },
+      {
+        "key": "layers.1.mamba.dt_bias",
+        "group": "layer_weights",
+        "shape": [
+          12
+        ],
+        "size": 12,
+        "quantization": "per_tensor_symmetric",
+        "snr_db": 51.1
+      },
+      {
+        "key": "layers.1.mamba.in_proj.weight",
+        "group": "layer_weights",
+        "shape": [
+          1676,
+          384
+        ],
+        "size": 643584,
+        "quantization": "per_channel_symmetric",
+        "snr_db": 43.3
+      },
+      {
+        "key": "layers.1.mamba.norm.weight",
+        "group": "layer_weights",
+        "shape": [
+          768
+        ],
+        "size": 768,
+        "quantization": "per_tensor_symmetric",
+        "snr_db": 50.7
+      },
+      {
+        "key": "layers.1.mamba.out_proj.weight",
+        "group": "layer_weights",
+        "shape": [
+          384,
+          768
+        ],
+        "size": 294912,
+        "quantization": "per_channel_symmetric",
+        "snr_db": 42.0
+      },
+      {
+        "key": "layers.1.norm.weight",
+        "group": "layer_weights",
+        "shape": [
+          384
+        ],
+        "size": 384,
+        "quantization": "per_tensor_symmetric",
+        "snr_db": 52.3
+      },
+      {
+        "key": "layers.2.mamba.A_log",
+        "group": "layer_weights",
+        "shape": [
+          12
+        ],
+        "size": 12,
+        "quantization": "per_tensor_symmetric",
+        "snr_db": 50.9
+      },
+      {
+        "key": "layers.2.mamba.D",
+        "group": "layer_weights",
+        "shape": [
+          12
+        ],
+        "size": 12,
+        "quantization": "per_tensor_symmetric",
+        "snr_db": 50.4
+      },
+      {
+        "key": "layers.2.mamba.conv1d.bias",
+        "group": "layer_weights",
+        "shape": [
+          896
+        ],
+        "size": 896,
+        "quantization": "per_tensor_symmetric",
+        "snr_db": 47.6
+      },
+      {
+        "key": "layers.2.mamba.conv1d.weight",
+        "group": "layer_weights",
+        "shape": [
+          896,
+          1,
+          4
+        ],
+        "size": 3584,
+        "quantization": "per_channel_symmetric",
+        "snr_db": 50.9
+      },
+      {
+        "key": "layers.2.mamba.dt_bias",
+        "group": "layer_weights",
+        "shape": [
+          12
+        ],
+        "size": 12,
+        "quantization": "per_tensor_symmetric",
+        "snr_db": 49.2
+      },
+      {
+        "key": "layers.2.mamba.in_proj.weight",
+        "group": "layer_weights",
+        "shape": [
+          1676,
+          384
+        ],
+        "size": 643584,
+        "quantization": "per_channel_symmetric",
+        "snr_db": 43.2
+      },
+      {
+        "key": "layers.2.mamba.norm.weight",
+        "group": "layer_weights",
+        "shape": [
+          768
+        ],
+        "size": 768,
+        "quantization": "per_tensor_symmetric",
+        "snr_db": 50.1
+      },
+      {
+        "key": "layers.2.mamba.out_proj.weight",
+        "group": "layer_weights",
+        "shape": [
+          384,
+          768
+        ],
+        "size": 294912,
+        "quantization": "per_channel_symmetric",
+        "snr_db": 42.0
+      },
+      {
+        "key": "layers.2.norm.weight",
+        "group": "layer_weights",
+        "shape": [
+          384
+        ],
+        "size": 384,
+        "quantization": "per_tensor_symmetric",
+        "snr_db": 52.2
+      },
+      {
+        "key": "layers.3.mamba.A_log",
+        "group": "layer_weights",
+        "shape": [
+          12
+        ],
+        "size": 12,
+        "quantization": "per_tensor_symmetric",
+        "snr_db": 49.6
+      },
+      {
+        "key": "layers.3.mamba.D",
+        "group": "layer_weights",
+        "shape": [
+          12
+        ],
+        "size": 12,
+        "quantization": "per_tensor_symmetric",
+        "snr_db": 52.4
+      },
+      {
+        "key": "layers.3.mamba.conv1d.bias",
+        "group": "layer_weights",
+        "shape": [
+          896
+        ],
+        "size": 896,
+        "quantization": "per_tensor_symmetric",
+        "snr_db": 47.3
+      },
+      {
+        "key": "layers.3.mamba.conv1d.weight",
+        "group": "layer_weights",
+        "shape": [
+          896,
+          1,
+          4
+        ],
+        "size": 3584,
+        "quantization": "per_channel_symmetric",
+        "snr_db": 50.9
+      },
+      {
+        "key": "layers.3.mamba.dt_bias",
+        "group": "layer_weights",
+        "shape": [
+          12
+        ],
+        "size": 12,
+        "quantization": "per_tensor_symmetric",
+        "snr_db": 50.5
+      },
+      {
+        "key": "layers.3.mamba.in_proj.weight",
+        "group": "layer_weights",
+        "shape": [
+          1676,
+          384
+        ],
+        "size": 643584,
+        "quantization": "per_channel_symmetric",
+        "snr_db": 43.2
+      },
+      {
+        "key": "layers.3.mamba.norm.weight",
+        "group": "layer_weights",
+        "shape": [
+          768
+        ],
+        "size": 768,
+        "quantization": "per_tensor_symmetric",
+        "snr_db": 47.3
+      },
+      {
+        "key": "layers.3.mamba.out_proj.weight",
+        "group": "layer_weights",
+        "shape": [
+          384,
+          768
+        ],
+        "size": 294912,
+        "quantization": "per_channel_symmetric",
+        "snr_db": 41.8
+      },
+      {
+        "key": "layers.3.norm.weight",
+        "group": "layer_weights",
+        "shape": [
+          384
+        ],
+        "size": 384,
+        "quantization": "per_tensor_symmetric",
+        "snr_db": 52.7
+      },
+      {
+        "key": "p0_action_head.bias",
+        "group": "heads",
+        "shape": [
+          400
+        ],
+        "size": 400,
+        "quantization": "per_tensor_symmetric",
+        "snr_db": 43.3
+      },
+      {
+        "key": "p0_action_head.weight",
+        "group": "heads",
+        "shape": [
+          400,
+          384
+        ],
+        "size": 153600,
+        "quantization": "per_channel_symmetric",
+        "snr_db": 44.0
+      },
+      {
+        "key": "p0_ground_head.bias",
+        "group": "heads",
+        "shape": [
+          32
+        ],
+        "size": 32,
+        "quantization": "per_tensor_symmetric",
+        "snr_db": 45.2
+      },
+      {
+        "key": "p0_ground_head.weight",
+        "group": "heads",
+        "shape": [
+          32,
+          384
+        ],
+        "size": 12288,
+        "quantization": "per_channel_symmetric",
+        "snr_db": 43.7
+      },
+      {
+        "key": "p0_hurtbox_head.bias",
+        "group": "heads",
+        "shape": [
+          3
+        ],
+        "size": 3,
+        "quantization": "per_tensor_symmetric",
+        "snr_db": 61.4
+      },
+      {
+        "key": "p0_hurtbox_head.weight",
+        "group": "heads",
+        "shape": [
+          3,
+          384
+        ],
+        "size": 1152,
+        "quantization": "per_channel_symmetric",
+        "snr_db": 42.9
+      },
+      {
+        "key": "p0_jumps_head.bias",
+        "group": "heads",
+        "shape": [
+          8
+        ],
+        "size": 8,
+        "quantization": "per_tensor_symmetric",
+        "snr_db": 48.3
+      },
+      {
+        "key": "p0_jumps_head.weight",
+        "group": "heads",
+        "shape": [
+          8,
+          384
+        ],
+        "size": 3072,
+        "quantization": "per_channel_symmetric",
+        "snr_db": 44.4
+      },
+      {
+        "key": "p0_l_cancel_head.bias",
+        "group": "heads",
+        "shape": [
+          3
+        ],
+        "size": 3,
+        "quantization": "per_tensor_symmetric",
+        "snr_db": 49.8
+      },
+      {
+        "key": "p0_l_cancel_head.weight",
+        "group": "heads",
+        "shape": [
+          3,
+          384
+        ],
+        "size": 1152,
+        "quantization": "per_channel_symmetric",
+        "snr_db": 43.1
+      },
+      {
+        "key": "p0_last_attack_head.bias",
+        "group": "heads",
+        "shape": [
+          64
+        ],
+        "size": 64,
+        "quantization": "per_tensor_symmetric",
+        "snr_db": 46.2
+      },
+      {
+        "key": "p0_last_attack_head.weight",
+        "group": "heads",
+        "shape": [
+          64,
+          384
+        ],
+        "size": 24576,
+        "quantization": "per_channel_symmetric",
+        "snr_db": 44.7
+      },
+      {
+        "key": "p1_action_head.bias",
+        "group": "heads",
+        "shape": [
+          400
+        ],
+        "size": 400,
+        "quantization": "per_tensor_symmetric",
+        "snr_db": 42.1
+      },
+      {
+        "key": "p1_action_head.weight",
+        "group": "heads",
+        "shape": [
+          400,
+          384
+        ],
+        "size": 153600,
+        "quantization": "per_channel_symmetric",
+        "snr_db": 44.0
+      },
+      {
+        "key": "p1_ground_head.bias",
+        "group": "heads",
+        "shape": [
+          32
+        ],
+        "size": 32,
+        "quantization": "per_tensor_symmetric",
+        "snr_db": 46.1
+      },
+      {
+        "key": "p1_ground_head.weight",
+        "group": "heads",
+        "shape": [
+          32,
+          384
+        ],
+        "size": 12288,
+        "quantization": "per_channel_symmetric",
+        "snr_db": 43.4
+      },
+      {
+        "key": "p1_hurtbox_head.bias",
+        "group": "heads",
+        "shape": [
+          3
+        ],
+        "size": 3,
+        "quantization": "per_tensor_symmetric",
+        "snr_db": 51.9
+      },
+      {
+        "key": "p1_hurtbox_head.weight",
+        "group": "heads",
+        "shape": [
+          3,
+          384
+        ],
+        "size": 1152,
+        "quantization": "per_channel_symmetric",
+        "snr_db": 42.7
+      },
+      {
+        "key": "p1_jumps_head.bias",
+        "group": "heads",
+        "shape": [
+          8
+        ],
+        "size": 8,
+        "quantization": "per_tensor_symmetric",
+        "snr_db": 44.3
+      },
+      {
+        "key": "p1_jumps_head.weight",
+        "group": "heads",
+        "shape": [
+          8,
+          384
+        ],
+        "size": 3072,
+        "quantization": "per_channel_symmetric",
+        "snr_db": 44.0
+      },
+      {
+        "key": "p1_l_cancel_head.bias",
+        "group": "heads",
+        "shape": [
+          3
+        ],
+        "size": 3,
+        "quantization": "per_tensor_symmetric",
+        "snr_db": 53.8
+      },
+      {
+        "key": "p1_l_cancel_head.weight",
+        "group": "heads",
+        "shape": [
+          3,
+          384
+        ],
+        "size": 1152,
+        "quantization": "per_channel_symmetric",
+        "snr_db": 42.8
+      },
+      {
+        "key": "p1_last_attack_head.bias",
+        "group": "heads",
+        "shape": [
+          64
+        ],
+        "size": 64,
+        "quantization": "per_tensor_symmetric",
+        "snr_db": 45.4
+      },
+      {
+        "key": "p1_last_attack_head.weight",
+        "group": "heads",
+        "shape": [
+          64,
+          384
+        ],
+        "size": 24576,
+        "quantization": "per_channel_symmetric",
+        "snr_db": 44.6
+      },
+      {
+        "key": "stage_embed.weight",
+        "group": "embeddings",
+        "shape": [
+          33,
+          4
+        ],
+        "size": 132,
+        "quantization": "per_channel_symmetric",
+        "snr_db": 50.7
+      },
+      {
+        "key": "state_age_embed.weight",
+        "group": "embeddings",
+        "shape": [
+          150,
+          8
+        ],
+        "size": 1200,
+        "quantization": "per_channel_symmetric",
+        "snr_db": 48.0
+      },
+      {
+        "key": "velocity_head.bias",
+        "group": "heads",
+        "shape": [
+          10
+        ],
+        "size": 10,
+        "quantization": "per_tensor_symmetric",
+        "snr_db": 35.1
+      },
+      {
+        "key": "velocity_head.weight",
+        "group": "heads",
+        "shape": [
+          10,
+          384
+        ],
+        "size": 3840,
+        "quantization": "per_channel_symmetric",
+        "snr_db": 10.2
+      }
+    ]
+  },
+  "policy": {
+    "format": "policy_int8_v1",
+    "architecture": {
+      "model_type": "policy",
+      "hidden_dim": 512,
+      "trunk_dim": 256
+    },
+    "total_weight_bytes": 1573621,
+    "fp32_bytes": 6291456,
+    "compression_ratio": 4.0,
+    "context_len": 10,
+    "shard_map": {
+      "num_shards": 1,
+      "shards": [
+        {
+          "index": 0,
+          "offset": 0,
+          "size": 1573621
+        }
+      ]
+    },
+    "error_summary": {
+      "num_2d_weights": 13,
+      "mean_snr_db": 45.01163864135742,
+      "min_snr_db": 28.733856201171875,
+      "max_snr_db": 59.86882019042969
+    },
+    "weight_groups": {
+      "layer_weights": {
+        "count": 0,
+        "total_bytes": 0
+      },
+      "embeddings": {
+        "count": 9,
+        "total_bytes": 15080
+      },
+      "projections": {
+        "count": 4,
+        "total_bytes": 1555200
+      },
+      "heads": {
+        "count": 4,
+        "total_bytes": 3341
+      }
+    },
+    "weights": [
+      {
+        "key": "action_embed.weight",
+        "group": "embeddings",
+        "shape": [
+          400,
+          32
+        ],
+        "size": 12800,
+        "quantization": "per_channel_symmetric",
+        "snr_db": 45.4
+      },
+      {
+        "key": "analog_head.bias",
+        "group": "heads",
+        "shape": [
+          5
+        ],
+        "size": 5,
+        "quantization": "per_tensor_symmetric",
+        "snr_db": 45.3
+      },
+      {
+        "key": "analog_head.weight",
+        "group": "heads",
+        "shape": [
+          5,
+          256
+        ],
+        "size": 1280,
+        "quantization": "per_channel_symmetric",
+        "snr_db": 36.1
+      },
+      {
+        "key": "button_head.bias",
+        "group": "heads",
+        "shape": [
+          8
+        ],
+        "size": 8,
+        "quantization": "per_tensor_symmetric",
+        "snr_db": 50.6
+      },
+      {
+        "key": "button_head.weight",
+        "group": "heads",
+        "shape": [
+          8,
+          256
+        ],
+        "size": 2048,
+        "quantization": "per_channel_symmetric",
+        "snr_db": 37.0
+      },
+      {
+        "key": "character_embed.weight",
+        "group": "embeddings",
+        "shape": [
+          33,
+          8
+        ],
+        "size": 264,
+        "quantization": "per_channel_symmetric",
+        "snr_db": 47.5
+      },
+      {
+        "key": "ground_embed.weight",
+        "group": "embeddings",
+        "shape": [
+          32,
+          4
+        ],
+        "size": 128,
+        "quantization": "per_channel_symmetric",
+        "snr_db": 49.8
+      },
+      {
+        "key": "hurtbox_embed.weight",
+        "group": "embeddings",
+        "shape": [
+          3,
+          2
+        ],
+        "size": 6,
+        "quantization": "per_channel_symmetric",
+        "snr_db": 59.9
+      },
+      {
+        "key": "jumps_embed.weight",
+        "group": "embeddings",
+        "shape": [
+          8,
+          4
+        ],
+        "size": 32,
+        "quantization": "per_channel_symmetric",
+        "snr_db": 48.5
+      },
+      {
+        "key": "l_cancel_embed.weight",
+        "group": "embeddings",
+        "shape": [
+          3,
+          2
+        ],
+        "size": 6,
+        "quantization": "per_channel_symmetric",
+        "snr_db": 50.5
+      },
+      {
+        "key": "last_attack_embed.weight",
+        "group": "embeddings",
+        "shape": [
+          64,
+          8
+        ],
+        "size": 512,
+        "quantization": "per_channel_symmetric",
+        "snr_db": 47.8
+      },
+      {
+        "key": "stage_embed.weight",
+        "group": "embeddings",
+        "shape": [
+          33,
+          4
+        ],
+        "size": 132,
+        "quantization": "per_channel_symmetric",
+        "snr_db": 50.5
+      },
+      {
+        "key": "state_age_embed.weight",
+        "group": "embeddings",
+        "shape": [
+          150,
+          8
+        ],
+        "size": 1200,
+        "quantization": "per_channel_symmetric",
+        "snr_db": 48.0
+      },
+      {
+        "key": "trunk.0.bias",
+        "group": "projections",
+        "shape": [
+          512
+        ],
+        "size": 512,
+        "quantization": "per_tensor_symmetric",
+        "snr_db": 41.9
+      },
+      {
+        "key": "trunk.0.weight",
+        "group": "projections",
+        "shape": [
+          512,
+          2780
+        ],
+        "size": 1423360,
+        "quantization": "per_channel_symmetric",
+        "snr_db": 28.7
+      },
+      {
+        "key": "trunk.3.bias",
+        "group": "projections",
+        "shape": [
+          256
+        ],
+        "size": 256,
+        "quantization": "per_tensor_symmetric",
+        "snr_db": 43.8
+      },
+      {
+        "key": "trunk.3.weight",
+        "group": "projections",
+        "shape": [
+          256,
+          512
+        ],
+        "size": 131072,
+        "quantization": "per_channel_symmetric",
+        "snr_db": 35.6
+      }
+    ]
+  },
+  "luts": {
+    "total_bytes": 1024,
+    "num_luts": 4,
+    "lut_size": 256,
+    "functions": [
+      "silu",
+      "softplus",
+      "rsqrt",
+      "exp_neg"
+    ]
+  }
+}
