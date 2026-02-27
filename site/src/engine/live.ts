@@ -18,6 +18,30 @@ import { fetchAnimations } from './animations';
 
 export type LiveConnectionState = 'idle' | 'connecting' | 'live' | 'disconnected' | 'error';
 
+/** Crank WS protocol — match lifecycle messages */
+export interface CrankMatchStart {
+  type: 'match_start';
+  match_id: number;
+  p0: { character: number; character_name: string };
+  p1: { character: number; character_name: string };
+  stage: number;
+  max_frames: number;
+}
+
+export interface CrankMatchEnd {
+  type: 'match_end';
+  match_id: number;
+  reason: 'ko' | 'timeout';
+  total_frames: number;
+  winner: number | null;
+  final_stocks: [number, number];
+  final_percent: [number, number];
+}
+
+export type MatchLifecycleEvent =
+  | { type: 'match_start'; msg: CrankMatchStart }
+  | { type: 'match_end'; msg: CrankMatchEnd };
+
 const BUFFER_SIZE = 3600; // Keep ~60s of frames at 60fps
 const TRAIL_LENGTH = 12;
 
@@ -33,6 +57,7 @@ export class LiveEngine {
   private url: string = '';
   private onFrame: ((frame: VizFrame, index: number) => void) | null = null;
   private onConnectionChange: ((state: LiveConnectionState) => void) | null = null;
+  private onMatchLifecycle: ((event: MatchLifecycleEvent) => void) | null = null;
   private animId: number | null = null;
   private lastRenderFrame = -1;
   private loadedChars = new Set<number>();
@@ -43,6 +68,21 @@ export class LiveEngine {
 
   setOnConnectionChange(cb: (state: LiveConnectionState) => void) {
     this.onConnectionChange = cb;
+  }
+
+  setOnMatchLifecycle(cb: ((event: MatchLifecycleEvent) => void) | null) {
+    this.onMatchLifecycle = cb;
+  }
+
+  /** Clear frame buffer and juice state for a new match. */
+  resetForNewMatch() {
+    this.frames = [];
+    this.currentFrame = 0;
+    this.lastRenderFrame = -1;
+    resetJuiceState();
+    // Clear trails
+    playerTrails[0].length = 0;
+    playerTrails[1].length = 0;
   }
 
   get totalFrames() {
@@ -75,6 +115,18 @@ export class LiveEngine {
       this.ws.onmessage = (event) => {
         try {
           const data = JSON.parse(event.data);
+
+          // Dispatch match lifecycle messages
+          if (data.type === 'match_start') {
+            this.onMatchLifecycle?.({ type: 'match_start', msg: data as CrankMatchStart });
+            return;
+          }
+          if (data.type === 'match_end') {
+            this.onMatchLifecycle?.({ type: 'match_end', msg: data as CrankMatchEnd });
+            return;
+          }
+
+          // Frame data (with or without type field — backward compatible)
           const newFrames: VizFrame[] = Array.isArray(data) ? data : [data];
 
           for (const frame of newFrames) {
@@ -139,6 +191,7 @@ export class LiveEngine {
     this.disconnect();
     this.onFrame = null;
     this.onConnectionChange = null;
+    this.onMatchLifecycle = null;
   }
 
   private setConnectionState(state: LiveConnectionState) {

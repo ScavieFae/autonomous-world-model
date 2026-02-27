@@ -1,10 +1,13 @@
 'use client';
 
+import { useState } from 'react';
 import { useArenaStore } from '@/stores/arena';
+import QuarterUpModal from '@/components/modals/QuarterUpModal';
 
 export default function BetweenSetsView() {
   const nextMatch = useArenaStore((s) => s.nextMatch);
   const recentResults = useArenaStore((s) => s.recentResults);
+  const [showQuarterUp, setShowQuarterUp] = useState(false);
 
   return (
     <div className="phase-overlay between-sets-overlay">
@@ -55,9 +58,16 @@ export default function BetweenSetsView() {
         </div>
       )}
 
-      <button className="btn btn-primary quarter-up-cta">
+      <button
+        className="btn btn-primary quarter-up-cta"
+        onClick={() => setShowQuarterUp(true)}
+      >
         QUARTER UP
       </button>
+
+      {showQuarterUp && (
+        <QuarterUpModal onClose={() => setShowQuarterUp(false)} />
+      )}
     </div>
   );
 }

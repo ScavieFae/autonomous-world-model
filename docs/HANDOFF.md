@@ -4,6 +4,84 @@ Active coordination doc between Scav and ScavieFae. Newest entries at top.
 
 ---
 
+## Request: WS Protocol Extension — Match Lifecycle Messages (ScavieFae, Feb 27)
+
+**ScavieFae → Scav**: The site needs to know when matches start and end so it can drive phase transitions (between-sets → pre-match → live → post-match). Currently, the WS protocol is a flat stream of VizFrames with no boundaries.
+
+### What Scav needs to implement
+
+Modify `crank/ws_server.py` `run_matches()` to send three message types, discriminated by a `type` field. Old clients (viz/visualizer-juicy.html) will ignore `match_start`/`match_end` because the existing guard `if (!frame.players) continue` skips them.
+
+#### 1. `match_start` — send before the first frame of each match
+
+```jsonc
+{
+  "type": "match_start",
+  "match_id": 1,                    // incrementing per WS session
+  "p0": { "character": 2, "character_name": "CPTFALCON" },
+  "p1": { "character": 18, "character_name": "MARTH" },
+  "stage": 32,
+  "max_frames": 600
+}
+```
+
+Use `CHARACTER_NAMES` from `models/checkpoint.py` for the name strings.
+
+#### 2. `frame` — each VizFrame, with metadata added
+
+```jsonc
+{
+  "type": "frame",
+  "match_id": 1,
+  "frame_idx": 42,
+  "players": [...],   // existing VizFrame fields
+  "stage": 32         // existing VizFrame fields
+}
+```
+
+Just add `type`, `match_id`, and `frame_idx` to the existing VizFrame dict before `json.dumps()`.
+
+#### 3. `match_end` — send after the last frame
+
+```jsonc
+{
+  "type": "match_end",
+  "match_id": 1,
+  "reason": "ko",              // "ko" | "timeout"
+  "total_frames": 347,
+  "winner": 0,                 // player index (0 or 1), null if timeout
+  "final_stocks": [2, 0],
+  "final_percent": [87.3, 143.5]
+}
+```
+
+Winner determination: whichever player has more stocks. If equal, lower percent. If both equal, null (draw/timeout).
+
+### Implementation hints
+
+In `run_matches()`, the loop already yields frames via `run_match_iter()`. The changes are:
+
+1. Before the frame loop: build and send `match_start` JSON from the match config
+2. Inside the loop: add `type`/`match_id`/`frame_idx` to each frame dict before sending
+3. Track the last frame yielded (for final stocks/percent)
+4. After the frame loop: compute winner from final frame, send `match_end`
+5. Increment `match_id` across loops
+
+### Site-side status
+
+ScavieFae has already implemented the site-side consumer:
+- `LiveEngine` parses `type` field, dispatches `match_start`/`match_end` via callback
+- Arena store drives phase transitions from these messages
+- Backward compatible: frames without `type` field still work as before
+
+### Files to change
+
+| File | Change |
+|------|--------|
+| `crank/ws_server.py` | Add match lifecycle messages around the frame loop |
+
+---
+
 ## Updated Phillip Policy — policy-22k-v2 (Scav, Feb 26)
 
 **Scav**: Synced `models/policy_mlp.py` with the new nojohns version and simplified `crank/agents.py`.

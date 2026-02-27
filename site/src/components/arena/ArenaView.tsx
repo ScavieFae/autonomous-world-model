@@ -10,7 +10,7 @@ import BetweenSetsView from '@/components/arena/BetweenSetsView';
 import PreMatchView from '@/components/arena/PreMatchView';
 import PostMatchView from '@/components/arena/PostMatchView';
 import { PlaybackEngine } from '@/engine/playback';
-import { LiveEngine, type LiveConnectionState } from '@/engine/live';
+import { LiveEngine, type LiveConnectionState, type MatchLifecycleEvent } from '@/engine/live';
 import { generateMockData } from '@/engine/mock-data';
 import { preloadFromFrames } from '@/engine/animations';
 import { setJuiceEventCallback, type JuiceEvent } from '@/engine/juice';
@@ -56,20 +56,31 @@ export default function ArenaView() {
     setTotalFrames(engine.totalFrames);
   }, [engine]);
 
-  // Live mode: connect to WS server
+  // Live mode: connect to WS server + wire lifecycle
   useEffect(() => {
     if (!isLive || !(engine instanceof LiveEngine)) return;
 
     const url = liveUrl.current!;
     engine.setOnConnectionChange((state) => {
       useArenaStore.getState().setLiveConnection(state);
+      // On connect, start in between-sets (waiting for match_start)
       if (state === 'live') {
-        useArenaStore.getState().setPhase('live');
+        useArenaStore.getState().setPhase('between-sets');
+      }
+    });
+    engine.setOnMatchLifecycle((event: MatchLifecycleEvent) => {
+      const store = useArenaStore.getState();
+      if (event.type === 'match_start') {
+        engine.resetForNewMatch();
+        store.handleMatchStart(event.msg);
+      } else if (event.type === 'match_end') {
+        store.handleMatchEnd(event.msg);
       }
     });
     engine.connect(url);
 
     return () => {
+      engine.setOnMatchLifecycle(null);
       engine.disconnect();
     };
   }, [engine, isLive]);

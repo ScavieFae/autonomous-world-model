@@ -2,6 +2,8 @@ import { create } from 'zustand';
 import type { RenderMode, CharacterFillMode } from '@/engine/types';
 import { CHARACTER_FILL_MODES } from '@/engine/types';
 import type { LiveConnectionState } from '@/engine/live';
+import type { CrankMatchStart, CrankMatchEnd } from '@/engine/live';
+import { CHARACTERS } from '@/engine/constants';
 
 export type ArenaPhase = 'between-sets' | 'pre-match' | 'live' | 'post-match';
 
@@ -43,6 +45,8 @@ interface ArenaStore {
   cycleCharacterFill: () => void;
   setLiveConnection: (state: LiveConnectionState) => void;
   pushEvent: (event: MatchEvent) => void;
+  handleMatchStart: (msg: CrankMatchStart) => void;
+  handleMatchEnd: (msg: CrankMatchEnd) => void;
   runDemoCycle: () => void;
   stopDemoCycle: () => void;
 }
@@ -73,6 +77,7 @@ const SPONSORS = ['alice', 'bob', 'carol', undefined, 'dave', undefined, 'eve', 
 
 let matchRotation = 0;
 let demoTimerId: ReturnType<typeof setTimeout> | null = null;
+let lifecycleTimerId: ReturnType<typeof setTimeout> | null = null;
 
 function pickNextMatch(): MatchPreview {
   const i = (matchRotation * 2) % AGENTS.length;
@@ -107,6 +112,78 @@ export const useArenaStore = create<ArenaStore>((set, get) => ({
   pushEvent: (event) => set((s) => ({
     matchEvents: [...s.matchEvents.slice(-49), event],
   })),
+
+  handleMatchStart: (msg) => {
+    // Clear any pending lifecycle timer
+    if (lifecycleTimerId) { clearTimeout(lifecycleTimerId); lifecycleTimerId = null; }
+
+    const charName = (idx: number, fallbackName: string) =>
+      CHARACTERS[idx] ?? fallbackName;
+
+    const preview: MatchPreview = {
+      p1: {
+        username: charName(msg.p0.character, msg.p0.character_name),
+        character: charName(msg.p0.character, msg.p0.character_name),
+        elo: 1500,
+        record: '0-0',
+      },
+      p2: {
+        username: charName(msg.p1.character, msg.p1.character_name),
+        character: charName(msg.p1.character, msg.p1.character_name),
+        elo: 1500,
+        record: '0-0',
+      },
+    };
+
+    set({ phase: 'pre-match', currentMatch: preview, matchEvents: [] });
+
+    // Transition to live after 3s
+    lifecycleTimerId = setTimeout(() => {
+      if (get().phase === 'pre-match') {
+        set({ phase: 'live' });
+      }
+      lifecycleTimerId = null;
+    }, 3000);
+  },
+
+  handleMatchEnd: (msg) => {
+    // Clear any pending lifecycle timer
+    if (lifecycleTimerId) { clearTimeout(lifecycleTimerId); lifecycleTimerId = null; }
+
+    const { currentMatch, recentResults } = get();
+    const winnerName = msg.winner != null
+      ? (msg.winner === 0 ? currentMatch?.p1.username : currentMatch?.p2.username) ?? 'unknown'
+      : 'draw';
+    const loserName = msg.winner != null
+      ? (msg.winner === 0 ? currentMatch?.p2.username : currentMatch?.p1.username) ?? 'unknown'
+      : 'draw';
+    const winnerStocks = msg.winner != null ? msg.final_stocks[msg.winner] : 0;
+
+    const result: MatchResult = {
+      winner: winnerName,
+      loser: loserName,
+      stocks: winnerStocks,
+      eloDelta: 0,
+    };
+
+    set({
+      phase: 'post-match',
+      matchResult: result,
+      recentResults: [result, ...recentResults].slice(0, 5),
+    });
+
+    // Transition to between-sets after 5s
+    lifecycleTimerId = setTimeout(() => {
+      if (get().phase === 'post-match') {
+        set({
+          phase: 'between-sets',
+          matchResult: null,
+          matchEvents: [],
+        });
+      }
+      lifecycleTimerId = null;
+    }, 5000);
+  },
 
   runDemoCycle: () => {
     const advance = () => {
