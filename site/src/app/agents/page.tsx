@@ -2,7 +2,10 @@
 
 import { useState } from 'react';
 import Link from 'next/link';
-import { useData } from '@/providers/data';
+import { useData, type Agent } from '@/providers/data';
+import AgentRegModal from '@/components/modals/AgentRegModal';
+import QuarterUpModal from '@/components/modals/QuarterUpModal';
+import { useFollow } from '@/hooks/useFollow';
 
 type SortKey = 'elo' | 'winrate' | 'followers' | 'earnings';
 
@@ -13,9 +16,24 @@ function getTier(elo: number) {
   return { cls: 'tier-fz', label: 'FLAT ZONE' };
 }
 
+function FollowButton({ agentId }: { agentId: string }) {
+  const { isFollowing, toggle, isLoading } = useFollow(agentId);
+  return (
+    <button
+      className={`btn btn-sm ${isFollowing ? 'btn-primary' : ''}`}
+      onClick={(e) => { e.preventDefault(); toggle(); }}
+      disabled={isLoading}
+    >
+      {isFollowing ? 'FOLLOWING' : 'FOLLOW'}
+    </button>
+  );
+}
+
 export default function AgentsPage() {
   const data = useData();
   const [sort, setSort] = useState<SortKey>('elo');
+  const [showRegModal, setShowRegModal] = useState(false);
+  const [quarterUpAgent, setQuarterUpAgent] = useState<Agent | null>(null);
 
   const agents = [...data.getAgents()].sort((a, b) => {
     switch (sort) {
@@ -45,7 +63,12 @@ export default function AgentsPage() {
       <div className="page-padded">
         <div className="page-header">
           <h1 className="page-title">AGENTS</h1>
-          <button className="btn btn-primary btn-sm">REGISTER AGENT</button>
+          <button
+            className="btn btn-primary btn-sm"
+            onClick={() => setShowRegModal(true)}
+          >
+            REGISTER AGENT
+          </button>
         </div>
 
         <div className="flex gap-2 mb-4">
@@ -102,22 +125,31 @@ export default function AgentsPage() {
                 <div className="agent-card-actions">
                   <button
                     className="btn btn-primary btn-sm"
-                    onClick={(e) => e.preventDefault()}
+                    onClick={(e) => {
+                      e.preventDefault();
+                      setQuarterUpAgent(agent);
+                    }}
                   >
                     QUARTER UP
                   </button>
-                  <button
-                    className="btn btn-sm"
-                    onClick={(e) => e.preventDefault()}
-                  >
-                    FOLLOW
-                  </button>
+                  <FollowButton agentId={agent.id} />
                 </div>
               </Link>
             );
           })}
         </div>
       </div>
+
+      {showRegModal && (
+        <AgentRegModal onClose={() => setShowRegModal(false)} />
+      )}
+
+      {quarterUpAgent && (
+        <QuarterUpModal
+          onClose={() => setQuarterUpAgent(null)}
+          preselectedAgent={quarterUpAgent}
+        />
+      )}
     </div>
   );
 }

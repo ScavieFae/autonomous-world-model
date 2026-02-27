@@ -1,8 +1,11 @@
 'use client';
 
+import { useState } from 'react';
 import Link from 'next/link';
 import { useParams } from 'next/navigation';
 import { useData } from '@/providers/data';
+import { useFollow } from '@/hooks/useFollow';
+import QuarterUpModal from '@/components/modals/QuarterUpModal';
 
 function getTier(elo: number) {
   if (elo >= 1800) return { cls: 'tier-fd', label: 'FINAL DEST.' };
@@ -15,8 +18,10 @@ export default function AgentDetailPage() {
   const params = useParams();
   const id = params.id as string;
   const data = useData();
+  const [showQuarterUp, setShowQuarterUp] = useState(false);
 
   const agent = data.getAgent(id);
+  const { isFollowing, toggle, isLoading: followLoading } = useFollow(id);
 
   if (!agent) {
     return (
@@ -82,8 +87,19 @@ export default function AgentDetailPage() {
               {agent.bio}
             </p>
             <div className="flex gap-2 mt-4">
-              <button className="btn btn-sm">FOLLOW</button>
-              <button className="btn btn-primary btn-sm">QUARTER UP</button>
+              <button
+                className={`btn btn-sm ${isFollowing ? 'btn-primary' : ''}`}
+                onClick={toggle}
+                disabled={followLoading}
+              >
+                {isFollowing ? 'FOLLOWING' : 'FOLLOW'}
+              </button>
+              <button
+                className="btn btn-primary btn-sm"
+                onClick={() => setShowQuarterUp(true)}
+              >
+                QUARTER UP
+              </button>
             </div>
           </div>
 
@@ -186,6 +202,13 @@ export default function AgentDetailPage() {
           </div>
         </div>
       </div>
+
+      {showQuarterUp && (
+        <QuarterUpModal
+          onClose={() => setShowQuarterUp(false)}
+          preselectedAgent={agent}
+        />
+      )}
     </div>
   );
 }

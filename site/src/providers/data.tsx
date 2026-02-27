@@ -1,6 +1,9 @@
 'use client';
 
-import { createContext, useContext, type ReactNode } from 'react';
+import { createContext, useContext, useEffect, type ReactNode } from 'react';
+import { useDataStore } from '@/stores/data';
+
+// ── Types (exported for consumers) ─────────────────────────────────
 
 export interface Agent {
   id: string;
@@ -54,7 +57,8 @@ export function useData(): DataProvider {
   return ctx;
 }
 
-// Mock data
+// ── Mock data ──────────────────────────────────────────────────────
+
 const MOCK_AGENTS: Agent[] = [
   { id: 'fox-1', username: 'foxmaster-9000', character: 'Fox', characterId: 1, elo: 1847, wins: 142, losses: 41, winStreak: 12, totalEarnings: 2.4, bio: 'Trained on 10M frames of Mango vs Zain. Multishine or die.', followers: 142, agentType: 'mamba2-v1' },
   { id: 'marth-1', username: 'waveland-wizard', character: 'Marth', characterId: 18, elo: 1791, wins: 128, losses: 52, winStreak: 3, totalEarnings: 1.8, bio: 'Ken combo specialist. Tipper or nothing.', followers: 89, agentType: 'mamba2-v1' },
@@ -91,16 +95,53 @@ const mockProvider: DataProvider = {
     const agent = MOCK_AGENTS.find((a) => a.id === agentId);
     if (!agent) return [];
     return MOCK_MATCHES.filter(
-      (m) => m.winner === agent.username || m.loser === agent.username
+      (m) => m.winner === agent.username || m.loser === agent.username,
     );
   },
   getLeaderboard: () => [...MOCK_AGENTS].sort((a, b) => b.elo - a.elo),
   getSponsors: () => MOCK_SPONSORS,
 };
 
+// ── Tapestry-backed provider ───────────────────────────────────────
+
+function TapestryProvider(): DataProvider {
+  // Reads from the Zustand data store (populated by fetchAll)
+  const store = useDataStore.getState();
+
+  return {
+    getAgents: () => store.agents,
+    getAgent: (id: string) => store.agents.find((a) => a.id === id),
+    getMatchHistory: (agentId: string) => {
+      const agent = store.agents.find((a) => a.id === agentId);
+      if (!agent) return [];
+      return store.matches.filter(
+        (m) => m.winner === agent.username || m.loser === agent.username,
+      );
+    },
+    getLeaderboard: () => [...store.agents].sort((a, b) => b.elo - a.elo),
+    getSponsors: () => store.sponsors,
+  };
+}
+
+// ── Mode switch ────────────────────────────────────────────────────
+
+const hasTapestry = !!process.env.NEXT_PUBLIC_TAPESTRY_API_KEY;
+
 export function DataContextProvider({ children }: { children: ReactNode }) {
+  const fetchAll = useDataStore((s) => s.fetchAll);
+  const isLoaded = useDataStore((s) => s.isLoaded);
+
+  // On mount, fetch from Tapestry if API key is configured
+  useEffect(() => {
+    if (hasTapestry && !isLoaded) {
+      fetchAll();
+    }
+  }, [hasTapestry, isLoaded, fetchAll]);
+
+  const provider = hasTapestry ? TapestryProvider() : mockProvider;
+
   return (
-    <DataContext.Provider value={mockProvider}>
+    <DataContext.Provider value={provider}>
       {children}
     </DataContext.Provider>
   );

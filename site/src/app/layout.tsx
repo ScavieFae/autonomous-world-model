@@ -4,6 +4,7 @@ import NavBar from '@/components/shell/NavBar';
 import Notifications from '@/components/shell/Notifications';
 import KeyboardShortcuts from '@/components/shell/KeyboardShortcuts';
 import { DataContextProvider } from '@/providers/data';
+import { WalletProviderWrapper } from '@/providers/wallet-wrapper';
 import ParallaxBackground from '@/components/canvas/ParallaxBackground';
 
 export const metadata: Metadata = {
@@ -19,15 +20,17 @@ export default function RootLayout({
   return (
     <html lang="en">
       <body>
-        <DataContextProvider>
-          <ParallaxBackground />
-          <div className="app-shell">
-            <NavBar />
-            {children}
-          </div>
-          <Notifications />
-          <KeyboardShortcuts />
-        </DataContextProvider>
+        <WalletProviderWrapper>
+          <DataContextProvider>
+            <ParallaxBackground />
+            <div className="app-shell">
+              <NavBar />
+              {children}
+            </div>
+            <Notifications />
+            <KeyboardShortcuts />
+          </DataContextProvider>
+        </WalletProviderWrapper>
       </body>
     </html>
   );
