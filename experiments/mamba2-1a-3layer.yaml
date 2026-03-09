@@ -1,0 +1,49 @@
+# Mamba-2 + 1a: 3 layers (vs 2 in mamba2-1a baseline)
+# Brackets the depth hyperparameter. Same encoding, same data.
+# If 3 layers >> 2 layers: model was capacity-limited.
+# If 3 layers ≈ 2 layers: 2 is sufficient for K=10.
+
+data:
+  dataset_dir: null
+  max_games: 2000
+  stage_filter: null
+  character_filter: null
+
+encoding:
+  xy_scale: 0.05
+  percent_scale: 0.01
+  shield_scale: 0.01
+  action_vocab: 400
+  action_embed_dim: 32
+  jumps_vocab: 8
+  jumps_embed_dim: 4
+  state_age_as_embed: true
+  state_age_embed_vocab: 150
+  state_age_embed_dim: 8
+  press_events: false
+  lookahead: 0
+
+model:
+  arch: mamba2
+  context_len: 10
+  d_model: 256
+  d_state: 64
+  n_layers: 3
+  headdim: 64
+  dropout: 0.1
+
+training:
+  lr: 0.001
+  weight_decay: 0.00001
+  batch_size: 512
+  num_epochs: 2
+  train_split: 0.9
+  device: null
+
+loss_weights:
+  continuous: 1.0
+  binary: 0.5
+  action: 2.0
+  jumps: 0.5
+
+save_dir: worldmodel/checkpoints

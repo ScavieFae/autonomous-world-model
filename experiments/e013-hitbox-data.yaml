@@ -1,0 +1,58 @@
+# E013: Hitbox data — add hitbox properties as input features
+# Pure A/B test vs E012: identical model, training, data filters.
+# Adds 5 normalized continuous floats per player per frame:
+#   is_active, damage/30, angle/361, kbg/200, size/10
+# Gated behind hitbox_data=true in EncodingConfig.
+
+data:
+  dataset_dir: null
+  max_games: null
+  stage_filter: 32  # Final Destination
+  character_filter: [1, 2, 7, 18, 22]  # Fox, Falcon, Sheik, Marth, Falco
+
+encoding:
+  state_age_as_embed: true
+  state_age_embed_vocab: 150
+  state_age_embed_dim: 8
+  press_events: false
+  lookahead: 0
+  focal_offset: 0
+  multi_position: true
+  projectiles: false
+  state_flags: true
+  hitstun: true
+  ctrl_threshold_features: true
+  hitbox_data: true
+
+model:
+  arch: mamba2
+  context_len: 10
+  d_model: 384
+  d_state: 64
+  n_layers: 4
+  headdim: 64
+  dropout: 0.1
+  chunk_size: 10
+
+training:
+  lr: 0.0005
+  weight_decay: 0.00001
+  batch_size: 4096
+  num_epochs: 2
+  train_split: 0.9
+  log_interval: 1000
+
+loss_weights:
+  continuous: 1.0
+  velocity: 0.5
+  dynamics: 0.5
+  binary: 1.0
+  action: 2.0
+  jumps: 0.5
+  l_cancel: 0.3
+  hurtbox: 0.3
+  ground: 0.3
+  last_attack: 0.3
+  action_change_weight: 5.0
+
+save_dir: checkpoints/e013-hitbox-data

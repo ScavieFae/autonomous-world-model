@@ -1,0 +1,57 @@
+# E014: Cascaded heads — action prediction conditions physics/binary/categorical heads
+# Base: E012 (clean FD top-5, multi_position, ctrl_threshold_features)
+# Action heads predict first (tier 1), their embeddings feed into all downstream heads (tier 2)
+# Mirrors game engine causal chain: action determines what physics happens
+
+data:
+  dataset_dir: null
+  max_games: null
+  stage_filter: 32  # Final Destination
+  character_filter: [1, 2, 7, 18, 22]  # Fox, Falcon, Sheik, Marth, Falco
+
+encoding:
+  state_flags: true
+  hitstun: true
+  state_age_as_embed: true
+  cascaded_heads: true
+  cascade_embed_dim: 16
+  character_conditioning: true
+  ctrl_residual_to_action: true
+  multi_position: true
+  ctrl_threshold_features: true
+  projectiles: false
+  press_events: false
+  lookahead: 0
+  focal_offset: 0
+
+model:
+  arch: mamba2
+  context_len: 10
+  d_model: 384
+  d_state: 64
+  n_layers: 4
+  headdim: 64
+  dropout: 0.1
+  chunk_size: 10
+
+training:
+  lr: 0.0005
+  weight_decay: 0.00001
+  batch_size: 4096
+  num_epochs: 3
+  train_split: 0.9
+
+loss_weights:
+  continuous: 1.0
+  velocity: 0.5
+  dynamics: 0.5
+  binary: 1.0
+  action: 2.0
+  jumps: 0.5
+  l_cancel: 0.3
+  hurtbox: 0.3
+  ground: 0.3
+  last_attack: 0.3
+  action_change_weight: 5.0
+
+save_dir: checkpoints/e014-cascaded-heads

@@ -1,0 +1,56 @@
+# E010d: Combined transition weighting + threshold features
+# Hypothesis: E010b (loss-side focus on transitions) and E010c (input-side
+# pre-computed decision boundaries) attack movement prediction from orthogonal
+# angles. Together, the model gets sharp boundary features AND is pushed hardest
+# to use them at the exact frames where they matter.
+# Base: E009a (K=10, v3, focal_offset=3, multi_position=true)
+
+data:
+  dataset_dir: null
+  max_games: 2000
+
+encoding:
+  state_age_as_embed: true
+  state_age_embed_vocab: 150
+  state_age_embed_dim: 8
+  press_events: false
+  lookahead: 0
+  focal_offset: 3
+  multi_position: true
+  projectiles: false
+  state_flags: true
+  hitstun: true
+  ctrl_threshold_features: true
+
+model:
+  arch: mamba2
+  context_len: 10
+  d_model: 384
+  d_state: 64
+  n_layers: 4
+  headdim: 64
+  dropout: 0.1
+  chunk_size: 10
+
+training:
+  lr: 0.0005
+  weight_decay: 0.00001
+  batch_size: 4096
+  num_epochs: 2
+  train_split: 0.9
+  log_interval: 1000
+
+loss_weights:
+  continuous: 1.0
+  velocity: 0.5
+  dynamics: 0.5
+  binary: 1.0
+  action: 2.0
+  jumps: 0.5
+  l_cancel: 0.3
+  hurtbox: 0.3
+  ground: 0.3
+  last_attack: 0.3
+  action_change_weight: 5.0
+
+save_dir: checkpoints/e010d-combined-bc

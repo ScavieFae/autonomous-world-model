@@ -1,10 +1,9 @@
-"""Self-contained model code for inference.
+"""Model definitions — architecture, encoding, and checkpoint loading.
 
-Copied from nojohns/worldmodel/model/ — adapted imports to be standalone.
-Training code stays in nojohns; this repo only needs inference.
+Canonical home for all model code. Training pipeline lives in data/, training/, scripts/.
 """
 
-from models.encoding import EncodingConfig
+from models.encoding import EncodingConfig, encode_player_frames, StateEncoder
 from models.mamba2 import FrameStackMamba2
 from models.mlp import FrameStackMLP
 from models.policy_mlp import PolicyMLP

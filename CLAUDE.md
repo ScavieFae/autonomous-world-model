@@ -4,23 +4,24 @@ A learned world model deployed onchain as an autonomous world. Trained on Melee 
 
 ## Architecture
 
-```
-nojohns / nojohns-training  →  trained weights (float32)
-                                      ↓
-autonomous-world-model       →  quantize → deploy → render
-```
-
-This repo is the right side of that arrow. Everything that takes trained weights and puts them onchain.
+This repo is the full pipeline: train → quantize → deploy → render. Model research, training infrastructure, and deployment all live here.
 
 ## Project Structure
 
 ```
 autonomous-world-model/
-├── site/             # "The Wire" — Next.js arena website (ScavieFae)
-├── models/           # PyTorch inference code — Mamba2, PolicyMLP (Scav)
+├── models/           # Model definitions — Mamba2, MLP, PolicyMLP, encoding (Scav)
+├── data/             # Dataset loading — parse replays, build tensors (Scav)
+├── training/         # Training loops — Trainer, PolicyTrainer, metrics (Scav)
+├── scripts/          # Training & eval scripts — train.py, rollout.py, etc. (Scav)
+├── experiments/      # YAML experiment configs (Scav)
+├── configs/          # Match configs (fox_ditto_fd.yaml, etc.) (Scav)
 ├── crank/            # Offchain match runner — standalone + Solana (Scav)
-├── viz/              # State visualizer — renders world model output (Scav)
 ├── quantization/     # INT8 quantization + accuracy testing (Scav)
+├── viz/              # State visualizer — renders world model output (Scav)
+├── research/         # Research notes, hitbox data (Scav)
+├── checkpoints/      # Model weights — .pt files (gitignored)
+├── site/             # "The Wire" — Next.js arena website (ScavieFae)
 ├── solana/           # Onchain code (Codex)
 │   ├── syscall/      # sol_matmul_i8 native syscall implementation
 │   ├── programs/     # Solana programs (world-model, cu-benchmark, syscall-test)
@@ -28,7 +29,9 @@ autonomous-world-model/
 │   ├── client/       # TypeScript SDK (@awm/client)
 │   ├── cli/          # Upload CLI tool
 │   └── tests/        # Integration tests (Mocha)
-└── docs/             # Architecture decisions, specs, handoff (shared)
+├── docs/             # Architecture, specs, handoff, run cards (shared)
+│   └── run-cards/    # Per-experiment run cards (e008a through e017d)
+└── RUNBOOK.md        # Training guide — how to run experiments
 ```
 
 ## Key Concepts
@@ -44,7 +47,7 @@ This project is developed by three agents. **Check which agent you are before ed
 | Agent | Platform | Role | Owns |
 |-------|----------|------|------|
 | **ScavieFae** | Claude Code | Website, UX, design, overall experience | `site/` |
-| **Scav** | Claude Code | Model training, quantization, inference, offchain crank | `models/`, `crank/`, `quantization/`, `viz/` |
+| **Scav** | Claude Code | Model research, training, quantization, inference, offchain crank | `models/`, `data/`, `training/`, `scripts/`, `experiments/`, `configs/`, `crank/`, `quantization/`, `viz/`, `research/` |
 | **Codex** | OpenAI Codex | Smart contracts, onchain programs, client SDK | `solana/` |
 
 ### How to Know Which Agent You Are (Claude agents only)
@@ -59,10 +62,16 @@ If unclear, ask Mattie. If you're Codex, see `AGENTS.md`.
 | Directory | Owner | Notes |
 |-----------|-------|-------|
 | `site/` | **ScavieFae** | Next.js website ("The Wire") |
-| `models/` | **Scav** | PyTorch inference code (Mamba2, PolicyMLP) |
+| `models/` | **Scav** | Model definitions (Mamba2, MLP, PolicyMLP, encoding) |
+| `data/` | **Scav** | Dataset loading, replay parsing |
+| `training/` | **Scav** | Training loops, metrics, loss weights |
+| `scripts/` | **Scav** | Training/eval scripts (train.py, rollout.py, etc.) |
+| `experiments/` | **Scav** | YAML experiment configs |
+| `configs/` | **Scav** | Match configs |
 | `crank/` | **Scav** | Offchain match runner (standalone + Solana bridge) |
 | `quantization/` | **Scav** | INT8 quantization pipeline |
 | `viz/` | **Scav** | State visualizer, render modes |
+| `research/` | **Scav** | Research notes, hitbox data |
 | `solana/` | **Codex** | All onchain code — programs, syscall, ECS, client SDK, tests |
 | `docs/` | **Shared** | All agents can edit |
 
@@ -111,7 +120,7 @@ You own the website and overall product experience. You consume `@awm/client` (C
 
 ### For Scav
 
-You own model training, quantization, inference, and the offchain crank. Your binary format in `crank/solana_bridge.py` must match Codex's Rust structs byte-for-byte. Read `docs/HANDOFF.md` for review requests.
+You own the full model pipeline: research, training, quantization, inference, and the offchain crank. Training code lives in `data/`, `training/`, `scripts/`. Experiment configs in `experiments/`, run cards in `docs/run-cards/`. Your binary format in `crank/solana_bridge.py` must match Codex's Rust structs byte-for-byte. Read `docs/HANDOFF.md` for review requests and `RUNBOOK.md` for the training guide.
 
 ## Reference Docs
 
@@ -123,12 +132,16 @@ You own model training, quantization, inference, and the offchain crank. Your bi
 | [docs/cu-benchmark-findings.md](docs/cu-benchmark-findings.md) | CU measurements for INT8 ops |
 | [docs/design-arena-mechanics.md](docs/design-arena-mechanics.md) | "The Wire" arena design |
 | [docs/design-visual-ux.md](docs/design-visual-ux.md) | Visual/UX design for The Wire |
+| [RUNBOOK.md](RUNBOOK.md) | Training guide — experiments, configs, data pipeline |
+| [docs/MAMBA2-EXPLAINER.md](docs/MAMBA2-EXPLAINER.md) | Mamba-2 architecture explanation |
+| [docs/RESEARCH-DIARY.md](docs/RESEARCH-DIARY.md) | Chronological research log |
+| [docs/run-cards/](docs/run-cards/) | Per-experiment run cards (e008a–e017d) |
 
 ## Related Projects
 
+- **nojohns** — agent competition infrastructure, arena, Melee integration (tournament/community platform)
+- **nojohns-training** — parsed replay data, training run outputs
 - **rnd-2026** — research docs (`llms/world-models.md`, `projects/autonomous-world-model/README.md`)
-- **nojohns** — model code, arena, community platform
-- **nojohns-training** — data pipeline, training runs, parsed replay data
 
 ## Model Output Format
 
