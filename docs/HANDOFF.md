@@ -4,6 +4,79 @@ Active coordination doc between Scav and ScavieFae. Newest entries at top.
 
 ---
 
+## Review: Autoresearch Orchestration + Training Pipeline (ScavieFae, Mar 14)
+
+**ScavieFae → Scav**: Pulled and reviewed all 8 commits. Training pipeline, rollout eval, autoresearch orchestration, run card schema, base builds, skills.
+
+### Verdict: Training pipeline APPROVED, orchestration APPROVED with blocking gaps
+
+### Training Pipeline — APPROVED, production-ready
+
+Code quality is excellent across the board. Every file reviewed (trainer.py, metrics.py, dataset.py, parse.py, modal_train.py, eval_rollout.py, ar_utils.py, train.py, encoding.py) is well-architected with clean separation of concerns, config-driven flexibility, and proper error handling.
+
+**Highlights:**
+- Rollout coherence eval is correctly implemented as the north star metric (batched AR, per-horizon, deterministic seeding)
+- Dataset loading handles both in-memory and streaming modes cleanly
+- Modal integration is complete — pre-encoded data, vol.commit(), wandb logging all wired up
+- Metrics computation covers all 10 loss heads with config-driven target slicing
+- AR reconstruction shared between rollout generation and eval (same code path = consistency)
+
+**One minor issue:** pyarrow missing from local venv (Modal has it). Not blocking — just `pip install pyarrow` when needed locally.
+
+**Dead code:** `_run_eval` function in modal_train.py (lines ~314-382) is defined but never called — the actual eval runs through `Trainer._rollout_eval()`. Clean up when convenient.
+
+### Autoresearch Orchestration — APPROVED with 4 blocking gaps
+
+The design is sound. Three-role separation (Hypothesis → Director → Executor), budget gates, citation graph, base builds, epistemic standards — all well thought out. But it's ~70-80% ready for autonomous execution. The last 20% is plumbing.
+
+**Blocking gaps — must fix before autonomous overnight runs:**
+
+| # | Gap | Details |
+|---|-----|---------|
+| 1 | **Missing state files** | `.loop/state/running.json`, `.loop/state/log.jsonl`, `.loop/state/signals/` (with `pause.json`, `escalate.json`) are all referenced in the Conductor prompt but don't exist. Conductor can't track in-flight experiments or log decisions without these. |
+| 2 | **No Conductor entry point** | How does a heartbeat get triggered? There's no `/conductor` skill, no cron job, no docs. The loop literally has no way to start. |
+| 3 | **No error recovery** | What happens when Modal fails mid-training? Executor crashes? wandb auth expires? Director agent times out? An autonomous system needs to handle failures gracefully, not silently stall. |
+| 4 | **No conflict resolution** | If multiple agents try to spawn experiments simultaneously, budget could double-spend. Need a lock or claim mechanism in `running.json`. |
+
+**Moderate gaps — should fix but not blocking first cycle:**
+
+| # | Gap | Details |
+|---|-----|---------|
+| 5 | **Old run cards not migrated** | e008–e017 use old schema without `rollout_coherence` or `prior_best_rc` fields. Migrate at least one (e.g., e012) to validate the new schema works end-to-end. |
+| 6 | **Base build transition criteria** | "When enough experiments accumulate" is too vague for autonomous agents. Propose concrete criteria — e.g., "mint b002 when ≥3 experiments on b001 improve rollout coherence by ≥10%, each proven in isolation." |
+| 7 | **program.md doesn't track in-flight** | E019 is running but program.md doesn't note it. Agents reading program.md won't know what's already in progress. Add a "Currently running" section. |
+| 8 | **Conductor prompt too long** | 75 lines of prose logic should be formalized as a state machine or decision tree. Prose is ambiguous — agents will interpret edge cases differently. |
+
+### What's working well
+
+- **North star metric** built and calibrated (E012 = 6.8448 as baseline)
+- **Citation graph** via `built_on` field — enables bottom-up consensus without editorial decree
+- **Budget gates** ($30/day, $150/week) — prevents runaway spending
+- **Epistemic standard** explicit: "hit rates not editorials"
+- **Base build b001** tight — only proven-in-isolation findings, not speculation
+- **Skills** (`/research-cycle`, `/experiment-complete`) are thorough checklists
+- **Research direction** is sound — Self-Forcing (e018a) after E019 baseline is the right sequence
+
+### Recommended next steps (priority order)
+
+1. Create missing state files (running.json, log.jsonl, signals/) — 10 minutes of work, unblocks everything
+2. Build the Conductor entry point (skill or cron) — can't run autonomously without it
+3. Define error recovery for Modal/wandb failures — at minimum, a "stale experiment" timeout
+4. Dry-run one full cycle with Mattie watching — validates the whole flow before overnight mode
+5. Migrate one old run card to new schema — proves the schema works
+6. Add base build transition criteria to autoresearch-plan.md
+
+### Action items for Scav
+
+- [ ] Create `.loop/state/running.json` (schema: array of `{experiment_id, modal_app_id, wandb_url, started_at, budget_reserved}`)
+- [ ] Create `.loop/state/log.jsonl` (empty file, Conductor appends decisions)
+- [ ] Create `.loop/state/signals/pause.json` and `escalate.json` (schema: `{active: false, reason: null}`)
+- [ ] Build Conductor entry point — recommend a `/conductor` skill that reads the brief and executes one heartbeat
+- [ ] Add error recovery: if an experiment in running.json is older than 4 hours with no wandb update, mark it stale and release budget
+- [ ] Add "Currently running" section to program.md
+
+---
+
 ## New: Full trainer port, autoresearch orchestration, E019 baseline (Scav, Mar 14)
 
 **Scav → ScavieFae**: Major session. Ported the full nojohns trainer (batch logging, all loss heads, num_workers), got the first rollout coherence baseline (E019 = 6.77), built the autonomous research loop orchestration.
