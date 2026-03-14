@@ -33,6 +33,7 @@ from data.dataset import CTRL_DIM, FLOAT_PER_PLAYER, INT_PER_PLAYER, _encode_gam
 from data.parse import load_game
 from models.encoding import EncodingConfig
 from models.mlp import FrameStackMLP
+from scripts.ar_utils import build_ctrl, reconstruct_frame
 
 logger = logging.getLogger(__name__)
 
@@ -144,44 +145,17 @@ def rollout(
         ctx_i = sim_ints[-K:].unsqueeze(0).to(device)  # (1, K, 15)
 
         # Controller input for frame t (from replay data)
-        if t < float_data.shape[0]:
-            ctrl = torch.cat([
-                float_data[t, 16:29],            # p0 controller (13)
-                float_data[t, FPP + 16:FPP + 29],  # p1 controller (13)
-            ]).unsqueeze(0).to(device)  # (1, 26)
-        else:
-            ctrl = torch.zeros(1, CTRL_DIM).to(device)  # neutral
+        ctrl_1d = build_ctrl(float_data, t, cfg)
+        ctrl = ctrl_1d.unsqueeze(0).to(device)  # (1, 26)
 
         # Predict frame t's state given the controller input
         preds = model(ctx_f, ctx_i, ctrl)
 
-        # --- Build frame t ---
-        curr_float = sim_floats[-1].clone()
-        next_float = curr_float.clone()
-
-        # Apply continuous deltas (first 4 of each player block: percent, x, y, shield)
-        delta = preds["continuous_delta"][0].cpu()  # (8,)
-        next_float[0:4] += delta[0:4]    # p0 deltas
-        next_float[FPP:FPP + 4] += delta[4:8]  # p1 deltas
-
-        # Binary predictions (threshold logits)
-        binary = (preds["binary_logits"][0].cpu() > 0).float()  # (6,)
-        next_float[13:16] = binary[0:3]  # p0 binary
-        next_float[FPP + 13:FPP + 16] = binary[3:6]  # p1 binary
-
-        # Store the controller input in the frame (for context window)
-        if t < float_data.shape[0]:
-            next_float[16:29] = float_data[t, 16:29]
-            next_float[FPP + 16:FPP + 29] = float_data[t, FPP + 16:FPP + 29]
-
-        # Categorical predictions (argmax)
-        next_int = sim_ints[-1].clone()
-        IPP = INT_PER_PLAYER
-        next_int[0] = preds["p0_action_logits"][0].cpu().argmax()
-        next_int[1] = preds["p0_jumps_logits"][0].cpu().argmax()
-        next_int[IPP] = preds["p1_action_logits"][0].cpu().argmax()
-        next_int[IPP + 1] = preds["p1_jumps_logits"][0].cpu().argmax()
-        # character, l_cancel, hurtbox, ground, last_attack, stage: carry forward
+        # Unbatch predictions for reconstruction
+        preds_cpu = {k: v[0].cpu() for k, v in preds.items()}
+        next_float, next_int = reconstruct_frame(
+            preds_cpu, sim_floats[-1], sim_ints[-1], ctrl_1d, cfg,
+        )
 
         # Append to simulation
         sim_floats = torch.cat([sim_floats, next_float.unsqueeze(0)], dim=0)

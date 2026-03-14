@@ -7,6 +7,37 @@ Run cards live in `docs/run-cards/`. Experiment configs in `experiments/`. This 
 
 ---
 
+## 2026-03-14: Rollout Coherence Eval Built (e018b)
+
+### What we built
+
+The rollout coherence eval — `scripts/eval_rollout.py`. This is the quantitative AR metric we've been missing since E016 proved that TF metrics don't predict AR quality.
+
+### Design decisions
+
+- **Batched evaluation**: 20 batched forward passes of N=300, not 6000 sequential passes. Should run in 30-60s.
+- **Game-unit metrics**: pos_mae, vel_mae, percent_mae all denormalized to game units. Comparing in normalized space would hide differences (xy_scale=0.05 vs percent_scale=0.01).
+- **Deterministic sampling**: Fixed seed (default 42) + sorted indices. Same checkpoint + same data = same score. Always.
+- **Config-driven reconstruction**: Factored the AR step out of `rollout.py` into `scripts/ar_utils.py`. Uses `EncodingConfig` properties for all index math — no more hardcoded `13:16` / `16:29` / `FPP=29`. This matters because E017a-style configs have `binary_dim=43` and `float_per_player=69`, not 3 and 29.
+
+### The reconstruction factoring
+
+`ar_utils.reconstruct_frame()` is now the single source of truth for: apply continuous deltas, threshold binaries, copy controller input, argmax categoricals. Three callers will share it:
+1. `rollout.py` (demo generation) — uses it now
+2. `eval_rollout.py` (evaluation) — uses it now
+3. Self-Forcing training (e018a) — will need a differentiable variant, but the logic stays aligned
+
+### What's still missing
+
+- **Baseline numbers**: Need to run the eval against E012 and E017a checkpoints. These become the "prior best" that autoresearch experiments compare against.
+- **`absolute_y` handling**: The flag is in E017a's YAML but not implemented in this repo's Python code (was likely in nojohns before migration). The eval uses the same reconstruction as rollout.py, so they're consistent — but both would need updating if we test an absolute_y model.
+
+### Status
+
+e018b: proposed → running. Eval script is built. Waiting on baseline numbers to close the card.
+
+---
+
 ## 2026-03-02: E017c/d Results — Absolute Targets Prevent Drift but Cause Oscillation and Head Decoupling
 
 ### What we tried

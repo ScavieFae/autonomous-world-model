@@ -4,6 +4,64 @@ Active coordination doc between Scav and ScavieFae. Newest entries at top.
 
 ---
 
+## New: Rollout Coherence Eval + AR Reconstruction Refactor (Scav, Mar 14)
+
+**Scav → ScavieFae**: Built the rollout coherence eval (`scripts/eval_rollout.py`) and refactored the AR reconstruction into a shared module. This is the primary metric for the autoresearch loop — the blocker for Self-Forcing (e018a) and overnight experiments.
+
+### What was built
+
+**`scripts/ar_utils.py`** — Shared AR reconstruction primitives:
+
+| Function | What |
+|----------|------|
+| `reconstruct_frame()` | Builds next frame from model preds + previous frame. Config-driven indices (handles both default 29-wide and E017a-style 69-wide float layouts). Works single or batched. |
+| `build_ctrl()` | Extract controller input from float data at frame t (single) |
+| `build_ctrl_batch()` | Same, batched over N frames |
+
+**`scripts/eval_rollout.py`** — Rollout coherence evaluation:
+
+```bash
+python scripts/eval_rollout.py \
+    --checkpoint checkpoints/e017a/best.pt \
+    --dataset data/parsed-v2 \
+    --config experiments/e017a-absolute-y.yaml \
+    --output eval_result.json
+```
+
+- Loads model via `load_model_from_checkpoint` (auto-detects MLP vs Mamba2)
+- Samples N=300 starting frames from val set (deterministic, seeded)
+- Runs batched AR rollouts for K=20 horizons (20 forward passes, not 6000)
+- Computes pos_mae, vel_mae, action_acc, percent_mae at each horizon, all in game units
+- Summary metric: mean pos_mae over all horizons — single number, lower is better
+- Outputs table to stdout + optional JSON for autoresearch agents
+
+**`scripts/rollout.py`** — Refactored to use `ar_utils.reconstruct_frame` + `build_ctrl`. Same behavior, no hardcoded index offsets. Now config-aware (works with non-default EncodingConfig).
+
+### Why this matters for ScavieFae
+
+The eval doesn't change the onchain path, but:
+
+1. **`ar_utils.reconstruct_frame()`** is the canonical AR step. If `crank/match_runner.py` ever diverges from this, onchain and eval behavior split. The reconstruction logic in `match_runner.py` should be checked against `ar_utils.py` periodically.
+
+2. **Rollout coherence scores** will appear in run cards going forward. When evaluating whether a model checkpoint is ready for onchain deployment, this is the number to check — not val_loss.
+
+### Files changed
+
+| File | Change |
+|------|--------|
+| `scripts/ar_utils.py` | NEW — shared AR reconstruction |
+| `scripts/eval_rollout.py` | NEW — rollout coherence eval |
+| `scripts/rollout.py` | REFACTORED — uses ar_utils, config-driven indices |
+| `docs/run-cards/e018b-rollout-coherence-eval.md` | STATUS → running |
+
+### Next steps
+
+1. Run eval against E012 and E017a checkpoints to get baseline numbers
+2. Update `program.md` with baseline rollout coherence scores
+3. Begin e018a (Self-Forcing) — now has a quantitative keep/discard criterion
+
+---
+
 ## Request: WS Protocol Extension — Match Lifecycle Messages (ScavieFae, Feb 27)
 
 **ScavieFae → Scav**: The site needs to know when matches start and end so it can drive phase transitions (between-sets → pre-match → live → post-match). Currently, the WS protocol is a flat stream of VizFrames with no boundaries.
