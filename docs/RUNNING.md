@@ -4,6 +4,16 @@ Running notes from work sessions. Newest entries at top. Append-only.
 
 ---
 
+## 2026-03-14 — Added /pull skill with subagent scanners
+
+Built the mirror to /push. The /pull skill spawns two Explore subagents in parallel — one to scan HANDOFF.md for new entries and action items, one to scan run cards, RUNNING.md, program.md, and checkpoint directories for state changes. Primary agent never reads the full living documents directly; gets concise digests back.
+
+Added `.claude/last_pull.json` as local state (gitignored) so the scanners know what's "new since last pull." Seeded it with the current commit.
+
+Design decision: subagents over agent teams. Two parallel disposable Explore agents are the right weight — read-only, fast, no persistent coordination needed. Agent teams would be overkill for a scan-and-report pattern.
+
+---
+
 ## 2026-03-14 — Built rollout coherence eval, /push skill, operating doc catchup
 
 First session in the standalone autonomous-world-model repo focused on the autoresearch infrastructure.
