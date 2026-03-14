@@ -1,8 +1,14 @@
 # Base Build b001: FD Top-5 Stable Foundation
 #
-# All proven encoding, training, and architecture findings through E016.
+# Proven-in-isolation encoding and training findings through E012.
 # This is the canonical set of design decisions that every experiment
 # after E019 builds on unless explicitly stated otherwise.
+#
+# Excluded from b001 (not yet proven in isolation at scale):
+#   - cascaded_heads (E014): AR damage drift fix at 1.9K, but TF regression
+#     and never ablated at 7.7K. Will be tested as e020 against E019 baseline.
+#   - true scheduled sampling (E015): code not fully ported to this repo.
+#   - E016 omnibus: combined 3 changes (cascade + SS + 4x data), can't attribute.
 #
 # To mint a new base build (b002, etc.), identify findings from experiments
 # that always co-occur in built_on chains, have high hit rates, and aren't
@@ -11,8 +17,8 @@
 
 id: b001
 created: 2026-03-14
-experiments: [e008c, e010b, e010c, e010d, e012, e014, e015, e016]
-description: FD top-5 stable foundation — all proven encoding, training, and architecture findings through E016
+experiments: [e008c, e010b, e010c, e010d, e012]
+description: FD top-5 stable foundation — proven-in-isolation encoding and training findings
 
 # What's in this build:
 #
@@ -20,10 +26,7 @@ description: FD top-5 stable foundation — all proven encoding, training, and a
 # e010b  — action_change_weight=5.0 (+9.9pp change_acc)
 # e010c  — ctrl_threshold_features (+5.9pp change_acc)
 # e010d  — combined BC (super-additive: 85.8% > max of individuals)
-# e012   — clean FD top-5 data, focal_offset=0, honest metrics
-# e014   — cascaded_heads (fixes damage drift in AR)
-# e015   — true scheduled sampling (exposure bias mitigation)
-# e016   — omnibus on 7.7K data (94.3% change_acc, -38% val_loss)
+# e012   — clean FD top-5 data, focal_offset=0, honest metrics, v3 encoding
 #
 # Model architecture (locked):
 #   Mamba-2, d_model=384, d_state=64, n_layers=4, headdim=64, K=10
@@ -32,8 +35,7 @@ description: FD top-5 stable foundation — all proven encoding, training, and a
 #   FD (stage=32), top-5 chars [1,2,7,18,22], v3 encoding
 #   state_flags=true, hitstun=true, ctrl_threshold_features=true
 #   state_age_as_embed=true, multi_position=true
-#   cascaded_heads=true, focal_offset=0, projectiles=false
+#   focal_offset=0, projectiles=false
 #
 # Training contract:
 #   lr=5e-4, wd=1e-5, batch_size=4096, action_change_weight=5.0
-#   scheduled_sampling=0.3, ss_true=true

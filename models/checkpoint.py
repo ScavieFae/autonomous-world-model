@@ -120,7 +120,9 @@ def load_model_from_checkpoint(
 
     # --- Reconstruct EncodingConfig ---
     if "encoding_config" in checkpoint and checkpoint["encoding_config"]:
-        cfg = EncodingConfig(**checkpoint["encoding_config"])
+        enc_fields = {f.name for f in EncodingConfig.__dataclass_fields__.values()}
+        enc_kwargs = {k: v for k, v in checkpoint["encoding_config"].items() if k in enc_fields}
+        cfg = EncodingConfig(**enc_kwargs)
         context_len = checkpoint.get("context_len", 10)
     elif "config" in checkpoint and checkpoint["config"]:
         old_cfg = checkpoint["config"]

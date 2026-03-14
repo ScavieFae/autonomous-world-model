@@ -6,6 +6,20 @@ Running notes from research and work sessions. Newest entries at top. Append-onl
 
 ---
 
+## 2026-03-14 — Migration fixes, b001 tightened, E012 baseline, E019 in flight
+
+First rollout coherence number: **E012 = 6.8448** (mean pos_mae, K=20, N=300). This is the pre-cascade, pre-SS checkpoint on 1.9K data.
+
+Hit a wall trying to eval E016 and E017a — both use cascaded_heads which isn't ported to this repo. Asked: has cascaded_heads earned a place in b001? Reviewed the evidence: E014 showed promise at 1.9K (AR damage drift fix) but TF metrics regressed, and it was never isolated at 7.7K. E016 was a 3-variable omnibus — can't attribute. Decision: remove from b001, test as a separate experiment.
+
+Tightened b001 to [e008c, e010b, e010c, e010d, e012] — only findings proven in isolation. Removed scheduled sampling too (E015 code not ported, E016 omnibus confounded).
+
+Hit a class of migration bugs from nojohns→AWM: hardcoded dimensions everywhere assuming default encoding config (binary_dim=3, ctrl_dim=26). With v3 encoding (state_flags=true → binary_dim=43), things broke. Fixed in dataset.py, metrics.py, trainer.py, checkpoint.py, ar_utils.py. Mattie flagged that this exact loop happened before in nojohns — researched nojohns TROUBLESHOOTING and issues to avoid repeating mistakes.
+
+E019 training launched on Modal A100 40GB with the fixed code. Waiting for results.
+
+---
+
 ## 2026-03-14 — Base builds, Modal training, E019 baseline config
 
 Surveyed all experiment history via subagent to ground dataset and config decisions in data rather than vibes. Key findings from the survey:

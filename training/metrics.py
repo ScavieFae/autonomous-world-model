@@ -88,8 +88,8 @@ class BatchMetrics:
 class MetricsTracker:
     """Computes losses and tracks metrics.
 
-    Target layout:
-        float_tgt: (B, 14) = [p0_cont_delta(4), p1_cont_delta(4), p0_binary(3), p1_binary(3)]
+    Target layout (dims are config-driven):
+        float_tgt: (B, 2*core_cd + 2*bd) = [p0_cont_delta(4), p1_cont_delta(4), p0_binary(bd), p1_binary(bd)]
         int_tgt:   (B, 4)  = [p0_action, p0_jumps, p1_action, p1_jumps]
     """
 
@@ -106,9 +106,10 @@ class MetricsTracker:
     ) -> tuple[torch.Tensor, BatchMetrics]:
         metrics = BatchMetrics()
 
-        # Unpack targets
-        cont_delta_true = float_tgt[:, :8]  # (B, 8)
-        binary_true = float_tgt[:, 8:]  # (B, 6)
+        # Unpack targets (config-driven split)
+        num_cont = self.cfg.core_continuous_dim * 2  # 8 for baseline
+        cont_delta_true = float_tgt[:, :num_cont]  # (B, 8)
+        binary_true = float_tgt[:, num_cont:]  # (B, 2*binary_dim)
         p0_action_true = int_tgt[:, 0]  # (B,)
         p0_jumps_true = int_tgt[:, 1]
         p1_action_true = int_tgt[:, 2]

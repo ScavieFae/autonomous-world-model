@@ -1,24 +1,24 @@
 ---
 id: e019
 created: 2026-03-14
-status: proposed
+status: running
 type: training-regime
 base_build: b001
 built_on: []
 source_paper: null
 rollout_coherence: null
-prior_best_rc: null
+prior_best_rc: 6.8448
 ---
 
 # Run Card: e019-baseline
 
 ## Goal
 
-Establish the first rollout coherence baseline using the stable build — all proven improvements combined. This is not a new experiment; it's the reference point every future experiment compares against.
+Establish the first rollout coherence baseline using proven-in-isolation improvements on 7.7K data. This is the reference point every future experiment compares against.
 
 ## What This Is
 
-The "stable build" config: every kept improvement from E008–E017, on the largest clean dataset (7.7K FD top-5). The first checkpoint to get a rollout coherence score.
+The b001 stable build on the largest clean dataset. No cascaded heads (unproven in isolation at scale), no scheduled sampling (not ported). Pure proven encoding + training practices from E008c–E012.
 
 ## Data
 
@@ -45,13 +45,11 @@ Mamba-2 (locked):
 | weight_decay | 1e-5 | E012+ |
 | batch_size | 4096 | E012+ |
 | epochs | 2 | baseline |
-| scheduled_sampling | 0.3 | E015/E016 |
-| ss_true | true | E015/E016 |
 | action_change_weight | 5.0 | E010b |
 
 ## Encoding Flags
 
-All proven flags enabled:
+Proven-in-isolation flags only:
 
 | Flag | Value | Source |
 |------|-------|--------|
@@ -60,25 +58,25 @@ All proven flags enabled:
 | hitstun | true | v3 |
 | ctrl_threshold_features | true | E010c |
 | multi_position | true | E008c |
-| cascaded_heads | true | E014 |
-| cascade_embed_dim | 16 | E014 |
 | focal_offset | 0 | E012 |
+
+**Excluded:** cascaded_heads (E014 — AR damage fix at 1.9K, TF regression, never isolated at 7.7K). Will be tested as e020.
 
 ## Target Metrics
 
 This establishes baselines, not targets:
 
-| Metric | E012 (1.9K) | E016 (7.7K) | E019 target |
-|--------|-------------|-------------|-------------|
-| change_acc | 91.1% | 94.3% | ~94% (match E016) |
-| pos_mae | 0.706 | 0.466 | ~0.47 |
-| val_loss | 0.527 | 0.327 | ~0.33 |
-| **rollout_coherence** | **unknown** | **unknown** | **establish baseline** |
+| Metric | E012 (1.9K, no cascade) | E019 target |
+|--------|-------------------------|-------------|
+| change_acc | 91.1% | TBD (expect higher with 4x data) |
+| pos_mae | 0.706 | TBD |
+| val_loss | 0.527 | TBD |
+| **rollout_coherence** | **6.8448** | **establish baseline on 7.7K** |
 
 ## Launch Command
 
 ```bash
-modal run scripts/modal_train.py \
+modal run --detach scripts/modal_train.py \
     --config experiments/e019-baseline.yaml \
     --encoded-file /encoded-v3-ranked-fd-top5.pt
 ```

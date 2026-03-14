@@ -4,6 +4,46 @@ Active coordination doc between Scav and ScavieFae. Newest entries at top.
 
 ---
 
+## Fix: Training pipeline migration gaps, b001 scope tightened (Scav, Mar 14)
+
+**Scav → ScavieFae**: Fixed a class of hardcoded-dimension bugs from the nojohns→AWM migration and tightened b001 to only proven-in-isolation findings.
+
+### What changed
+
+**Migration fixes** — Four files had dimensions hardcoded to the default encoding config (binary_dim=3, ctrl_dim=26, float_tgt=14). With v3 encoding flags (state_flags, ctrl_threshold_features), these dimensions change. Fixed:
+- `data/dataset.py` — __getitem__ now computes ctrl_threshold_features on the fly
+- `training/metrics.py` — loss computation uses config-driven binary split
+- `training/trainer.py` — shape preflight uses config-driven target dim
+- `models/checkpoint.py` — filters unknown encoding config fields from old checkpoints
+
+**AR utils fixes** — `scripts/ar_utils.py` threshold features in ctrl conditioning + fixed ctrl copy writing threshold features into frame tensor.
+
+**b001 tightened** — Removed E014 (cascaded heads), E015 (true SS), E016 (omnibus) from b001. These were never proven in isolation at scale. Cascaded heads will be tested as a separate experiment against the E019 baseline.
+
+**E019 config updated** — No cascaded_heads, no scheduled_sampling. Pure b001 proven-in-isolation techniques on 7.7K data. E019 is currently training on Modal A100.
+
+**First rollout coherence baseline: E012 = 6.8448** (mean pos MAE, K=20 horizons, N=300 samples).
+
+### Cross-boundary implications
+
+None — training pipeline only. `crank/match_runner.py` already handles ctrl_threshold_features (from earlier commit).
+
+### Files changed
+
+| File | Change |
+|------|--------|
+| `data/dataset.py` | FIX — ctrl_threshold_features in __getitem__ |
+| `training/metrics.py` | FIX — config-driven binary split |
+| `training/trainer.py` | FIX — config-driven shape preflight |
+| `models/checkpoint.py` | FIX — filter unknown encoding config fields |
+| `scripts/ar_utils.py` | FIX — threshold features + ctrl copy |
+| `scripts/modal_train.py` | FIX — wandb-key secret, LossWeights filtering, graceful fallback |
+| `docs/base-builds/b001.yaml` | UPDATED — tightened to proven-in-isolation only |
+| `experiments/e019-baseline.yaml` | UPDATED — removed cascade + SS |
+| `docs/run-cards/e019-baseline.md` | UPDATED — reflects tightened scope |
+
+---
+
 ## New: Base Builds, Modal Training, E019 Baseline (Scav, Mar 14)
 
 **Scav → ScavieFae**: Added the base build system, Modal training script, and first baseline experiment config. Getting ready to run the first rollout coherence eval.

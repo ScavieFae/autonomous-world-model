@@ -186,6 +186,10 @@ class MeleeFrameDataset(Dataset):
         self._p1_int_offset = ipp  # where p1's int columns start
 
         self._press_events = cfg.press_events
+        self._ctrl_threshold = cfg.ctrl_threshold_features
+        # Analog axes for threshold features: main_x(0), main_y(1), c_x(2), c_y(3), shoulder(4)
+        self._p0_analog = slice(ctrl_start, ctrl_start + 5)
+        self._p1_analog = slice(fp + ctrl_start, fp + ctrl_start + 5)
         self._lookahead = cfg.lookahead
 
         indices = []
@@ -231,7 +235,13 @@ class MeleeFrameDataset(Dataset):
                 p1_press = ((p1_curr_btn > 0.5) & (p1_prev_btn < 0.5)).float()
                 ctrl_parts.extend([p0_press, p1_press])
 
-        next_ctrl = torch.cat(ctrl_parts)  # (26*(1+d),) or (42*(1+d),)
+            if self._ctrl_threshold:
+                p0_analog = frame_float[self._p0_analog]
+                p1_analog = frame_float[self._p1_analog]
+                ctrl_parts.append((p0_analog.abs() > 0.3).float())
+                ctrl_parts.append((p1_analog.abs() > 0.3).float())
+
+        next_ctrl = torch.cat(ctrl_parts)  # (C*(1+d),)
 
         # Target frame: t+d (when d=0, same as before — frame t)
         tgt_idx = t + d

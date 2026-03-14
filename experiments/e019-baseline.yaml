@@ -1,7 +1,11 @@
 # E019: Stable baseline for autoresearch
-# Combines all proven improvements into one config.
+# Combines all proven-in-isolation improvements into one config.
 # This is the "stable build" — every future experiment starts here.
 # Run on 7.7K FD top-5 data for first rollout coherence baseline.
+#
+# Note: cascaded_heads excluded — E014 showed promise (AR damage drift fix)
+# but regressed TF metrics at 1.9K and was never isolated at 7.7K scale.
+# Will be tested as a separate experiment (e020) against this baseline.
 
 data:
   dataset_dir: null
@@ -17,8 +21,6 @@ encoding:
   hitstun: true                   # combat context (v3)
   ctrl_threshold_features: true   # +5.9pp change_acc (E010c)
   multi_position: true            # 10x training signal (E008c)
-  cascaded_heads: true            # fixes damage drift (E014)
-  cascade_embed_dim: 16
   focal_offset: 0                 # honest metrics (E012)
   projectiles: false              # not in training data
   press_events: false
@@ -41,9 +43,6 @@ training:
   num_epochs: 2
   train_split: 0.9
   log_interval: 1000
-  scheduled_sampling: 0.3
-  ss_true: true
-  ss_anneal_epochs: 2
 
 loss_weights:
   continuous: 1.0

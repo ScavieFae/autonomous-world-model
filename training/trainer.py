@@ -120,8 +120,9 @@ class Trainer:
             errors.append(f"int_ctx: got {tuple(int_ctx.shape)}, expected ({K}, {expected_int})")
         if next_ctrl.shape != (expected_ctrl,):
             errors.append(f"next_ctrl: got {tuple(next_ctrl.shape)}, expected ({expected_ctrl},)")
-        if float_tgt.shape != (14,):
-            errors.append(f"float_tgt: got {tuple(float_tgt.shape)}, expected (14,)")
+        expected_float_tgt = cfg.core_continuous_dim * 2 + cfg.binary_dim * 2
+        if float_tgt.shape != (expected_float_tgt,):
+            errors.append(f"float_tgt: got {tuple(float_tgt.shape)}, expected ({expected_float_tgt},)")
         if int_tgt.shape != (4,):
             errors.append(f"int_tgt: got {tuple(int_tgt.shape)}, expected (4,)")
 

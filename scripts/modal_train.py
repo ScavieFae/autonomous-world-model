@@ -65,7 +65,7 @@ vol = modal.Volume.from_name("melee-training-data")
     gpu="A100-40GB",
     timeout=14400,  # 4 hours
     volumes={"/data": vol},
-    secrets=[modal.Secret.from_name("wandb")],
+    secrets=[modal.Secret.from_name("wandb-key")],
 )
 def train(
     config_path: str,
@@ -209,9 +209,14 @@ def train(
     param_count = sum(p.numel() for p in model.parameters())
     logging.info("Model: %s, %s params", arch, f"{param_count:,}")
 
-    # Loss weights
+    # Loss weights (filter to known fields — config may have extras from nojohns)
     loss_cfg = cfg.get("loss_weights", {})
-    loss_weights = LossWeights(**loss_cfg) if loss_cfg else None
+    if loss_cfg:
+        import dataclasses
+        lw_fields = {f.name for f in dataclasses.fields(LossWeights)}
+        loss_weights = LossWeights(**{k: v for k, v in loss_cfg.items() if k in lw_fields})
+    else:
+        loss_weights = None
 
     # Save dir on the volume
     save_dir = f"/data/checkpoints/{run_name}"
@@ -234,8 +239,13 @@ def train(
     }
 
     if wandb:
-        wandb.init(project="melee-worldmodel", name=run_name, config=run_config)
-        logging.info("Wandb run: %s", wandb.run.url)
+        import os
+        if os.environ.get("WANDB_API_KEY"):
+            wandb.init(project="melee-worldmodel", name=run_name, config=run_config)
+            logging.info("Wandb run: %s", wandb.run.url)
+        else:
+            logging.info("No WANDB_API_KEY — logging to stdout only")
+            wandb = None
 
     # Train
     trainer = Trainer(
@@ -383,6 +393,7 @@ def _run_eval(
     gpu="A100-40GB",
     timeout=3600,
     volumes={"/data": vol},
+    secrets=[],
 )
 def eval_checkpoint(
     checkpoint: str,

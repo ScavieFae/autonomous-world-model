@@ -63,11 +63,14 @@ def reconstruct_frame(
     next_float[..., p0_bin_start:p0_bin_start + bd] = binary[..., :bd]
     next_float[..., p1_bin_start:p1_bin_start + bd] = binary[..., bd:]
 
-    # --- Controller input (copy from ground truth) ---
+    # --- Controller input (copy raw controller into frame, not threshold features) ---
     ctrl_start = cd + bd
     ctrl_end = ctrl_start + cfg.controller_dim
-    next_float[..., ctrl_start:ctrl_end] = ctrl_float[..., :cfg.controller_dim]
-    next_float[..., fp + ctrl_start:fp + ctrl_end] = ctrl_float[..., cfg.controller_dim:]
+    # ctrl_float may include threshold features beyond the raw 2*controller_dim;
+    # only copy the raw controller values into the frame tensor.
+    raw_cd = cfg.controller_dim  # 13
+    next_float[..., ctrl_start:ctrl_end] = ctrl_float[..., :raw_cd]
+    next_float[..., fp + ctrl_start:fp + ctrl_end] = ctrl_float[..., raw_cd:raw_cd * 2]
 
     # --- Categorical predictions (argmax) ---
     next_int[..., 0] = preds["p0_action_logits"].argmax(dim=-1)
@@ -77,6 +80,30 @@ def reconstruct_frame(
     # character, l_cancel, hurtbox, ground, last_attack, stage: carry forward
 
     return next_float, next_int
+
+
+def _append_threshold_features(ctrl: torch.Tensor, cfg: EncodingConfig) -> torch.Tensor:
+    """Append ctrl_threshold binary features if enabled.
+
+    Thresholds the 5 analog axes (main_x, main_y, c_x, c_y, shoulder)
+    at 0.3 for each player. Produces 10 binary features (5 per player).
+
+    Args:
+        ctrl: (..., ctrl_dim * 2) — raw controller input [p0(13), p1(13)].
+        cfg: Encoding config.
+
+    Returns:
+        (..., ctrl_conditioning_dim) — with threshold features appended if enabled.
+    """
+    if not cfg.ctrl_threshold_features:
+        return ctrl
+    cd = cfg.controller_dim  # 13
+    p0_analog = ctrl[..., :5]       # main_x, main_y, c_x, c_y, shoulder
+    p1_analog = ctrl[..., cd:cd+5]
+    threshold = 0.3
+    p0_thresh = (p0_analog.abs() > threshold).float()
+    p1_thresh = (p1_analog.abs() > threshold).float()
+    return torch.cat([ctrl, p0_thresh, p1_thresh], dim=-1)
 
 
 def build_ctrl(
@@ -92,19 +119,21 @@ def build_ctrl(
         cfg: Encoding config.
 
     Returns:
-        (ctrl_dim * 2,) — [p0_ctrl(13), p1_ctrl(13)]
+        (ctrl_conditioning_dim,) — [p0_ctrl(13), p1_ctrl(13), threshold(10 if enabled)]
     """
     fp = cfg.float_per_player
     ctrl_start = cfg.continuous_dim + cfg.binary_dim
     ctrl_end = ctrl_start + cfg.controller_dim
 
     if t < float_data.shape[0]:
-        return torch.cat([
+        raw = torch.cat([
             float_data[t, ctrl_start:ctrl_end],
             float_data[t, fp + ctrl_start:fp + ctrl_end],
         ])
     else:
-        return torch.zeros(cfg.controller_dim * 2)
+        raw = torch.zeros(cfg.controller_dim * 2)
+
+    return _append_threshold_features(raw, cfg)
 
 
 def build_ctrl_batch(
@@ -120,14 +149,16 @@ def build_ctrl_batch(
         cfg: Encoding config.
 
     Returns:
-        (N, ctrl_dim * 2) — controller inputs.
+        (N, ctrl_conditioning_dim) — controller inputs with threshold features if enabled.
     """
     fp = cfg.float_per_player
     ctrl_start = cfg.continuous_dim + cfg.binary_dim
     ctrl_end = ctrl_start + cfg.controller_dim
 
     frames = float_data[indices]  # (N, F)
-    return torch.cat([
+    raw = torch.cat([
         frames[:, ctrl_start:ctrl_end],
         frames[:, fp + ctrl_start:fp + ctrl_end],
     ], dim=1)
+
+    return _append_threshold_features(raw, cfg)
