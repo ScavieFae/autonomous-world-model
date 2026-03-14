@@ -56,7 +56,7 @@ Spawn an **Explore** agent with this prompt:
 
 > Scan the project state for changes and current status. Check these files:
 >
-> 1. **`docs/RUNNING.md`** — Read the 3 most recent entries. Summarize: what was worked on, key findings, open items.
+> 1. **`docs/RESEARCH-LOG.md`** — Read the 3 most recent entries. Summarize: what was worked on, key findings, open items.
 >
 > 2. **Run cards** (`docs/run-cards/e*.md`) — Read the YAML frontmatter of ALL run cards. Report:
 >    - Any cards with `status: running` (active experiments)

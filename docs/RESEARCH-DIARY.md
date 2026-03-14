@@ -1,9 +1,10 @@
-# Research Diary
+# Research Diary (Archive)
+
+!!! note "Frozen"
+    This diary covers pre-March 2026 research. New entries go in [Research Log](RESEARCH-LOG.md).
 
 Sequential record of experiments, findings, and decisions. Newest entries at top.
 Run cards live in `docs/run-cards/`. Experiment configs in `experiments/`. This diary captures the *thinking* — what we tried, what we learned, what surprised us.
-
-**Rule: append-only.** Add new entries at the top. Never overwrite or rewrite existing entries — they're the record of what we thought *at the time*. If a conclusion turns out wrong, add a new entry that corrects it and links back.
 
 ---
 

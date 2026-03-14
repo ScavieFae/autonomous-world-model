@@ -190,8 +190,45 @@ Research briefs in `.loop/briefs/research-*.md` define questions to investigate.
 ### Persistent docs
 
 When doing research work:
-- **RUNNING.md** — log what you searched, what you found, decisions made
+- **RESEARCH-LOG.md** — log what you searched, what you found, decisions made
 - **HANDOFF.md** — summarize findings when a research brief completes
 - **TROUBLESHOOTING.md** — if you hit errors during research (API failures, broken URLs, etc.)
 
 <!-- /simple-loop:research -->
+
+<!-- simple-loop:docs -->
+
+## Docs Module
+
+This project has a living documentation site built with [Zensical](https://github.com/squidfunk/zensical) (Material for MkDocs-compatible, Rust+Python, fast).
+
+### Quick reference
+
+```bash
+# Build the site
+python scripts/docs_prebuild.py && uvx zensical build
+
+# Serve locally with live reload
+uvx zensical serve --dev-addr 0.0.0.0:8000
+```
+
+### Key files
+
+- `zensical.toml` — site config (nav, theme, extensions). The nav tree defines site structure.
+- `docs/` — markdown source files. Any agent can write here.
+- `scripts/docs_prebuild.py` — generates `docs/experiments/index.md` from run card frontmatter. Run before build.
+- `.loop/modules/docs/config.json` — module config (port, dirs, prebuild script)
+- `.loop/modules/docs/state/manifest.json` — page manifest mapping doc pages to source files (for change-driven regeneration)
+- `.loop/modules/docs/state/site/` — build output (gitignored)
+
+### Writing docs
+
+- One concept per page. Use Mermaid fenced blocks for diagrams.
+- Update `nav` in `zensical.toml` when adding/removing pages.
+- Run `python scripts/docs_prebuild.py` to regenerate the experiment index after changing run cards.
+
+### Upstream
+
+This module is being upstreamed to `simple-loop/modules/docs/`. The AWM installation is the first deployment.
+
+<!-- /simple-loop:docs -->

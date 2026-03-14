@@ -1,6 +1,8 @@
-# Running Log — Autonomous World Model
+# Research Log
 
-Running notes from work sessions. Newest entries at top. Append-only.
+Running notes from research and work sessions. Newest entries at top. Append-only.
+
+*Continues the record started in [Research Diary (Archive)](RESEARCH-DIARY.md).*
 
 ---
 

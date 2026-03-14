@@ -1,0 +1,7 @@
+{
+  "site_name": "Autonomous World Model",
+  "docs_dir": "docs",
+  "build_dir": ".loop/modules/docs/state/site",
+  "serve_port": 8000,
+  "prebuild_script": "python scripts/docs_prebuild.py"
+}

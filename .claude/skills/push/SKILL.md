@@ -1,6 +1,6 @@
 ---
 name: push
-description: Pre-push workflow — communicate with ScavieFae, capture notes in RUNNING.md, check hygiene, then commit and push. Use when the user says "push", "ship it", "send it", or asks to commit and push changes.
+description: Pre-push workflow — communicate with ScavieFae, capture notes in RESEARCH-LOG.md, check hygiene, then commit and push. Use when the user says "push", "ship it", "send it", or asks to commit and push changes.
 disable-model-invocation: true
 user-invocable: true
 ---
@@ -62,11 +62,11 @@ Update `docs/HANDOFF.md` with a new entry at the top (below the header, above th
 
 **Write for someone who wasn't here.** They don't have your context. Include the "why" not just the "what."
 
-## Step 3: RUNNING.md — Capture Notes and Findings
+## Step 3: RESEARCH-LOG.md — Capture Notes and Findings
 
 **Trigger:** The session involved research reasoning, design decisions, implementation findings, dead ends, or anything worth preserving for future agents and sessions. Skip only for truly mechanical changes (typo fixes, dependency bumps).
 
-Update `docs/RUNNING.md` with a new entry at the top. If the file doesn't exist, create it with a header:
+Update `docs/RESEARCH-LOG.md` with a new entry at the top. If the file doesn't exist, create it with a header:
 
 ```markdown
 # Running Log — Autonomous World Model
