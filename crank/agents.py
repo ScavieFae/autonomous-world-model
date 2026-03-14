@@ -202,8 +202,10 @@ class PolicyAgent(Agent):
         analog = preds["analog_pred"][0].cpu()
         # Sample buttons stochastically instead of hard threshold.
         # Sigmoid converts logits to probabilities; Bernoulli samples.
-        # This breaks determinism and adds natural behavioral variety.
-        button_probs = torch.sigmoid(preds["button_logits"][0].cpu())
+        # HACK: +4.0 bias compensates for policy-v3 button suppression
+        # (see nojohns#42). Remove once policy is retrained with weighted loss.
+        button_logits = preds["button_logits"][0].cpu() + 4.0
+        button_probs = torch.sigmoid(button_logits)
         buttons = torch.bernoulli(button_probs)
 
         return torch.cat([analog, buttons])

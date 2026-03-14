@@ -10,18 +10,19 @@ This repo is the full pipeline: train → quantize → deploy → render. Model 
 
 ```
 autonomous-world-model/
-├── models/           # Model definitions — Mamba2, MLP, PolicyMLP, encoding (Scav)
-├── data/             # Dataset loading — parse replays, build tensors (Scav)
-├── training/         # Training loops — Trainer, PolicyTrainer, metrics (Scav)
-├── scripts/          # Training & eval scripts — train.py, rollout.py, etc. (Scav)
-├── experiments/      # YAML experiment configs (Scav)
-├── configs/          # Match configs (fox_ditto_fd.yaml, etc.) (Scav)
-├── crank/            # Offchain match runner — standalone + Solana (Scav)
-├── quantization/     # INT8 quantization + accuracy testing (Scav)
-├── viz/              # State visualizer — renders world model output (Scav)
-├── research/         # Research notes, hitbox data (Scav)
+├── models/           # Model definitions — Mamba2, MLP, PolicyMLP, encoding
+├── data/             # Dataset loading — parse replays, build tensors
+├── training/         # Training loops — Trainer, PolicyTrainer, metrics
+├── scripts/          # Training & eval scripts — train.py, rollout.py, etc.
+├── experiments/      # YAML experiment configs
+├── configs/          # Match configs (fox_ditto_fd.yaml, etc.)
+├── crank/            # Offchain match runner — standalone + Solana
+├── quantization/     # INT8 quantization + accuracy testing
+├── viz/              # State visualizer — renders world model output
+├── research/         # Research notes, source papers, hitbox data
+│   └── sources/      # Downloaded PDFs (gitignored) + summary .md files
 ├── checkpoints/      # Model weights — .pt files (gitignored)
-├── site/             # "The Wire" — Next.js arena website (ScavieFae)
+├── site/             # "The Wire" — Next.js arena website
 ├── solana/           # Onchain code (Codex)
 │   ├── syscall/      # sol_matmul_i8 native syscall implementation
 │   ├── programs/     # Solana programs (world-model, cu-benchmark, syscall-test)
@@ -29,8 +30,8 @@ autonomous-world-model/
 │   ├── client/       # TypeScript SDK (@awm/client)
 │   ├── cli/          # Upload CLI tool
 │   └── tests/        # Integration tests (Mocha)
-├── docs/             # Architecture, specs, handoff, run cards (shared)
-│   └── run-cards/    # Per-experiment run cards (e008a through e017d)
+├── docs/             # Architecture, specs, handoff, run cards
+│   └── run-cards/    # Per-experiment run cards
 └── RUNBOOK.md        # Training guide — how to run experiments
 ```
 
@@ -40,93 +41,93 @@ autonomous-world-model/
 - **Arcade, not MMO.** Persistent weights/rules, not persistent world state. Sessions spin up in ephemeral rollups.
 - **INT8 determinism for free.** Integer math is identical everywhere. Quantization solves both size and determinism.
 
-## Three-Agent Development
+## Development
 
-This project is developed by three agents. **Check which agent you are before editing files.**
+### Agents
 
-| Agent | Platform | Role | Owns |
-|-------|----------|------|------|
-| **ScavieFae** | Claude Code | Website, UX, design, overall experience | `site/` |
-| **Scav** | Claude Code | Model research, training, quantization, inference, offchain crank | `models/`, `data/`, `training/`, `scripts/`, `experiments/`, `configs/`, `crank/`, `quantization/`, `viz/`, `research/` |
-| **Codex** | OpenAI Codex | Smart contracts, onchain programs, client SDK | `solana/` |
+This project uses multiple Claude Code agents. No rigid directory ownership — any agent can edit any file. Use good judgment about what you're touching and coordinate via `docs/HANDOFF.md` when changes cross boundaries (especially onchain ↔ offchain).
 
-### How to Know Which Agent You Are (Claude agents only)
-
-- **ScavieFae**: Working on the website, UX, design, product experience, or frontend integration.
-- **Scav**: Working on model training, quantization pipeline, inference logic, or the offchain match runner.
-
-If unclear, ask Mattie. If you're Codex, see `AGENTS.md`.
-
-### Directory Ownership
-
-| Directory | Owner | Notes |
-|-----------|-------|-------|
-| `site/` | **ScavieFae** | Next.js website ("The Wire") |
-| `models/` | **Scav** | Model definitions (Mamba2, MLP, PolicyMLP, encoding) |
-| `data/` | **Scav** | Dataset loading, replay parsing |
-| `training/` | **Scav** | Training loops, metrics, loss weights |
-| `scripts/` | **Scav** | Training/eval scripts (train.py, rollout.py, etc.) |
-| `experiments/` | **Scav** | YAML experiment configs |
-| `configs/` | **Scav** | Match configs |
-| `crank/` | **Scav** | Offchain match runner (standalone + Solana bridge) |
-| `quantization/` | **Scav** | INT8 quantization pipeline |
-| `viz/` | **Scav** | State visualizer, render modes |
-| `research/` | **Scav** | Research notes, hitbox data |
-| `solana/` | **Codex** | All onchain code — programs, syscall, ECS, client SDK, tests |
-| `docs/` | **Shared** | All agents can edit |
-
-**Do not edit files in another agent's directories.** If you need a change in their code, describe what you need in `docs/HANDOFF.md`.
+**Codex** (OpenAI) owns `solana/` — if you need onchain changes, describe them in `docs/HANDOFF.md`.
 
 ### Interface Contracts
 
-These are the shared boundaries between agents. Changes require coordination via handoff doc.
+These are shared boundaries. Changes require coordination.
 
-**1. Scav ↔ Codex: Binary wire format**
-- `PlayerState` = 32 bytes, field order matches Rust `AnchorSerialize`
-- `crank/solana_bridge.py` and `solana/programs-ecs/components/session-state/` must agree byte-for-byte
-- `models/encoding.py` (`EncodingConfig`) defines all normalization scales and vocab sizes
-- Fixed-point: positions/velocities × 256, percent stored directly as u16
-
-**2. ScavieFae ↔ Codex: TypeScript SDK surface**
-- `solana/client/src/` exports functions and types that `site/` imports
-- Codex owns the SDK implementation; ScavieFae consumes it as a dependency
-- Function signatures and type shapes are the contract — changes require handoff
-
-**3. ScavieFae ↔ Scav: JSON frame format**
-- `{ meta, stage_geometry, frames[] }` — consumed by `viz/` and `site/` renderers
-- Already stable. See `viz/visualizer.html` for the exact schema.
+- **Binary wire format**: `PlayerState` = 32 bytes. `crank/solana_bridge.py` and `solana/programs-ecs/components/session-state/` must agree byte-for-byte. `models/encoding.py` (`EncodingConfig`) defines normalization scales and vocab sizes. Fixed-point: positions/velocities × 256, percent stored directly as u16.
+- **TypeScript SDK**: `solana/client/src/` exports consumed by `site/`. Function signatures and type shapes are the contract.
+- **JSON frame format**: `{ meta, stage_geometry, frames[] }` consumed by `viz/` and `site/`. Stable. See `viz/visualizer.html`.
 
 ### Review Gates
 
 | What changed | Who reviews | Why |
 |--------------|-------------|-----|
-| Onchain programs, syscall, ECS | Scav reviews math/format | Hardest to undo, must match model |
-| Client SDK type changes | ScavieFae reviews | They're the consumer |
+| Onchain programs, syscall, ECS | Model side reviews math/format | Hardest to undo, must match model |
 | Weight format / encoding changes | Codex reviews | Must match onchain structs |
-| Binary wire format (PlayerState, etc.) | All three | Shared boundary |
-| Site UX | No gate | Iterative, reversible |
-| Model / crank code | No gate | Offchain, testable |
+| Binary wire format (PlayerState) | All sides | Shared boundary |
+| Everything else | No gate | Offchain, testable, reversible |
 
-### Coordination
+## Experiment Workflow
 
-**Handoff doc**: `docs/HANDOFF.md` is the coordination point for all three agents:
-- Review requests (what changed, what to look at, what questions remain)
-- Review responses (approvals, concerns, action items)
-- Status updates on blockers or external dependencies (e.g., MagicBlock)
+### Branching & PRs
 
-### For ScavieFae
+- Clean branch names: `e018a-self-forcing`, not `scav/e018a` or `scaviefae/pr123`
+- One PR per experiment, for reference not merging. PRs document what was tried and what happened.
+- Close the PR when the experiment is complete (kept or discarded).
+- Run cards live on `main`. Cards are the permanent record; PRs are the discussion.
 
-You own the website and overall product experience. You consume `@awm/client` (Codex's SDK) and `viz/` output format (Scav's). Read `docs/HANDOFF.md` for current status.
+### Run Card Schema
 
-### For Scav
+Cards live in `docs/run-cards/`. YAML frontmatter is machine-parseable for autoresearch agents.
 
-You own the full model pipeline: research, training, quantization, inference, and the offchain crank. Training code lives in `data/`, `training/`, `scripts/`. Experiment configs in `experiments/`, run cards in `docs/run-cards/`. Your binary format in `crank/solana_bridge.py` must match Codex's Rust structs byte-for-byte. Read `docs/HANDOFF.md` for review requests and `RUNBOOK.md` for the training guide.
+```yaml
+---
+id: e018a
+created: 2026-03-10
+status: proposed | running | kept | discarded
+type: hyperparameter | architectural | training-regime | data
+built_on: [e017a]
+source_paper: null          # arXiv ID if derived from a paper (e.g., 2508.13009)
+rollout_coherence: null     # mean pos MAE over K=20 horizons (filled after eval)
+prior_best_rc: null         # rollout coherence of the best prior experiment
+---
+```
+
+**Required fields:** `id`, `created`, `status`, `type`, `built_on`
+**Filled after eval:** `rollout_coherence`, `prior_best_rc`
+**Optional:** `source_paper`
+
+**Status lifecycle:** `proposed` → `running` → `kept` or `discarded`
+
+**Types:**
+- `hyperparameter` — learning rate, loss weights, batch size, etc.
+- `architectural` — model structure changes (new heads, different backbone, etc.)
+- `training-regime` — how the model is trained (scheduled sampling, curriculum, etc.)
+- `data` — dataset changes (more data, different filtering, new features)
+
+The rest of the card body follows the existing format: Goal, Target Metrics, Data, Model, Training, etc.
+
+### Paper → Experiment Pipeline
+
+When a research paper has relevant techniques:
+
+1. **Summary** lives in `research/sources/{arxiv-id}-summary.md` (summary, takeaways, applications, glossary)
+2. **Proposed experiments** get cards with `status: proposed` and `source_paper: {arxiv-id}`
+3. Chunk papers into independent, testable experiments. Each card tests one idea.
+4. Cards reference the paper summary for motivation; the card itself specifies the concrete change.
+
+### Epistemic Standards
+
+State findings as observations with hit rates. Not editorials.
+
+- No: "Weight decay on embeddings is a big deal"
+- Yes: "WD 0.001 on embeddings improved rollout coherence in 3/3 experiments (e018a, e017a, e016). WD 0.005 regressed in 1/1."
 
 ## Reference Docs
 
 | Doc | What's in it |
 |-----|-------------|
 | [docs/HANDOFF.md](docs/HANDOFF.md) | Active handoff — review requests, responses, status |
+| [docs/autoresearch-plan.md](docs/autoresearch-plan.md) | Autoresearch loop design — rollout eval, program.md, citation graph |
 | [docs/sol-matmul-i8-spec.md](docs/sol-matmul-i8-spec.md) | `sol_matmul_i8` syscall spec (shared with MagicBlock) |
 | [docs/architecture-overview.md](docs/architecture-overview.md) | System architecture |
 | [docs/cu-benchmark-findings.md](docs/cu-benchmark-findings.md) | CU measurements for INT8 ops |
@@ -136,6 +137,7 @@ You own the full model pipeline: research, training, quantization, inference, an
 | [docs/MAMBA2-EXPLAINER.md](docs/MAMBA2-EXPLAINER.md) | Mamba-2 architecture explanation |
 | [docs/RESEARCH-DIARY.md](docs/RESEARCH-DIARY.md) | Chronological research log |
 | [docs/run-cards/](docs/run-cards/) | Per-experiment run cards (e008a–e017d) |
+| [research/sources/](research/sources/) | Paper summaries (PDFs gitignored, .md summaries committed) |
 
 ## Related Projects
 
@@ -163,3 +165,29 @@ See `viz/visualizer.html` for the exact JSON shape consumed by the rendering lay
 - Weights stored on mainnet (permanent, forkable)
 - Sessions in ephemeral rollups (10ms blocks, configurable CU, zero fees)
 - 60fps achievable: 16.67ms frame budget - ~0.5-2ms inference - ~10ms block time
+
+<!-- simple-loop:research -->
+
+## Research Module
+
+This project has the simple-loop research module installed. It enables autonomous research — iterative search, reading, synthesis, and coverage evaluation.
+
+### How it works
+
+Research briefs in `.loop/briefs/research-*.md` define questions to investigate. The research loop iterates: search → read → synthesize → evaluate coverage → repeat until questions are answered or max iterations reached.
+
+### Key files
+
+- `.loop/modules/research/state/findings.md` — accumulated findings (the output)
+- `.loop/modules/research/state/coverage.json` — which questions are answered
+- `.loop/modules/research/state/sources.json` — sources examined
+- `.loop/briefs/research-*.md` — research briefs
+
+### Persistent docs
+
+When doing research work:
+- **RUNNING.md** — log what you searched, what you found, decisions made
+- **HANDOFF.md** — summarize findings when a research brief completes
+- **TROUBLESHOOTING.md** — if you hit errors during research (API failures, broken URLs, etc.)
+
+<!-- /simple-loop:research -->

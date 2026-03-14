@@ -290,7 +290,14 @@ def run_match_iter(
         p1_ctrl = p1_agent.get_controller(ctx_f, ctx_i, cfg, t)
 
         # Combine into world model conditioning
-        next_ctrl = torch.cat([p0_ctrl, p1_ctrl]).unsqueeze(0).to(device)
+        ctrl_parts = [p0_ctrl, p1_ctrl]
+        if cfg.ctrl_threshold_features:
+            # Threshold binary features for each analog axis (5 per player)
+            # Analog indices in controller: main_x(0), main_y(1), c_x(2), c_y(3), shoulder(4)
+            threshold = 0.3
+            for ctrl in [p0_ctrl, p1_ctrl]:
+                ctrl_parts.append((ctrl[:5].abs() > threshold).float())
+        next_ctrl = torch.cat(ctrl_parts).unsqueeze(0).to(device)
 
         # Run world model
         preds = world_model(

@@ -24,3 +24,9 @@ solana/test-ledger/
 
 # Model checkpoints (downloaded from Modal, not committed)
 checkpoints/
+
+# Research paper PDFs (downloaded, not committed)
+research/sources/*.pdf
+
+# Simple Loop logs
+.loop/logs/

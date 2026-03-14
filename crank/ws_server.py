@@ -32,17 +32,8 @@ TOURNAMENT_CHARS = [
     1,   # Fox
     2,   # Captain Falcon
     7,   # Sheik
-    9,   # Peach
-    10,  # Popo (Ice Climbers)
-    12,  # Pikachu
-    13,  # Samus
-    15,  # Jigglypuff
-    17,  # Luigi
     18,  # Marth
-    21,  # Doc
     22,  # Falco
-    25,  # Ganondorf
-    26,  # Roy
 ]
 
 

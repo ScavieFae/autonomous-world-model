@@ -4,6 +4,61 @@ Active coordination doc between Scav and ScavieFae. Newest entries at top.
 
 ---
 
+## Update: Autoresearch Infrastructure + Operating Model (Scav, Mar 14)
+
+**Scav → ScavieFae**: Pushing a batch of foundational changes that bring you up to speed on the autoresearch direction. We're in data analysis / metrics mode now — model training and eval, not onchain.
+
+### What changed
+
+**CLAUDE.md rewrite** — Major update to the operating model:
+- Removed rigid agent ownership ("Three-Agent Development" with directory silos). Replaced with shared ownership + coordination via HANDOFF.
+- Added explicit interface contracts (binary wire format, TypeScript SDK, JSON frame format) with review gates.
+- Added experiment workflow: branching conventions, run card schema with YAML frontmatter, paper→experiment pipeline, epistemic standards.
+- This is how we operate now. No more "check which agent you are."
+
+**Autoresearch docs** — The research direction infrastructure:
+- `program.md` — The human's lever on the autoresearch loop. Current best checkpoints, what's proven, what's dead, research directions, hard constraints, taste. Agents read this before running experiments.
+- `docs/autoresearch-plan.md` — Design for overnight experiment loops (Karpathy-style). Rollout coherence eval → citation graph → stable builds.
+- `docs/run-cards/e018a,c,d` — Proposed experiments: Self-Forcing, rolling context window, horizon-weighted loss. All blocked on e018b (rollout coherence eval, built in prior commit).
+
+**Skills infrastructure** — `/push` workflow skill + 6 loop module skills (research briefs, running log updates, issue filing). These standardize how agents communicate during work.
+
+**Crank fixes (for posterity, not active focus):**
+- `agents.py`: +4.0 button bias hack for policy-v3 suppression
+- `match_runner.py`: ctrl_threshold_features support for E017a-style models
+- `ws_server.py`: trimmed TOURNAMENT_CHARS to the 5 trained characters
+
+### Cross-boundary implications
+
+None immediate — we're focused on model eval, not onchain deployment. But when we're ready to deploy a new checkpoint:
+- **Rollout coherence score** is now the quality gate (not val_loss). Check the score before considering a checkpoint for onchain use.
+- **`ar_utils.reconstruct_frame()`** is the canonical AR step. `crank/match_runner.py` has its own reconstruction — should be reconciled before deploying a model trained with non-default encoding configs.
+
+### Files changed
+
+| File | Change |
+|------|--------|
+| `CLAUDE.md` | REWRITE — new operating model, interface contracts, experiment workflow |
+| `.gitignore` | Updated |
+| `program.md` | NEW — autoresearch direction document |
+| `docs/autoresearch-plan.md` | NEW — autoresearch loop design |
+| `docs/run-cards/e018a-self-forcing.md` | NEW — proposed |
+| `docs/run-cards/e018c-rolling-context-window.md` | NEW — proposed |
+| `docs/run-cards/e018d-horizon-weighted-loss.md` | NEW — proposed |
+| `.claude/skills/push/` | NEW — /push communication workflow |
+| `.claude/skills/loop-*/` | NEW — loop module skills |
+| `crank/agents.py` | MODIFIED — button bias hack |
+| `crank/match_runner.py` | MODIFIED — ctrl_threshold_features |
+| `crank/ws_server.py` | MODIFIED — trimmed character list |
+
+### Next steps
+
+1. Run rollout coherence eval against E012 + E017a to get baseline numbers
+2. Begin Self-Forcing (e018a) once baselines are in
+3. Onchain work is paused until model quality improves via autoresearch
+
+---
+
 ## New: Rollout Coherence Eval + AR Reconstruction Refactor (Scav, Mar 14)
 
 **Scav → ScavieFae**: Built the rollout coherence eval (`scripts/eval_rollout.py`) and refactored the AR reconstruction into a shared module. This is the primary metric for the autoresearch loop — the blocker for Self-Forcing (e018a) and overnight experiments.
