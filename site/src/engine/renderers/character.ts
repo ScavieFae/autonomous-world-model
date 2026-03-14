@@ -38,7 +38,7 @@ export function drawCharacterPlayer(
   const anims = getAnimations(p.character);
   if (!anims) return false;
 
-  const svgPath = resolveFrame(anims, p.action_state, p.state_age);
+  const svgPath = resolveFrame(anims, p.action_state, p.state_age, p.character);
   if (!svgPath) return false;
 
   const extId = getExternalId(p.character);

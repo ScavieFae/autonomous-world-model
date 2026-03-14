@@ -172,13 +172,81 @@ export function getAnimations(internalCharId: number): CharacterAnimations | und
 }
 
 /** Resolve the SVG path string for a given action state + frame age. */
+// Special move animation names to probe for character-specific states (341+).
+// Ordered by likelihood in competitive play. resolveFrame tries each until
+// one matches the character's animation data.
+const SPECIAL_PROBES = [
+  'SpecialNStart', 'SpecialN', 'SpecialNLoop', 'SpecialNEnd',
+  'SpecialAirNStart', 'SpecialAirN', 'SpecialAirNLoop', 'SpecialAirNEnd',
+  'SpecialSStart', 'SpecialS', 'SpecialSEnd',
+  'SpecialAirSStart', 'SpecialAirS', 'SpecialAirSEnd',
+  'SpecialHi', 'SpecialHiHold', 'SpecialHiHoldAir', 'SpecialHiFall', 'SpecialHiLanding', 'SpecialHiBound',
+  'SpecialLwStart', 'SpecialLw', 'SpecialLwLoop', 'SpecialLwEnd', 'SpecialLwHit',
+  'SpecialAirLwStart', 'SpecialAirLw', 'SpecialAirLwLoop', 'SpecialAirLwEnd', 'SpecialAirLwHit',
+];
+
+// Cache: characterId → actionState → resolved animation name (or null)
+const specialResolveCache = new Map<number, Map<number, string | null>>();
+
+/**
+ * For character-specific action states (>=341), find the best matching
+ * special move animation by probing the character's available animations.
+ * Uses the state ID offset from 341 to index into the probe list, then
+ * falls back to sequential probing if that misses.
+ */
+function resolveSpecial(
+  anims: CharacterAnimations,
+  charId: number,
+  actionState: number,
+): string | null {
+  let charCache = specialResolveCache.get(charId);
+  if (!charCache) {
+    charCache = new Map();
+    specialResolveCache.set(charId, charCache);
+  }
+  if (charCache.has(actionState)) return charCache.get(actionState)!;
+
+  const offset = actionState - 341;
+
+  // Direct probe: use offset to index into the probe list
+  if (offset >= 0 && offset < SPECIAL_PROBES.length) {
+    const name = SPECIAL_PROBES[offset];
+    if (anims[name]) {
+      charCache.set(actionState, name);
+      return name;
+    }
+  }
+
+  // Fallback: find any special animation this character has
+  for (const name of SPECIAL_PROBES) {
+    if (anims[name]) {
+      charCache.set(actionState, name);
+      return name;
+    }
+  }
+
+  charCache.set(actionState, null);
+  return null;
+}
+
 export function resolveFrame(
   anims: CharacterAnimations,
   actionState: number,
   stateAge: number,
+  characterId?: number,
 ): string | null {
-  const rawName = actionNameById[actionState] ?? 'Wait';
-  const animName = animationRemaps[rawName] ?? rawName;
+  let animName: string;
+
+  if (actionState < actionNameById.length) {
+    const rawName = actionNameById[actionState] ?? 'Wait';
+    animName = animationRemaps[rawName] ?? rawName;
+  } else if (actionState >= 341 && characterId != null) {
+    // Character-specific special moves
+    const special = resolveSpecial(anims, characterId, actionState);
+    animName = special ?? 'Wait1';
+  } else {
+    animName = 'Wait1';
+  }
 
   const frames = anims[animName] ?? anims['Wait1'];
   if (!frames || frames.length === 0) return null;

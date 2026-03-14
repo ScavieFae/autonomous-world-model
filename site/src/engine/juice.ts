@@ -141,14 +141,14 @@ export function detectTransitionsAndTriggerJuice(frame: VizFrame) {
     const pctDelta = cp.percent - pp.percent;
     const inDamage = cp.action_state >= 75 && cp.action_state <= 93;
     const wasNotDamage = pp.action_state < 75 || pp.action_state > 93;
-    const pctHit = pctDelta > 0 && inDamage && wasNotDamage;
+    const pctHit = pctDelta > 2 && inDamage && wasNotDamage;
 
     if (kbHit || hitlagStarted || pctHit) {
       const impX = (cp.x + other.x) / 2;
       const impY = (cp.y + other.y) / 2;
 
       const kb = curKB > 0.5 ? curKB : Math.max(pctDelta * 0.3, 1);
-      shakeMagnitude = Math.min(kb * 3, 15);
+      shakeMagnitude = Math.min(kb * 2, 10);
 
       impactFlashes.push({ x: impX, y: impY, life: 6, maxLife: 6 });
 
