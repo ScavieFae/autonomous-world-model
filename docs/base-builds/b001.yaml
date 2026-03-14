@@ -1,0 +1,39 @@
+# Base Build b001: FD Top-5 Stable Foundation
+#
+# All proven encoding, training, and architecture findings through E016.
+# This is the canonical set of design decisions that every experiment
+# after E019 builds on unless explicitly stated otherwise.
+#
+# To mint a new base build (b002, etc.), identify findings from experiments
+# that always co-occur in built_on chains, have high hit rates, and aren't
+# being questioned. Snapshot them. This is the one moment of editorial
+# judgment in an otherwise bottom-up process.
+
+id: b001
+created: 2026-03-14
+experiments: [e008c, e010b, e010c, e010d, e012, e014, e015, e016]
+description: FD top-5 stable foundation — all proven encoding, training, and architecture findings through E016
+
+# What's in this build:
+#
+# e008c  — multi_position=true (10x training signal)
+# e010b  — action_change_weight=5.0 (+9.9pp change_acc)
+# e010c  — ctrl_threshold_features (+5.9pp change_acc)
+# e010d  — combined BC (super-additive: 85.8% > max of individuals)
+# e012   — clean FD top-5 data, focal_offset=0, honest metrics
+# e014   — cascaded_heads (fixes damage drift in AR)
+# e015   — true scheduled sampling (exposure bias mitigation)
+# e016   — omnibus on 7.7K data (94.3% change_acc, -38% val_loss)
+#
+# Model architecture (locked):
+#   Mamba-2, d_model=384, d_state=64, n_layers=4, headdim=64, K=10
+#
+# Data contract:
+#   FD (stage=32), top-5 chars [1,2,7,18,22], v3 encoding
+#   state_flags=true, hitstun=true, ctrl_threshold_features=true
+#   state_age_as_embed=true, multi_position=true
+#   cascaded_heads=true, focal_offset=0, projectiles=false
+#
+# Training contract:
+#   lr=5e-4, wd=1e-5, batch_size=4096, action_change_weight=5.0
+#   scheduled_sampling=0.3, ss_true=true

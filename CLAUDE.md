@@ -85,16 +85,19 @@ id: e018a
 created: 2026-03-10
 status: proposed | running | kept | discarded
 type: hyperparameter | architectural | training-regime | data
-built_on: [e017a]
+base_build: b001           # versioned package of canonical findings (see docs/base-builds/)
+built_on: [e017a]           # experiments on top of the base build, not yet canonized
 source_paper: null          # arXiv ID if derived from a paper (e.g., 2508.13009)
 rollout_coherence: null     # mean pos MAE over K=20 horizons (filled after eval)
 prior_best_rc: null         # rollout coherence of the best prior experiment
 ---
 ```
 
-**Required fields:** `id`, `created`, `status`, `type`, `built_on`
+**Required fields:** `id`, `created`, `status`, `type`, `base_build`, `built_on`
 **Filled after eval:** `rollout_coherence`, `prior_best_rc`
 **Optional:** `source_paper`
+
+**`base_build`** is a versioned package of canonical findings — a stable set of design decisions that experiments build on. Defined in `docs/base-builds/{id}.yaml`. When enough experiments accumulate on top of a base build and prove out, mint a new one (b002, etc.). This is the one moment of editorial judgment in an otherwise bottom-up process.
 
 **Status lifecycle:** `proposed` → `running` → `kept` or `discarded`
 
@@ -136,7 +139,8 @@ State findings as observations with hit rates. Not editorials.
 | [RUNBOOK.md](RUNBOOK.md) | Training guide — experiments, configs, data pipeline |
 | [docs/MAMBA2-EXPLAINER.md](docs/MAMBA2-EXPLAINER.md) | Mamba-2 architecture explanation |
 | [docs/RESEARCH-DIARY.md](docs/RESEARCH-DIARY.md) | Chronological research log |
-| [docs/run-cards/](docs/run-cards/) | Per-experiment run cards (e008a–e017d) |
+| [docs/run-cards/](docs/run-cards/) | Per-experiment run cards (e008a–e019) |
+| [docs/base-builds/](docs/base-builds/) | Base build definitions (b001+) — versioned canonical findings |
 | [research/sources/](research/sources/) | Paper summaries (PDFs gitignored, .md summaries committed) |
 
 ## Related Projects

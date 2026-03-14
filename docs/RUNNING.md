@@ -4,6 +4,26 @@ Running notes from work sessions. Newest entries at top. Append-only.
 
 ---
 
+## 2026-03-14 — Base builds, Modal training, E019 baseline config
+
+Surveyed all experiment history via subagent to ground dataset and config decisions in data rather than vibes. Key findings from the survey:
+
+- 7.7K FD top-5 (`encoded-v3-ranked-fd-top5.pt`) is the proven dataset. E016 beat E012 on every metric with 4x data.
+- The cumulative stack of proven improvements (E008c through E016) is well-defined. Eight experiments, all kept, super-additive when combined.
+- Fox-only vs top-5 diversity on AR quality is untested. Flagged as a future experiment axis, not a baseline decision.
+
+Introduced `base_build` as a frontmatter field to separate "stable foundation" from "thing being tested." b001 packages all eight proven experiments. This was already described as "Future: Stable Builds" in autoresearch-plan.md — now it's real with `docs/base-builds/b001.yaml`.
+
+Built `scripts/modal_train.py` for Modal cloud training. Key decisions:
+- A100 40GB ($2.10/hr) — fits batch_size up to ~8192, leaves room for batch size as experiment axis
+- Pre-encoded `.pt` files loaded from Modal volume (14s load time on A100 per prior research)
+- Rollout coherence eval runs automatically after training, results saved as JSON alongside checkpoint
+- Encoding config validation — warns if YAML disagrees with encoded file
+
+Checked Modal volume: `encoded-v3-ranked-fd-top5.pt` (7.7K games) exists alongside all checkpoints (E012, E016, E017a). Ready to run.
+
+---
+
 ## 2026-03-14 — Added /pull skill with subagent scanners
 
 Built the mirror to /push. The /pull skill spawns two Explore subagents in parallel — one to scan HANDOFF.md for new entries and action items, one to scan run cards, RUNNING.md, program.md, and checkpoint directories for state changes. Primary agent never reads the full living documents directly; gets concise digests back.

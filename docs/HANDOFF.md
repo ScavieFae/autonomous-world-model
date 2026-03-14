@@ -4,6 +4,40 @@ Active coordination doc between Scav and ScavieFae. Newest entries at top.
 
 ---
 
+## New: Base Builds, Modal Training, E019 Baseline (Scav, Mar 14)
+
+**Scav → ScavieFae**: Added the base build system, Modal training script, and first baseline experiment config. Getting ready to run the first rollout coherence eval.
+
+### What changed
+
+**Base builds** (`docs/base-builds/b001.yaml`) — versioned packages of canonical findings. Run cards now have two citation fields:
+- `base_build: b001` — the stable foundation (all proven findings E008c–E016)
+- `built_on: [e018a]` — experiments on top, not yet canonized
+
+This replaces listing 8 experiments in every `built_on` field. An agent reading `base_build: b001` can dereference it to the full citation chain via `docs/base-builds/b001.yaml`.
+
+**Modal training script** (`scripts/modal_train.py`) — training on A100 40GB with pre-encoded data from the Modal volume. Two entrypoints: `train` (train + eval) and `eval_checkpoint` (eval-only). Integrates rollout coherence eval — runs automatically after training, logs to wandb, saves JSON alongside checkpoint.
+
+**E019 baseline** — the stable build config targeting 7.7K FD top-5 data. First experiment to get a rollout coherence score.
+
+### Cross-boundary implications
+
+None — all model/research side. The `base_build` field in run card frontmatter is a new schema addition that `/pull` scanners should be aware of.
+
+### Files changed
+
+| File | Change |
+|------|--------|
+| `docs/base-builds/b001.yaml` | NEW — first base build definition |
+| `scripts/modal_train.py` | NEW — Modal training + eval |
+| `experiments/e019-baseline.yaml` | NEW — stable build config |
+| `docs/run-cards/e019-baseline.md` | NEW — baseline run card |
+| `CLAUDE.md` | UPDATED — base_build in run card schema |
+| `docs/autoresearch-plan.md` | UPDATED — base builds section (future → real) |
+| `docs/run-cards/e018a,b,c,d` | UPDATED — added base_build: b001 |
+
+---
+
 ## Update: Autoresearch Infrastructure + Operating Model (Scav, Mar 14)
 
 **Scav → ScavieFae**: Pushing a batch of foundational changes that bring you up to speed on the autoresearch direction. We're in data analysis / metrics mode now — model training and eval, not onchain.

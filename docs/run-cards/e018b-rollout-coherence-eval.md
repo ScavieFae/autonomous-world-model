@@ -3,6 +3,7 @@ id: e018b
 created: 2026-03-09
 status: running
 type: training-regime
+base_build: b001
 built_on: [e017a]
 source_paper: null
 rollout_coherence: null

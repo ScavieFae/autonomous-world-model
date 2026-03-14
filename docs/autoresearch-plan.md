@@ -153,19 +153,30 @@ State findings as observations with hit rates. Not editorials.
 
 The citation graph aggregates observations into confidence levels. A finding cited 10 times with 8 improvements has a 0.8 hit rate. That's the epistemic state.
 
-## Future: Stable Builds
+## Base Builds
 
-As experiments accumulate, a pattern will emerge: certain findings always appear together in `built_on:` chains, nobody re-tests them, they're treated as given. That's a **stable build** — a snapshot of canonical findings that new experiments build on top of.
+A **base build** is a versioned package of canonical findings that experiments build on. It separates "the stable foundation" from "the thing being tested."
+
+Run card frontmatter has two fields:
+- `base_build: b001` — the stable foundation (rarely changes)
+- `built_on: [e018a]` — experiments on top of the base, not yet canonized
+
+Base build definitions live in `docs/base-builds/{id}.yaml` with the full citation chain.
+
+### b001 (current)
 
 ```
-stable-v1: e012 (FD top5 data) + e015 (true SS) + e017a (absolute y) + ...
-stable-v2: stable-v1 + e021 (whatever survives next) + ...
+b001: e008c + e010b + e010c + e010d + e012 + e014 + e015 + e016
 ```
 
-An experiment cites `built_on: [stable-v3]` instead of listing 15 individual findings. The stable build is a package version for the research.
+FD top-5 stable foundation. Multi-position, transition weighting, ctrl thresholds, clean data, cascaded heads, true SS, omnibus. Every proven finding through E016.
 
-**How a stable build crystallizes:** Someone (human or agent) looks at the citation graph and identifies findings that always co-occur, have high hit rates, and aren't being questioned. Snapshot them as a named baseline. This is the one moment of editorial judgment in an otherwise bottom-up process.
+### How base builds evolve
 
-**Competing stable builds can coexist.** Maybe stable-v3 uses absolute y targets and stable-v3-alt uses all-delta with a different loss function. Both have citation support. Experiments that cite one vs the other test which *package* of assumptions holds up. The canon forks — and that's fine. It resolves when one fork consistently produces better rollout coherence.
+**Minting a new base build** is editorial judgment. When enough experiments accumulate on top of a base build and prove out — they always co-occur in `built_on` chains, have high hit rates, aren't being questioned — snapshot them as a new base build.
 
-This isn't something to build yet. It's what naturally emerges once the citation graph has enough density. Recognize it when it shows up.
+```
+b002: b001 + e018a (Self-Forcing) + e019 (baseline numbers) + ...
+```
+
+**Competing base builds can coexist.** Maybe b002 uses Self-Forcing and b002-alt uses a different AR training strategy. Both have citation support. Experiments that cite one vs the other test which *package* of assumptions holds up. The canon forks — and that's fine. It resolves when one fork consistently produces better rollout coherence.

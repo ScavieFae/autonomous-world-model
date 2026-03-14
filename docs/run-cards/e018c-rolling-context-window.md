@@ -3,6 +3,7 @@ id: e018c
 created: 2026-03-09
 status: proposed
 type: architectural
+base_build: b001
 built_on: [e017a]
 source_paper: 2505.20171
 rollout_coherence: null
