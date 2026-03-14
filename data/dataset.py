@@ -115,8 +115,11 @@ class MeleeDataset:
             all_ints.append(frame_int)
             game_lengths.append(game.num_frames)
 
-        self.floats = torch.cat(all_floats, dim=0)  # (total_frames, 58)
-        self.ints = torch.cat(all_ints, dim=0)  # (total_frames, 15)
+        self.floats = torch.cat(all_floats, dim=0)  # (total_frames, F)
+        self.ints = torch.cat(all_ints, dim=0)  # (total_frames, I)
+        # Move to shared memory so DataLoader workers can access without copying
+        self.floats.share_memory_()
+        self.ints.share_memory_()
         self.game_offsets = np.cumsum([0] + game_lengths)
         self.total_frames = self.game_offsets[-1]
         self.game_lengths = game_lengths
@@ -186,6 +189,19 @@ class MeleeFrameDataset(Dataset):
         self._p1_int_offset = ipp  # where p1's int columns start
 
         self._press_events = cfg.press_events
+        # Velocity slices (indices 4:9 within each player's continuous block)
+        vel_start = cfg.core_continuous_dim           # 4
+        vel_end = vel_start + cfg.velocity_dim        # 9
+        self._p0_vel = slice(vel_start, vel_end)
+        self._p1_vel = slice(fp + vel_start, fp + vel_end)
+
+        # Dynamics indices: hitlag, stocks, combo_count [, hitstun]
+        dyn_start = vel_end + (0 if cfg.state_age_as_embed else 1)
+        self._p0_dyn = [dyn_start, dyn_start + 1, dyn_start + 2]  # hitlag, stocks, combo
+        if cfg.hitstun:
+            self._p0_dyn.append(dyn_start + 3)
+        self._p1_dyn = [fp + i for i in self._p0_dyn]
+
         self._ctrl_threshold = cfg.ctrl_threshold_features
         # Analog axes for threshold features: main_x(0), main_y(1), c_x(2), c_y(3), shoulder(4)
         self._p0_analog = slice(ctrl_start, ctrl_start + 5)
@@ -251,20 +267,42 @@ class MeleeFrameDataset(Dataset):
         # Continuous delta: frame (t+d) minus frame (t+d-1)
         p0_cont_delta = tgt_float[self._p0_cont] - prev_float[self._p0_cont]
         p1_cont_delta = tgt_float[self._p1_cont] - prev_float[self._p1_cont]
+
+        # Velocity deltas
+        p0_vel_delta = tgt_float[self._p0_vel] - prev_float[self._p0_vel]
+        p1_vel_delta = tgt_float[self._p1_vel] - prev_float[self._p1_vel]
+
         p0_binary = tgt_float[self._p0_bin]
         p1_binary = tgt_float[self._p1_bin]
 
-        float_tgt = torch.cat([p0_cont_delta, p1_cont_delta, p0_binary, p1_binary])  # (14,)
+        # Dynamics absolute (hitlag, stocks, combo_count [, hitstun])
+        p0_dyn = tgt_float[self._p0_dyn]
+        p1_dyn = tgt_float[self._p1_dyn]
 
-        # Int targets: frame (t+d)'s action/jumps
+        float_tgt = torch.cat([
+            p0_cont_delta, p1_cont_delta,     # (8)
+            p0_vel_delta, p1_vel_delta,        # (10)
+            p0_binary, p1_binary,              # (2*bd)
+            p0_dyn, p1_dyn,                    # (2*yd)
+        ])
+
+        # Int targets: frame (t+d)'s categoricals (6 per player)
         tgt_ints = self.data.ints[tgt_idx]
         p1_off = self._p1_int_offset
         int_tgt = torch.stack([
             tgt_ints[0],          # p0_action
             tgt_ints[1],          # p0_jumps
+            tgt_ints[3],          # p0_l_cancel
+            tgt_ints[4],          # p0_hurtbox
+            tgt_ints[5],          # p0_ground
+            tgt_ints[6],          # p0_last_attack
             tgt_ints[p1_off],     # p1_action
             tgt_ints[p1_off + 1], # p1_jumps
-        ])  # (4,)
+            tgt_ints[p1_off + 3], # p1_l_cancel
+            tgt_ints[p1_off + 4], # p1_hurtbox
+            tgt_ints[p1_off + 5], # p1_ground
+            tgt_ints[p1_off + 6], # p1_last_attack
+        ])  # (12,)
 
         return float_ctx, int_ctx, next_ctrl, float_tgt, int_tgt
 

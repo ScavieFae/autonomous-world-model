@@ -6,6 +6,22 @@ Running notes from research and work sessions. Newest entries at top. Append-onl
 
 ---
 
+## 2026-03-14 — Trainer port, E019 baseline 6.77, autoresearch orchestration
+
+Ported the full nojohns trainer. The AWM version was missing per-batch logging, velocity/dynamics/combat-context losses (6 heads!), num_workers, and epoch callbacks. The model was training on only ~40% of its output heads. No wonder the old migration runs were underperforming — the velocity and dynamics predictions were getting zero gradient.
+
+E019 epoch 1 completed on 1.9K data: **rollout coherence = 6.77** (vs E012 = 6.84). Marginal improvement despite only 1 epoch vs E012's 2 — the full loss suite is helping. change_acc = 78.7% (lower than E012's 91.1%, expected with 1 epoch).
+
+Discovered vel_mae=0 bug in rollout eval — `reconstruct_frame` wasn't applying velocity_delta or dynamics_pred to the AR frames. Velocities were frozen from the seed context. Fixed: AR reconstruction now uses all three prediction types (position deltas, velocity deltas, dynamics absolute).
+
+Spent significant time debugging Modal data loading. The 7.7K dataset (82M frames, 43GB tensors) hangs with `num_workers=4` (fork OOM) and takes 9hr/epoch with `num_workers=0`. `share_memory_()` fails on Modal containers (shm too small). Pragmatic decision: use 1.9K data for Scout/Confirm experiments, fix 7.7K data loading as a separate infrastructure task.
+
+Built the autoresearch orchestration: three agent roles (hypothesis/director/executor), research cycle brief, conductor prompt, budget tracking ($30/day), tiered cost gates. The design principle: the Director evaluates, doesn't hypothesize. The Researcher proposes, doesn't execute. Separation of concerns prevents the "agent that proposed the idea also evaluates its own results" failure mode.
+
+Key feedback from Mattie: dead ends are observations not prohibitions — agents CAN revisit if they have specific reasoning for why context changed. Also: everything the agents need should be in program.md, since that's the single document Mattie operates from.
+
+---
+
 ## 2026-03-14 — Migration fixes, b001 tightened, E012 baseline, E019 in flight
 
 First rollout coherence number: **E012 = 6.8448** (mean pos_mae, K=20, N=300). This is the pre-cascade, pre-SS checkpoint on 1.9K data.

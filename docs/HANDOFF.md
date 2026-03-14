@@ -4,6 +4,60 @@ Active coordination doc between Scav and ScavieFae. Newest entries at top.
 
 ---
 
+## New: Full trainer port, autoresearch orchestration, E019 baseline (Scav, Mar 14)
+
+**Scav → ScavieFae**: Major session. Ported the full nojohns trainer (batch logging, all loss heads, num_workers), got the first rollout coherence baseline (E019 = 6.77), built the autonomous research loop orchestration.
+
+### What changed
+
+**Trainer port from nojohns** — the AWM trainer was a stripped-down version missing most features. Ported:
+- Per-batch logging with configurable `log_interval` (~10 logs/epoch, wandb integration)
+- Full loss suite: velocity, dynamics, l_cancel, hurtbox, ground, last_attack (6 heads that were missing)
+- `LossWeights` expanded from 4 to 10 fields
+- `num_workers=4` on CUDA with `persistent_workers` and `prefetch_factor`
+- `epoch_callback` for Modal `vol.commit()`
+- Per-epoch rollout coherence eval (integrated into Trainer, not post-hoc)
+- `dataset` parameter for val game access during rollout eval
+- Resilient checkpoint loading with `strict=False` + warnings
+
+**Dataset target format** — `float_tgt` expanded from 14 dims (positions+binary) to full nojohns format: positions(8) + velocities(10) + binary(2*bd) + dynamics(2*yd). `int_tgt` expanded from 4 to 12 (6 categoricals per player). This means the model now trains on ALL its output heads, not just positions and actions.
+
+**AR reconstruction** — `ar_utils.reconstruct_frame()` now applies velocity deltas and dynamics predictions (were being ignored → carried forward from seed). Fixes `vel_mae=0` bug in rollout eval.
+
+**E019 baseline result: rollout_coherence = 6.77** (1.9K data, bs=512, 1 epoch, b001 config). Epoch 2 currently training.
+
+**Autoresearch orchestration** — agent definitions, research cycle brief, budget tracking, conductor prompt. Designed for autonomous overnight research: hypothesis → Director review → Modal execution → evaluation. Three roles (Researcher, Director, Executor), tiered cost gates, $30/day budget.
+
+### Cross-boundary implications
+
+None immediate — all training/research infrastructure. The AR reconstruction changes in `ar_utils.py` affect `rollout.py` (demo generation) and `eval_rollout.py` (evaluation). If `crank/match_runner.py` is ever reconciled with `ar_utils`, the velocity/dynamics handling needs to be matched.
+
+### Files changed
+
+| File | Change |
+|------|--------|
+| `training/trainer.py` | REWRITE — full nojohns port with batch logging, rollout eval, workers |
+| `training/metrics.py` | REWRITE — full loss suite (10 heads), config-driven target slicing |
+| `data/dataset.py` | EXPANDED — velocity/dynamics targets, 12-col int_tgt, threshold features |
+| `scripts/ar_utils.py` | FIX — velocity delta + dynamics reconstruction |
+| `scripts/modal_train.py` | UPDATED — passes dataset for rollout eval, epoch_callback |
+| `.loop/agents/research-director.md` | NEW — hypothesis/result evaluator |
+| `.loop/agents/hypothesis.md` | NEW — research scientist agent |
+| `.loop/agents/executor.md` | NEW — Modal experiment runner |
+| `.loop/prompts/conductor.md` | REWRITTEN — research loop controller |
+| `.loop/briefs/research-cycle.md` | NEW — cycle definition |
+| `.loop/state/budget.json` | NEW — spend tracking |
+| `.loop/state/goals.md` | UPDATED — autoresearch mode |
+| `.claude/skills/research-cycle/SKILL.md` | NEW — manual cycle trigger |
+
+### Next steps
+
+1. Review proposed program.md additions (agent model, lifecycle, budget sections)
+2. Dry-run one research cycle with Mattie watching
+3. Start autonomous cycles on ScavieFae's machine
+
+---
+
 ## Fix: Training pipeline migration gaps, b001 scope tightened (Scav, Mar 14)
 
 **Scav → ScavieFae**: Fixed a class of hardcoded-dimension bugs from the nojohns→AWM migration and tightened b001 to only proven-in-isolation findings.

@@ -247,7 +247,7 @@ def train(
             logging.info("No WANDB_API_KEY — logging to stdout only")
             wandb = None
 
-    # Train
+    # Train (pass dataset for per-epoch rollout coherence eval)
     trainer = Trainer(
         model=model,
         train_dataset=train_ds,
@@ -260,6 +260,8 @@ def train(
         loss_weights=loss_weights,
         save_dir=save_dir,
         device="cuda",
+        dataset=dataset,
+        epoch_callback=lambda: vol.commit(),
     )
 
     history = trainer.train()
@@ -287,22 +289,16 @@ def train(
     if history:
         final = history[-1]
         logging.info("--- Training complete ---")
-        for k in ["loss/total", "metric/p0_action_acc", "metric/position_mae", "metric/action_change_acc"]:
+        for k in ["loss/total", "metric/p0_action_acc", "metric/position_mae",
+                   "metric/action_change_acc", "eval/summary_pos_mae"]:
             if k in final:
                 logging.info("  %s: %.4f", k, final[k])
 
-    # Run rollout coherence eval
-    if run_eval:
-        logging.info("--- Running rollout coherence eval ---")
-        _run_eval(
-            checkpoint_path=f"{save_dir}/best.pt",
-            dataset=dataset,
-            enc_cfg=enc_cfg,
-            context_len=context_len,
-            train_split=train_split,
-            run_name=run_name,
-            save_dir=save_dir,
-        )
+    # Save rollout eval results if available
+    if history and "eval/summary_pos_mae" in history[-1]:
+        eval_out = {"summary_pos_mae": history[-1]["eval/summary_pos_mae"]}
+        with open(f"{save_dir}/eval_rollout.json", "w") as f:
+            json.dump(eval_out, f, indent=2)
         vol.commit()
 
     if wandb and wandb.run:

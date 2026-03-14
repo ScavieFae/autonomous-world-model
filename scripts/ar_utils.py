@@ -56,6 +56,22 @@ def reconstruct_frame(
     next_float[..., :ccd] += delta[..., :ccd]
     next_float[..., fp:fp + ccd] += delta[..., ccd:]
 
+    # --- Velocity deltas (indices 4:9 per player) ---
+    if "velocity_delta" in preds:
+        vel_start = ccd  # 4
+        vel_end = vel_start + cfg.velocity_dim  # 9
+        vel_d = preds["velocity_delta"]  # (..., 10)
+        next_float[..., vel_start:vel_end] += vel_d[..., :cfg.velocity_dim]
+        next_float[..., fp + vel_start:fp + vel_end] += vel_d[..., cfg.velocity_dim:]
+
+    # --- Dynamics predictions (absolute: hitlag, stocks, combo [, hitstun]) ---
+    if "dynamics_pred" in preds:
+        dyn_start = ccd + cfg.velocity_dim + (0 if cfg.state_age_as_embed else 1)
+        dyn_per_player = cfg.predicted_dynamics_dim // 2  # 3 or 4
+        dyn_d = preds["dynamics_pred"]  # (..., 6 or 8)
+        next_float[..., dyn_start:dyn_start + dyn_per_player] = dyn_d[..., :dyn_per_player]
+        next_float[..., fp + dyn_start:fp + dyn_start + dyn_per_player] = dyn_d[..., dyn_per_player:]
+
     # --- Binary predictions (threshold logits at 0) ---
     binary = (preds["binary_logits"] > 0).float()  # (..., 6)
     p0_bin_start = cd
