@@ -12,8 +12,17 @@
     }
   ],
   "experiments": {
-    "in_flight": null,
-    "lock": false,
+    "in_flight": {
+      "id": "e018b-sf-n5",
+      "modal_app_id": "ap-fDBIzoRFWKMB9gXSSBk4wJ",
+      "wandb_url": "https://wandb.ai/shinewave/melee-worldmodel/runs/wdv9wynz",
+      "started_at": "2026-03-15T18:44:00Z",
+      "config": "experiments/e018b-sf-n5.yaml",
+      "encoded_file": "/encoded-e012-fd-top5.pt",
+      "cost_tier": "scout",
+      "estimated_cost": 4.20
+    },
+    "lock": true,
     "stale_timeout_hours": 4
   }
 }

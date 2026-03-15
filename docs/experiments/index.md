@@ -1,8 +1,8 @@
 # Experiment Index
 
-*5 experiments — 1 kept, 2 running, 2 proposed, 0 discarded.*
+*6 experiments — 1 kept, 3 running, 2 proposed, 0 discarded.*
 
-*Generated 2026-03-15 18:35 UTC*
+*Generated 2026-03-15 18:45 UTC*
 
 **Best rollout coherence:** 6.26 ([e018a](../run-cards/e018a-self-forcing.md))
 
@@ -11,6 +11,7 @@
 | ID | Type | Base | RC | Built On | Paper |
 |-----|------|------|----|----------|-------|
 | [e018b](../run-cards/e018b-rollout-coherence-eval.md) | training-regime | b001 | — | e017a | — |
+| [e018b](../run-cards/e018b-self-forcing-n5.md) | training-regime | b001 | — | e018a | [2508.13009](https://arxiv.org/abs/2508.13009) |
 | [e019](../run-cards/e019-baseline.md) | training-regime | b001 | — | — | — |
 
 ## Kept
