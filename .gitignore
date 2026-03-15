@@ -31,6 +31,9 @@ research/sources/*.pdf
 # Simple Loop logs
 .loop/logs/
 
+# Bot credentials (never commit)
+bot/.env
+
 # Local agent state (not shared)
 .claude/last_pull.json
 .claude/settings.local.json
