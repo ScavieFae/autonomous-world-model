@@ -1,7 +1,16 @@
 {
   "active_briefs": [],
   "completed_pending_eval": [],
-  "history": [],
+  "history": [
+    {
+      "id": "e018a-sf-minimal",
+      "status": "kept",
+      "rollout_coherence": 6.26,
+      "prior_best_rc": 6.77,
+      "cost": 3.90,
+      "completed_at": "2026-03-15T18:04:00Z"
+    }
+  ],
   "experiments": {
     "in_flight": null,
     "lock": false,

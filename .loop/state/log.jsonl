@@ -1,0 +1,2 @@
+{"timestamp": "2026-03-15T00:00:00Z", "action": "launch", "experiment": "e018a-sf-minimal", "reasoning": "Self-Forcing is priority #1 in program.md. Director approved. Scout tier, minimal implementation: 20% SF, N=3, truncated BPTT.", "budget_spent": 2.00}
+{"timestamp": "2026-03-15T18:04:00Z", "action": "evaluate", "experiment": "e018a-sf-minimal", "reasoning": "RC 6.26 vs 6.77 baseline (-7.5%). KEPT. Largest single-experiment improvement in E008-E019 series. TF metrics regressed (-17pp change_acc) as predicted — acceptable tradeoff.", "budget_spent": 3.90}

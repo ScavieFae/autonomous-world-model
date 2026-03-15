@@ -298,6 +298,12 @@ def main():
     elif not wandb:
         logging.info("wandb not installed — logging to file only")
 
+    # Self-Forcing config
+    sf_cfg = cfg.get("self_forcing", {})
+
+    # Raw dataset for rollout eval + Self-Forcing (in-memory mode only)
+    raw_dataset = dataset if not args.streaming else None
+
     trainer = Trainer(
         model=model,
         train_dataset=train_ds,
@@ -311,6 +317,10 @@ def main():
         save_dir=save_dir,
         device=train_cfg.get("device"),
         resume_from=args.resume,
+        dataset=raw_dataset,
+        sf_enabled=sf_cfg.get("enabled", False),
+        sf_ratio=sf_cfg.get("ratio", 4),
+        sf_unroll_length=sf_cfg.get("unroll_length", 3),
     )
 
     # Train

@@ -1,0 +1,66 @@
+# E018a: Self-Forcing Minimal — first test of exposure bias training
+# Changes from E019 baseline: adds Self-Forcing (20% SF batches, N=3 unroll)
+# Everything else identical to E019: same model, same data, same loss weights.
+#
+# Self-Forcing interleaves AR unroll steps during training so the model
+# learns from its own errors. Truncated BPTT (detach between steps).
+# Ground-truth controller inputs at each AR step.
+#
+# Hypothesis: SF improves rollout coherence (< 6.77) by teaching the model
+# to handle its own drift. Falsified if RC regresses or TF metrics crater.
+
+data:
+  dataset_dir: null
+  max_games: null
+  stage_filter: 32  # Final Destination
+  character_filter: [1, 2, 7, 18, 22]  # Fox, Falcon, Sheik, Marth, Falco
+
+encoding:
+  state_age_as_embed: true
+  state_age_embed_vocab: 150
+  state_age_embed_dim: 8
+  state_flags: true
+  hitstun: true
+  ctrl_threshold_features: true
+  multi_position: true
+  focal_offset: 0
+  projectiles: false
+  press_events: false
+  lookahead: 0
+
+model:
+  arch: mamba2
+  context_len: 10
+  d_model: 384
+  d_state: 64
+  n_layers: 4
+  headdim: 64
+  dropout: 0.1
+  chunk_size: 10
+
+training:
+  lr: 0.0005
+  weight_decay: 0.00001
+  batch_size: 512        # Match E019 actual run (not 4096 — data loading bottleneck)
+  num_epochs: 1          # Scout: 1 epoch on 1.9K data
+  train_split: 0.9
+  log_interval: 100
+
+self_forcing:
+  enabled: true
+  ratio: 4              # 1 SF batch per 4 TF batches (20% SF)
+  unroll_length: 3      # N=3 AR steps per SF batch
+
+loss_weights:
+  continuous: 1.0
+  velocity: 0.5
+  dynamics: 0.5
+  binary: 1.0
+  action: 2.0
+  jumps: 0.5
+  l_cancel: 0.3
+  hurtbox: 0.3
+  ground: 0.3
+  last_attack: 0.3
+
+save_dir: checkpoints/e018a-sf-minimal

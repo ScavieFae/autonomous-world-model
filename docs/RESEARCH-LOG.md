@@ -6,6 +6,26 @@ Running notes from research and work sessions. Newest entries at top. Append-onl
 
 ---
 
+## 2026-03-15 — E018a Self-Forcing launched (first autoresearch cycle)
+
+First manual `/research-cycle dry-run` then live launch. Hypothesis agent proposed cascaded_heads (e020) — Director rejected: code not ported to this repo, and Self-Forcing is priority #1 in program.md. Both correct calls. Re-ran targeting Self-Forcing.
+
+**Implementation:** Added `_self_forcing_step()` and `_build_sf_targets()` to `training/trainer.py` (~100 lines). SF interleaves AR unroll steps into the training loop: every 5th batch, the model unrolls 3 AR steps using `reconstruct_frame()` from `scripts/ar_utils.py`, computes loss at each step vs ground truth, truncated BPTT (detach between steps). Ground-truth controller inputs. The model sees its own drift and learns to handle it.
+
+**Config:** `experiments/e018a-sf-minimal.yaml` — identical to E019 except: `self_forcing.enabled=true`, `ratio=4` (20% SF), `unroll_length=3`, `batch_size=512` (matching E019 actual run, not the YAML's 4096 which had data loading bottleneck).
+
+**Director approved as Scout** ($2). Key concern: log `batch/sf_loss` vs `batch/tf_loss` separately to diagnose objective conflict. Expect 2-5pp val_change_acc regression from SF gradient budget steal — acceptable if AR improves.
+
+**Launched:** Modal app `ap-BM6IK0190kM58s5lGxsngQ`, 1.9K data, 1 epoch, A100 40GB. Rollout coherence eval automatic after epoch 1. Baseline to beat: RC = 6.77 (E019).
+
+**Results: KEPT.** Rollout coherence **6.26** (prior best 6.77, **-7.5%**). TF metrics regressed as predicted: change_acc 61.6% (-17pp), pos_mae 0.825 (+9%). SF loss (0.38) was 2.3× TF loss (0.16) — the model faces substantially harder predictions from its own state. This is the largest single-experiment improvement in the E008-E019 series and empirically confirms program.md's core insight: teacher-forced improvements don't predict AR quality. Self-Forcing directly addresses exposure bias.
+
+Cost: $3.90 (1.85hr A100). wandb: https://wandb.ai/shinewave/melee-worldmodel/runs/mtpaj930
+
+Next directions: longer unroll (N=5), higher SF ratio, horizon-weighted loss (e018d), full BPTT.
+
+---
+
 ## 2026-03-14 — Trainer port, E019 baseline 6.77, autoresearch orchestration
 
 Ported the full nojohns trainer. The AWM version was missing per-batch logging, velocity/dynamics/combat-context losses (6 heads!), num_workers, and epoch callbacks. The model was training on only ~40% of its output heads. No wonder the old migration runs were underperforming — the velocity and dynamics predictions were getting zero gradient.

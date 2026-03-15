@@ -6,6 +6,7 @@ import time
 from pathlib import Path
 from typing import Callable, Optional
 
+import numpy as np
 import torch
 import torch.nn as nn
 from torch.optim import AdamW
@@ -14,7 +15,8 @@ from torch.utils.data import DataLoader, IterableDataset
 
 from data.dataset import MeleeFrameDataset
 from models.encoding import EncodingConfig
-from training.metrics import EpochMetrics, LossWeights, MetricsTracker
+from scripts.ar_utils import build_ctrl_batch, reconstruct_frame
+from training.metrics import BatchMetrics, EpochMetrics, LossWeights, MetricsTracker
 
 try:
     import wandb
@@ -48,6 +50,9 @@ class Trainer:
         rollout_eval_every: int = 1,
         rollout_eval_samples: int = 300,
         rollout_eval_horizon: int = 20,
+        sf_enabled: bool = False,
+        sf_ratio: int = 4,
+        sf_unroll_length: int = 3,
     ):
         if device is None:
             if torch.backends.mps.is_available():
@@ -127,6 +132,30 @@ class Trainer:
             except ValueError:
                 logger.warning("Rollout eval: not enough val data for sampling, disabled")
 
+        # Self-Forcing setup
+        self._sf_enabled = sf_enabled
+        self._sf_ratio = sf_ratio
+        self._sf_unroll = sf_unroll_length
+        self._sf_valid_starts = None
+        if sf_enabled:
+            if dataset is None:
+                logger.warning("Self-Forcing enabled but no dataset provided — disabling")
+                self._sf_enabled = False
+            else:
+                sf_K = self.model.context_len
+                train_split_idx = max(1, int(dataset.num_games * 0.9))
+                starts = []
+                for gi in range(train_split_idx):
+                    gs = dataset.game_offsets[gi]
+                    ge = dataset.game_offsets[gi + 1]
+                    for t in range(gs + sf_K, ge - sf_unroll_length):
+                        starts.append(t)
+                self._sf_valid_starts = np.array(starts, dtype=np.int64)
+                logger.info(
+                    "Self-Forcing: %d valid starts, ratio=1:%d, unroll=%d",
+                    len(self._sf_valid_starts), sf_ratio, sf_unroll_length,
+                )
+
         # Shape preflight
         self._verify_shapes(train_dataset)
 
@@ -178,22 +207,166 @@ class Trainer:
             K, expected_float, K, expected_int, expected_ctrl, expected_float_tgt,
         )
 
+    def _build_sf_targets(
+        self, frame_indices: np.ndarray,
+    ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+        """Build ground truth (ctrl, float_tgt, int_tgt) for Self-Forcing.
+
+        Mirrors MeleeFrameDataset.__getitem__ target construction, batched.
+        """
+        dataset = self._rollout_dataset
+        cfg = self.cfg
+        fp = cfg.float_per_player
+        ccd = cfg.core_continuous_dim
+        ipp = cfg.int_per_player
+
+        fi = torch.from_numpy(frame_indices)
+
+        tgt = dataset.floats[fi]          # (B, F)
+        prev = dataset.floats[fi - 1]     # (B, F)
+        tgt_ints = dataset.ints[fi]        # (B, I)
+
+        # Controller input (with threshold features if enabled)
+        ctrl = build_ctrl_batch(dataset.floats, fi, cfg)
+
+        # Continuous deltas (4 per player)
+        p0_cont_d = tgt[:, :ccd] - prev[:, :ccd]
+        p1_cont_d = tgt[:, fp:fp + ccd] - prev[:, fp:fp + ccd]
+
+        # Velocity deltas (5 per player)
+        vs = ccd
+        ve = vs + cfg.velocity_dim
+        p0_vel_d = tgt[:, vs:ve] - prev[:, vs:ve]
+        p1_vel_d = tgt[:, fp + vs:fp + ve] - prev[:, fp + vs:fp + ve]
+
+        # Binary (absolute)
+        bs = cfg.continuous_dim
+        be = bs + cfg.binary_dim
+        p0_bin = tgt[:, bs:be]
+        p1_bin = tgt[:, fp + bs:fp + be]
+
+        # Dynamics (absolute — hitlag, stocks, combo [, hitstun])
+        ds = ve + (0 if cfg.state_age_as_embed else 1)
+        dpp = cfg.predicted_dynamics_dim // 2
+        p0_dyn_idx = list(range(ds, ds + dpp))
+        p1_dyn_idx = [fp + i for i in p0_dyn_idx]
+        p0_dyn = tgt[:, p0_dyn_idx]
+        p1_dyn = tgt[:, p1_dyn_idx]
+
+        float_tgt = torch.cat([
+            p0_cont_d, p1_cont_d,
+            p0_vel_d, p1_vel_d,
+            p0_bin, p1_bin,
+            p0_dyn, p1_dyn,
+        ], dim=1)
+
+        int_tgt = torch.stack([
+            tgt_ints[:, 0],           # p0_action
+            tgt_ints[:, 1],           # p0_jumps
+            tgt_ints[:, 3],           # p0_l_cancel
+            tgt_ints[:, 4],           # p0_hurtbox
+            tgt_ints[:, 5],           # p0_ground
+            tgt_ints[:, 6],           # p0_last_attack
+            tgt_ints[:, ipp],         # p1_action
+            tgt_ints[:, ipp + 1],     # p1_jumps
+            tgt_ints[:, ipp + 3],     # p1_l_cancel
+            tgt_ints[:, ipp + 4],     # p1_hurtbox
+            tgt_ints[:, ipp + 5],     # p1_ground
+            tgt_ints[:, ipp + 6],     # p1_last_attack
+        ], dim=1)
+
+        return ctrl, float_tgt, int_tgt
+
+    def _self_forcing_step(self) -> tuple[torch.Tensor, BatchMetrics]:
+        """One Self-Forcing step: unroll N AR steps, loss vs ground truth.
+
+        Each step feeds the model's own reconstructed output as context
+        (truncated BPTT — detached between steps). Ground-truth controller
+        inputs and targets at every step.
+
+        Returns (averaged_loss, last_step_metrics).
+        """
+        dataset = self._rollout_dataset
+        K = self.model.context_len
+        N = self._sf_unroll
+        B = self.batch_size
+
+        # Sample starting points from pre-computed valid starts
+        idx = np.random.choice(
+            len(self._sf_valid_starts), size=B,
+            replace=len(self._sf_valid_starts) < B,
+        )
+        starts = self._sf_valid_starts[idx]
+
+        # Build initial context from ground truth
+        batch_floats = torch.stack([dataset.floats[t - K:t] for t in starts])
+        batch_ints = torch.stack([dataset.ints[t - K:t] for t in starts])
+
+        all_losses = []
+        last_metrics = None
+
+        for step in range(N):
+            frame_indices = starts + step
+            ctrl, float_tgt, int_tgt = self._build_sf_targets(frame_indices)
+
+            ctx_f = batch_floats[:, -K:, :].to(self.device)
+            ctx_i = batch_ints[:, -K:, :].to(self.device)
+            ctrl_d = ctrl.to(self.device)
+
+            preds = self.model(ctx_f, ctx_i, ctrl_d)
+            loss, metrics = self.metrics.compute_loss(
+                preds, float_tgt.to(self.device), int_tgt.to(self.device), ctx_i,
+            )
+            all_losses.append(loss)
+            last_metrics = metrics
+
+            # Reconstruct next frame — detached (truncated BPTT)
+            with torch.no_grad():
+                preds_cpu = {k: v.cpu() for k, v in preds.items()}
+                next_float, next_int = reconstruct_frame(
+                    preds_cpu, batch_floats[:, -1, :],
+                    batch_ints[:, -1, :], ctrl, self.cfg,
+                )
+            batch_floats = torch.cat(
+                [batch_floats, next_float.unsqueeze(1)], dim=1,
+            )
+            batch_ints = torch.cat(
+                [batch_ints, next_int.unsqueeze(1)], dim=1,
+            )
+
+        sf_loss = torch.stack(all_losses).mean()
+        return sf_loss, last_metrics
+
     def _train_epoch(self) -> dict[str, float]:
         self.model.train()
         epoch_metrics = EpochMetrics()
         num_batches = len(self.train_loader)
         log_interval = self._compute_log_interval(num_batches)
 
+        sf_count = 0
         for batch_idx, (float_ctx, int_ctx, next_ctrl, float_tgt, int_tgt) in enumerate(self.train_loader):
-            float_ctx = float_ctx.to(self.device)
-            int_ctx = int_ctx.to(self.device)
-            next_ctrl = next_ctrl.to(self.device)
-            float_tgt = float_tgt.to(self.device)
-            int_tgt = int_tgt.to(self.device)
-
             self.optimizer.zero_grad()
-            predictions = self.model(float_ctx, int_ctx, next_ctrl)
-            loss, batch_metrics = self.metrics.compute_loss(predictions, float_tgt, int_tgt, int_ctx)
+
+            # Interleave: every (ratio+1)th batch is Self-Forcing
+            is_sf = (
+                self._sf_enabled
+                and (batch_idx + 1) % (self._sf_ratio + 1) == 0
+            )
+
+            if is_sf:
+                loss, batch_metrics = self._self_forcing_step()
+                sf_count += 1
+            else:
+                float_ctx = float_ctx.to(self.device)
+                int_ctx = int_ctx.to(self.device)
+                next_ctrl = next_ctrl.to(self.device)
+                float_tgt = float_tgt.to(self.device)
+                int_tgt = int_tgt.to(self.device)
+                predictions = self.model(float_ctx, int_ctx, next_ctrl)
+                loss, batch_metrics = self.metrics.compute_loss(
+                    predictions, float_tgt, int_tgt, int_ctx,
+                )
+
             loss.backward()
             torch.nn.utils.clip_grad_norm_(self.model.parameters(), max_norm=1.0)
             self.optimizer.step()
@@ -201,17 +374,26 @@ class Trainer:
 
             if (batch_idx + 1) % log_interval == 0:
                 pct = 100.0 * (batch_idx + 1) / num_batches
+                sf_tag = " [SF]" if is_sf else ""
                 logger.info(
-                    "  batch %d/%d (%.0f%%) loss=%.4f",
-                    batch_idx + 1, num_batches, pct, batch_metrics.total_loss,
+                    "  batch %d/%d (%.0f%%) loss=%.4f%s",
+                    batch_idx + 1, num_batches, pct,
+                    batch_metrics.total_loss, sf_tag,
                 )
                 if wandb and wandb.run:
-                    wandb.log({
+                    log_dict = {
                         "batch/loss": batch_metrics.total_loss,
                         "batch/step": batch_idx + 1,
                         "batch/pct": pct,
-                    })
+                    }
+                    if is_sf:
+                        log_dict["batch/sf_loss"] = batch_metrics.total_loss
+                    else:
+                        log_dict["batch/tf_loss"] = batch_metrics.total_loss
+                    wandb.log(log_dict)
 
+        if sf_count > 0:
+            logger.info("  Self-Forcing: %d SF batches this epoch", sf_count)
         return epoch_metrics.averaged()
 
     @torch.no_grad()
