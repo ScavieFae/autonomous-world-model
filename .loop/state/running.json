@@ -1,0 +1,10 @@
+{
+  "active_briefs": [],
+  "completed_pending_eval": [],
+  "history": [],
+  "experiments": {
+    "in_flight": null,
+    "lock": false,
+    "stale_timeout_hours": 4
+  }
+}

@@ -74,7 +74,6 @@ def train(
     epochs: int = 0,
     batch_size: int = 0,
     lr: float = 0.0,
-    run_eval: bool = True,
 ):
     """Train a world model on Modal with pre-encoded data.
 
@@ -311,77 +310,6 @@ def train(
     }
 
 
-def _run_eval(
-    checkpoint_path: str,
-    dataset,
-    enc_cfg,
-    context_len: int,
-    train_split: float,
-    run_name: str,
-    save_dir: str,
-):
-    """Run rollout coherence eval on a checkpoint."""
-    import json
-    import logging
-    import time
-
-    import numpy as np
-    import torch
-
-    from models.checkpoint import load_model_from_checkpoint
-    from scripts.eval_rollout import evaluate_rollout_coherence, sample_starting_points, format_table
-
-    try:
-        import wandb
-    except ImportError:
-        wandb = None
-
-    model, cfg, ctx_len, arch = load_model_from_checkpoint(checkpoint_path, "cuda")
-
-    split_idx = max(1, int(dataset.num_games * train_split))
-    val_game_range = range(split_idx, dataset.num_games)
-
-    starting_points = sample_starting_points(
-        dataset, val_game_range, ctx_len, 20, 300, seed=42,
-    )
-
-    t0 = time.time()
-    results = evaluate_rollout_coherence(
-        model, dataset, starting_points, ctx_len, 20, cfg, "cuda",
-    )
-    eval_time = time.time() - t0
-
-    logging.info("Rollout coherence eval (%.1fs):", eval_time)
-    print(format_table(results, 20))
-    logging.info("** summary_pos_mae = %.4f **", results["summary_pos_mae"])
-
-    # Log to wandb
-    if wandb and wandb.run:
-        wandb.log({
-            "eval/summary_pos_mae": results["summary_pos_mae"],
-            "eval/time_s": eval_time,
-        })
-        for k, metrics in results["per_horizon"].items():
-            for metric_name, value in metrics.items():
-                wandb.log({f"eval/h{k}_{metric_name}": value})
-
-    # Save eval results
-    eval_output = {
-        "checkpoint": checkpoint_path,
-        "run_name": run_name,
-        "num_samples": len(starting_points),
-        "horizon": 20,
-        "seed": 42,
-        "eval_time_s": round(eval_time, 2),
-        "summary_pos_mae": results["summary_pos_mae"],
-        "per_horizon": {str(k): v for k, v in results["per_horizon"].items()},
-    }
-    eval_path = f"{save_dir}/eval_rollout.json"
-    with open(eval_path, "w") as f:
-        json.dump(eval_output, f, indent=2)
-    logging.info("Eval results saved to %s", eval_path)
-
-
 # --- Eval-only function (for existing checkpoints) ---
 
 @app.function(
@@ -513,7 +441,6 @@ def main(
     epochs: int = 0,
     batch_size: int = 0,
     lr: float = 0.0,
-    no_eval: bool = False,
 ):
     result = train.remote(
         config_path=config,
@@ -522,7 +449,6 @@ def main(
         epochs=epochs,
         batch_size=batch_size,
         lr=lr,
-        run_eval=not no_eval,
     )
     print(f"\nDone: {result['run_name']}")
     print(f"Checkpoint: {result['checkpoint']}")
