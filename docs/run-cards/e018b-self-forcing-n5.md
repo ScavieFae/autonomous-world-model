@@ -1,12 +1,12 @@
 ---
 id: e018b
 created: 2026-03-15
-status: running
+status: discarded
 type: training-regime
 base_build: b001
 built_on: [e018a]
 source_paper: 2508.13009
-rollout_coherence: null
+rollout_coherence: 6.45
 prior_best_rc: 6.26
 ---
 
@@ -27,26 +27,31 @@ self_forcing:
 
 No code changes. The trainer already supports arbitrary unroll lengths.
 
-## Why This Matters
+## Results
 
-- N=3 = 150ms of model drift exposure (at 60fps)
-- N=5 = 250ms — covers a full move startup + active frame sequence
-- Longer unroll = more gradient signal about the model's own error patterns
-- If this helps: the improvement curve is sublinear (diminishing returns) or linear (more is better)
-- If this doesn't help: saturation at N=3, pivot to SF ratio or horizon weighting (e018d)
+**DISCARDED — regression.**
 
-## Data
+| Metric | E018a (N=3) | E018b (N=5) | Delta |
+|--------|------------|------------|-------|
+| **rollout_coherence** | **6.26** | **6.45** | **+3.0% (worse)** |
+| change_acc | 61.6% | 57.4% | -4.2pp |
+| pos_mae | 0.825 | 0.823 | ~flat |
+| sf_loss | 0.383 | 0.744 | +94% |
+| tf_loss | 0.164 | 0.234 | +43% |
+| action_acc | — | 94.5% | — |
 
-1.9K FD top-5 (`encoded-e012-fd-top5.pt`), 1 epoch, bs=512. Identical to E018a.
+### Cost
 
-## Target Metrics
+- Runtime: 9017s (~150min) on A100 40GB
+- Cost: ~$5.25 ($2.10/hr × 2.5hr)
+- wandb: https://wandb.ai/shinewave/melee-worldmodel/runs/wdv9wynz
 
-| Metric | E018a (N=3) | Target | Kill threshold |
-|--------|------------|--------|---------------|
-| **rollout_coherence** | **6.26** | **< 6.10** | ≥ 6.26 (no improvement) |
-| change_acc | 61.6% | No catastrophic drop | < 55% |
-| sf_loss | 0.383 | Monitor | > 0.50 (gradient saturating) |
+## Director Evaluation
 
-## Cost Estimate
+**Verdict:** DISCARDED
 
-~$4.20 (2hr on A100 40GB). Scout tier.
+**Confidence:** HIGH — regression is real and consistent across all metrics. SF loss nearly doubled, indicating the model couldn't learn from 5 steps of drift with truncated BPTT.
+
+**Finding:** Longer Self-Forcing unroll (N=5 vs N=3) regressed rollout coherence by 3.0% (6.26→6.45) and nearly doubled SF loss (0.38→0.74). Truncated BPTT breaks gradient flow on timescales longer than ~150ms (N=3 at 60fps). The gradient signal degraded rather than improved with longer horizon.
+
+**Implication:** Truncated BPTT saturates at N=3. To go longer, need either full BPTT (gradient through reconstruct_frame) or horizon-weighted loss (e018d) to focus on early AR steps where truncated BPTT still has signal. Test e018d on N=3 first.

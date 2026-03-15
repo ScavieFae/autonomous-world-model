@@ -24,6 +24,8 @@ Cost: $3.90 (1.85hr A100). wandb: https://wandb.ai/shinewave/melee-worldmodel/ru
 
 Next directions: longer unroll (N=5), higher SF ratio, horizon-weighted loss (e018d), full BPTT.
 
+**E018b DISCARDED (N=5 unroll).** RC regressed to 6.45 (+3.0% worse than e018a's 6.26). SF loss nearly doubled (0.38→0.74) — the model couldn't learn from 5 steps of drift with truncated BPTT. Gradient signal degraded rather than improved. Key finding: truncated BPTT saturates at N=3 (~150ms at 60fps). Longer horizons need full BPTT or horizon-weighted loss. Cost: $5.25. Next: e018d (horizon-weighted loss on N=3).
+
 ---
 
 ## 2026-03-14 — Trainer port, E019 baseline 6.77, autoresearch orchestration

@@ -9,20 +9,19 @@
       "prior_best_rc": 6.77,
       "cost": 3.90,
       "completed_at": "2026-03-15T18:04:00Z"
+    },
+    {
+      "id": "e018b-sf-n5",
+      "status": "discarded",
+      "rollout_coherence": 6.45,
+      "prior_best_rc": 6.26,
+      "cost": 5.25,
+      "completed_at": "2026-03-15T21:15:00Z"
     }
   ],
   "experiments": {
-    "in_flight": {
-      "id": "e018b-sf-n5",
-      "modal_app_id": "ap-fDBIzoRFWKMB9gXSSBk4wJ",
-      "wandb_url": "https://wandb.ai/shinewave/melee-worldmodel/runs/wdv9wynz",
-      "started_at": "2026-03-15T18:44:00Z",
-      "config": "experiments/e018b-sf-n5.yaml",
-      "encoded_file": "/encoded-e012-fd-top5.pt",
-      "cost_tier": "scout",
-      "estimated_cost": 4.20
-    },
-    "lock": true,
+    "in_flight": null,
+    "lock": false,
     "stale_timeout_hours": 4
   }
 }
