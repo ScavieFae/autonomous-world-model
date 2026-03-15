@@ -31,8 +31,11 @@ research/sources/*.pdf
 # Simple Loop logs
 .loop/logs/
 
-# Bot credentials (never commit)
+# Bot credentials and keys (never commit)
 bot/.env
+bot/.signing_key
+bot/.session.json
+bot/crypto_store/
 
 # Local agent state (not shared)
 .claude/last_pull.json
