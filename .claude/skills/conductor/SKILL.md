@@ -1,7 +1,6 @@
 ---
 name: conductor
 description: Run one conductor heartbeat — check experiment state, evaluate completed runs, dispatch new research cycles. The autoresearch loop entry point. Use with `/loop 60m /conductor` for autonomous operation, or manually for single heartbeats.
-disable-model-invocation: true
 user-invocable: true
 ---
 
@@ -17,11 +16,14 @@ READ STATE
   ├── Signal: escalate.json active? → Report to user, exit
   │
   ├── Experiment in flight? (running.json has in_flight != null)
-  │   ├── Check: is it stale? (started_at > stale_timeout_hours ago AND no recent wandb batch logs)
+  │   ├── Run: .venv/bin/python scripts/check_run.py {wandb_run_id}
+  │   ├── Check: is it stale? (started_at > stale_timeout_hours ago AND state != "running")
   │   │   └── YES → Mark stale, release budget, log warning. Treat as "nothing running."
-  │   ├── Check: is it complete? (wandb run state == "finished")
+  │   ├── Check: state == "finished"?
   │   │   └── YES → EVALUATE (Step A below)
-  │   └── Still running → Log "waiting for {experiment_id}", exit
+  │   ├── Check: state == "crashed" or "failed"?
+  │   │   └── YES → Log error, clear in_flight, treat as "nothing running."
+  │   └── state == "running" → Log "waiting for {experiment_id} ({progress_pct}%)", exit
   │
   └── Nothing running, no pending eval
       ├── Budget exhausted? (daily_spent >= daily_limit)
@@ -32,11 +34,9 @@ READ STATE
 ## Step A: Evaluate Completed Experiment
 
 1. Read wandb results for the completed run:
-   ```python
-   import wandb
-   api = wandb.Api()
-   run = api.run(f"shinewave/melee-worldmodel/{wandb_run_id}")
-   # Get summary metrics, history
+   ```bash
+   .venv/bin/python scripts/check_run.py {wandb_run_id}
+   # Returns JSON: {"state": "finished", "metrics": {"eval/summary_pos_mae": ..., ...}}
    ```
 
 2. Spawn an **Explore** agent as Research Director (prompt from `.loop/agents/research-director.md`):
