@@ -20,8 +20,17 @@
     }
   ],
   "experiments": {
-    "in_flight": null,
-    "lock": false,
+    "in_flight": {
+      "id": "e018d-horizon-weighted",
+      "modal_app_id": "ap-EOTtGP1wganvYkUCCU8MAQ",
+      "wandb_url": "https://wandb.ai/shinewave/melee-worldmodel/runs/gabdfivr",
+      "started_at": "2026-03-15T21:23:00Z",
+      "config": "experiments/e018d-horizon-weighted.yaml",
+      "encoded_file": "/encoded-e012-fd-top5.pt",
+      "cost_tier": "scout",
+      "estimated_cost": 4.00
+    },
+    "lock": true,
     "stale_timeout_hours": 4
   }
 }

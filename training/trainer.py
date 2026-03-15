@@ -53,6 +53,7 @@ class Trainer:
         sf_enabled: bool = False,
         sf_ratio: int = 4,
         sf_unroll_length: int = 3,
+        sf_horizon_weights: bool = False,
     ):
         if device is None:
             if torch.backends.mps.is_available():
@@ -136,6 +137,7 @@ class Trainer:
         self._sf_enabled = sf_enabled
         self._sf_ratio = sf_ratio
         self._sf_unroll = sf_unroll_length
+        self._sf_horizon_weights = sf_horizon_weights
         self._sf_valid_starts = None
         if sf_enabled:
             if dataset is None:
@@ -334,7 +336,12 @@ class Trainer:
                 [batch_ints, next_int.unsqueeze(1)], dim=1,
             )
 
-        sf_loss = torch.stack(all_losses).mean()
+        losses = torch.stack(all_losses)
+        if self._sf_horizon_weights:
+            weights = torch.linspace(0.5, 2.0, steps=N, device=losses.device)
+            sf_loss = (losses * weights).sum() / weights.sum()
+        else:
+            sf_loss = losses.mean()
         return sf_loss, last_metrics
 
     def _train_epoch(self) -> dict[str, float]:
