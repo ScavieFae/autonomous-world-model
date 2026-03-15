@@ -32,16 +32,18 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 try:
-    from nio import (
-        AsyncClient,
-        AsyncClientConfig,
-        MatrixRoom,
-        RoomEncryptedMessage,
-        RoomMessageText,
-    )
+    from nio import AsyncClient, AsyncClientConfig, MatrixRoom, RoomMessageText
 except ImportError:
-    print("Install: pip install 'matrix-nio[e2e]' pynacl")
+    print("Install: pip install matrix-nio pynacl")
     raise
+
+# E2E is optional — works without libolm but device verification is disabled
+E2E_AVAILABLE = False
+try:
+    from nio import RoomEncryptedMessage
+    E2E_AVAILABLE = True
+except ImportError:
+    pass
 
 try:
     from nacl.signing import VerifyKey
@@ -392,8 +394,8 @@ async def on_message(room: MatrixRoom, event: RoomMessageText, client: AsyncClie
     if event_age > COMMAND_EXPIRY:
         return
 
-    # Check verified device (E2E)
-    if not getattr(event, "verified", False):
+    # Check verified device (E2E) — skip if E2E not available
+    if E2E_AVAILABLE and not getattr(event, "verified", False):
         logger.warning("Unverified device from %s — ignoring command: %s",
                        event.sender, event.body[:50])
         await _send(client, room.room_id,
@@ -447,7 +449,7 @@ async def main():
 
     config = AsyncClientConfig(
         store_sync_tokens=True,
-        encryption_enabled=True,
+        encryption_enabled=E2E_AVAILABLE,
     )
     client = AsyncClient(
         HOMESERVER,
