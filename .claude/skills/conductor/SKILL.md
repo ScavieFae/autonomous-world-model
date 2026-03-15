@@ -71,12 +71,29 @@ READ STATE
      - Record the modal_app_id and wandb_url in `running.json`
    - Log to `.loop/state/log.jsonl`
 
-## Step C: Log and Exit
+## Step C: Log and Notify
 
-Append to `.loop/state/log.jsonl`:
+1. Append to `.loop/state/log.jsonl`:
 ```json
 {"timestamp": "2026-03-14T22:00:00Z", "action": "...", "experiment": "...", "reasoning": "...", "budget_spent": 0.0}
 ```
+
+2. Post to Matrix via `scripts/notify_matrix.py`:
+```bash
+# Heartbeats → #conductor-log
+.venv/bin/python scripts/notify_matrix.py --room conductor-log "Heartbeat: {experiment} {state} ({pct}%)"
+
+# Experiment results → #experiment-results (include full agent discussion)
+.venv/bin/python scripts/notify_matrix.py --room experiment-results "E018d KEPT: RC X.XX ..."
+
+# Hypothesis + Director review → #research (post the full deliberation)
+.venv/bin/python scripts/notify_matrix.py --room research "Hypothesis: ... Director: APPROVE/REJECT ..."
+
+# Errors/escalations → #escalations
+.venv/bin/python scripts/notify_matrix.py --room escalations "Budget exhausted / experiment stale / ..."
+```
+
+**Post the full agent discussions** — hypothesis text, Director reasoning, evaluation verdicts. Matrix is the async readout of what the agents are thinking.
 
 ## Error Recovery
 
