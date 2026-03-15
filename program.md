@@ -10,10 +10,11 @@ A learned world model that runs onchain as an autonomous world. Trained on Super
 
 | Checkpoint | Experiment | change_acc | pos_mae | rollout_coherence | Notes |
 |-----------|-----------|-----------|---------|-------------------|-------|
-| `e019-baseline-1k/best.pt` | E019 | 78.7% | 0.756 | **6.77** | b001, 1.9K data, full loss suite (10 heads) |
+| `e018a-sf-minimal/best.pt` | E018a | 61.6% | 0.825 | **6.26** | b001 + Self-Forcing (20% SF, N=3), 1.9K data |
+| `e019-baseline-1k/best.pt` | E019 | 78.7% | 0.756 | 6.77 | b001, 1.9K data, full loss suite (10 heads) |
 | `e012-clean-fd-top5/best.pt` | E012 | 91.1% | 0.706 | 6.84 | Pre-migration, partial losses (4 heads) |
 
-E019 is the autoresearch baseline. Lower change_acc than E012 (78.7% vs 91.1%) because the full loss suite dilutes the action gradient — action gets 30% of gradient vs E012's 50%. But rollout coherence is better (6.77 vs 6.84), confirming that TF metrics don't predict AR quality. The model with "worse" action accuracy produces better AR rollouts because velocity and dynamics are now supervised.
+E018a is the new best. Self-Forcing improved rollout coherence by 7.5% (6.77→6.26) despite -17pp change_acc and +9% pos_mae regression in TF metrics. The trend from E012→E019→E018a is consistent: each step trades TF accuracy for AR quality. SF loss (0.38) was 2.3× TF loss (0.16), confirming the model faces harder predictions from its own state. E018b (N=5 unroll) is in flight testing whether longer horizon helps further.
 
 Val metrics plateau after 1 epoch on 1.9K data (epoch 2 showed identical val performance). 1 epoch is sufficient for Scout experiments.
 
@@ -38,6 +39,7 @@ Val metrics plateau after 1 epoch on 1.9K data (epoch 2 showed identical val per
 | multi_position=true | E008c | 10x training signal | In all configs since E008c |
 | FD-only + top-5 characters | E012 | Cleaner physics, less noise | Current data filter |
 | Full loss suite (10 heads) | E019 | Better rollout coherence (6.77 vs 6.84) despite -12pp change_acc | Velocity/dynamics supervision improves AR quality |
+| Self-Forcing (20% SF, N=3) | E018a | -7.5% rollout coherence (6.77→6.26), -17pp change_acc | Largest single-experiment gain. Trains on own AR errors. |
 
 ### Promising but unfinished
 
@@ -65,20 +67,19 @@ These didn't work in their original context. Agents CAN revisit if they have spe
 
 > Every fix that targets teacher-forced behavior doesn't help autoregressive quality. The model understands Melee physics when given perfect context (91-94% change_acc). The problem is entirely what happens when it consumes its own outputs.
 
-This points at **training regime changes** (Self-Forcing, hybrid AR/TF) as the highest-leverage direction. Architecture and target representation have been explored extensively. The next gains come from teaching the model to handle its own errors.
+E018a confirmed this empirically: Self-Forcing improved RC by 7.5% while regressing TF metrics by 17pp. The model with "worse" teacher-forced accuracy produces substantially better autoregressive rollouts.
 
 ## Research Directions
 
-Ordered by expected impact. An autoresearch agent should try these roughly in order, but can skip ahead if blocked.
+Ordered by expected impact. Self-Forcing is proven (E018a). The directions below refine and extend it.
 
-### 1. Self-Forcing training (e018a)
+### 1. Self-Forcing refinements (e018b, e018d)
 
-**The bet:** Train on the model's own autoregressive outputs during training. The model learns what its errors look like and how to recover.
+**E018b (in flight):** Longer unroll N=5 vs N=3. Tests whether more drift exposure improves RC further. Target: RC < 6.10.
 
-**Why:** Matrix-Game 2.0 (2508.13009) uses Self-Forcing distillation to hit 25 FPS real-time generation. Our E015/E016/E017 series proved the problem is exposure bias, not architecture or target representation. Self-Forcing directly addresses exposure bias.
+**E018d (next):** Horizon-weighted SF loss. Step 1 of AR is nearly TF; step 5 is where drift happens. Weight later steps more heavily.
 
-**Card:** `docs/run-cards/e018a-self-forcing.md`
-**Depends on:** e018b (rollout coherence eval, so we can measure the effect)
+**Cards:** `docs/run-cards/e018b-self-forcing-n5.md`, `docs/run-cards/e018d-horizon-weighted-loss.md`
 
 ### 2. Longer context window (e018c)
 
@@ -128,10 +129,10 @@ Ordered by expected impact. An autoresearch agent should try these roughly in or
 
 For autoresearch agents:
 
-1. Start from `experiments/e019-baseline.yaml`. Change ONE thing.
-2. Train on 1.9K data (`encoded-e012-fd-top5.pt`), 1 epoch, bs=512. ~45 min on A100, ~$1.50.
+1. Start from `experiments/e018a-sf-minimal.yaml`. Change ONE thing.
+2. Train on 1.9K data (`encoded-e012-fd-top5.pt`), 1 epoch, bs=512. ~2hr on A100, ~$4.
 3. Rollout coherence eval runs automatically after training (integrated in Trainer).
-4. Compare to baseline: **rollout_coherence = 6.77** (E019).
+4. Compare to baseline: **rollout_coherence = 6.26** (E018a).
 5. **Keep** if rollout coherence improves. Write run card with `base_build`, `built_on` citations and numbers.
 6. **Discard** if rollout coherence regresses or stays flat. Write run card documenting the null result.
 7. Either way, the run card is the permanent record.
