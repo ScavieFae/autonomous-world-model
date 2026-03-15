@@ -288,16 +288,19 @@ async def cmd_logs(client, room_id, **_):
 async def cmd_help(client, room_id, **_):
     await _send(client, room_id,
         "**AWM Research Bot**\n\n"
-        "**Read (verified device required):**\n"
-        "- `!status` — loop state, experiment, budget\n"
+        "**Monitor:**\n"
+        "- `!brief` — what happened since you last looked\n"
+        "- `!best` — current best rollout coherence\n"
+        "- `!status` — loop state + in-flight experiment\n"
         "- `!budget` — spend details\n"
-        "- `!logs` — last 5 conductor decisions\n"
-        "- `!help` — this message\n\n"
-        "**Mutate (Ed25519 signature required):**\n"
+        "- `!logs` — last 5 conductor decisions\n\n"
+        "**Direct:**\n"
+        "- `!try <idea>` — queue a research direction for next cycle\n\n"
+        "**Control (Ed25519 signature required):**\n"
         "- `!pause` — pause the research loop\n"
         "- `!resume` — resume the loop\n"
         "- `!kill` — clear in-flight experiment\n\n"
-        "Sign mutations with: `command\\n--sig:BASE64:TIMESTAMP`")
+        "Sign control commands: `command\\n--sig:BASE64:TIMESTAMP`")
 
 
 # --- Mutation handlers (require signature) ---
@@ -333,6 +336,95 @@ async def cmd_kill(client, room_id, **_):
     logger.info("KILLED experiment %s via signed Matrix command", exp_id)
 
 
+# --- Informational commands ---
+
+async def cmd_best(client, room_id, **_):
+    """Current best rollout coherence and checkpoint."""
+    # Read from running.json history for latest kept
+    running = read_running()
+    history = running.get("history", [])
+    kept = [h for h in history if h.get("status") == "kept"]
+
+    if kept:
+        best = min(kept, key=lambda h: h.get("rollout_coherence", 999))
+        await _send(client, room_id,
+            f"**Current best:** {best['id']}\n"
+            f"- Rollout coherence: {best['rollout_coherence']:.2f}\n"
+            f"- Prior best was: {best.get('prior_best_rc', '?')}\n"
+            f"- Cost: ${best.get('cost', 0):.2f}")
+    else:
+        await _send(client, room_id, "No experiments kept yet. Baseline: E019 RC=6.77")
+
+
+async def cmd_brief(client, room_id, **_):
+    """What happened since you last looked."""
+    budget = read_budget()
+    running = read_running()
+    log_entries = read_log_tail(10)
+    history = running.get("history", [])
+    in_flight = running.get("experiments", {}).get("in_flight")
+
+    lines = ["**Brief**", ""]
+
+    # What's running now
+    if in_flight:
+        lines.append(f"In flight: **{in_flight.get('id', '?')}** "
+                     f"(started {in_flight.get('started_at', '?')[:16]})")
+    else:
+        lines.append("Nothing running right now.")
+
+    # Recent results
+    if history:
+        lines.append("")
+        lines.append(f"**Recent experiments:** ({len(history)} total)")
+        for h in history[-3:]:
+            status = h.get("status", "?")
+            rc = h.get("rollout_coherence", "?")
+            emoji = "+" if status == "kept" else "-"
+            lines.append(f"  [{emoji}] {h.get('id', '?')}: RC={rc} — {status}")
+
+    # Budget
+    lines.append("")
+    lines.append(f"Budget: ${budget.get('daily_spent', 0):.2f} / "
+                 f"${budget.get('daily_limit', 30):.2f} today, "
+                 f"${budget.get('total_spent', 0):.2f} total")
+
+    # Paused?
+    if is_paused():
+        lines.append("")
+        lines.append("**Loop is PAUSED.**")
+
+    await _send(client, room_id, "\n".join(lines))
+
+
+async def cmd_try(client, room_id, body="", **_):
+    """Queue a research direction for the next hypothesis cycle."""
+    # Extract the suggestion after "!try "
+    suggestion = body[4:].strip() if body.lower().startswith("!try") else body.strip()
+    if not suggestion:
+        await _send(client, room_id,
+                    "Usage: `!try <idea>`\n"
+                    "Example: `!try larger batch size` or `!try combine SF with absolute_y`")
+        return
+
+    # Append to a suggestions file that the hypothesis agent reads
+    suggestions_file = STATE_DIR / "suggestions.jsonl"
+    import json as json_mod
+    entry = {
+        "suggestion": suggestion,
+        "from": "mattie",
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "status": "queued",
+    }
+    with open(suggestions_file, "a") as f:
+        f.write(json_mod.dumps(entry) + "\n")
+
+    await _send(client, room_id,
+                f"Queued for next cycle: **{suggestion}**\n"
+                f"The hypothesis agent will see this and incorporate it.")
+    logger.info("Research suggestion queued: %s", suggestion)
+
+
 # --- Command registry ---
 
 # read_only: verified device sufficient
@@ -341,6 +433,8 @@ READ_COMMANDS = {
     "!status": cmd_status,
     "!budget": cmd_budget,
     "!logs": cmd_logs,
+    "!best": cmd_best,
+    "!brief": cmd_brief,
     "!help": cmd_help,
 }
 
@@ -349,6 +443,9 @@ SIGNED_COMMANDS = {
     "!resume": cmd_resume,
     "!kill": cmd_kill,
 }
+
+# Special: !try is read-level auth but takes args
+TRY_COMMAND = "!try"
 
 
 # --- Helpers ---
@@ -412,6 +509,12 @@ async def on_message(room: MatrixRoom, event: RoomMessageText, client: AsyncClie
 
     body = event.body.strip()
     cmd_word = body.split()[0].lower() if body else ""
+
+    # !try takes args — special handling
+    if cmd_word == TRY_COMMAND:
+        logger.info("Try command from %s: %s", event.sender, body)
+        await cmd_try(client, room.room_id, body=body)
+        return
 
     # Read commands — verified device is sufficient
     if cmd_word in READ_COMMANDS:
@@ -508,8 +611,70 @@ async def main():
         await _send(client, CONDUCTOR_ROOM,
                     f"AWM Research Bot online ({mode}). Type `!help` for commands.")
 
+    # Background task: poll wandb for in-flight experiment progress
+    async def wandb_poller():
+        """Every 5 min, check wandb for in-flight experiment and post progress."""
+        last_batch_step = 0
+        while True:
+            await asyncio.sleep(300)  # 5 minutes
+            try:
+                running = read_running()
+                in_flight = running.get("experiments", {}).get("in_flight")
+                if not in_flight:
+                    last_batch_step = 0
+                    continue
+
+                wandb_url = in_flight.get("wandb_url", "")
+                if not wandb_url:
+                    continue
+
+                # Extract run ID from URL
+                run_id = wandb_url.rstrip("/").split("/")[-1]
+                exp_id = in_flight.get("id", "?")
+
+                # Try to get latest metrics from wandb API
+                try:
+                    import wandb as wandb_api
+                    api = wandb_api.Api()
+                    run = api.run(f"shinewave/melee-worldmodel/{run_id}")
+
+                    batch_step = run.summary.get("batch/step", 0)
+                    batch_pct = run.summary.get("batch/pct", 0)
+                    batch_loss = run.summary.get("batch/loss", 0)
+
+                    if batch_step > last_batch_step:
+                        last_batch_step = batch_step
+                        if CONDUCTOR_ROOM:
+                            await _send(client, CONDUCTOR_ROOM,
+                                f"`{exp_id}` {batch_pct:.0f}% — batch {int(batch_step)} loss={batch_loss:.4f}")
+
+                    # Check if finished
+                    if run.state == "finished":
+                        rc = run.summary.get("eval/summary_pos_mae", None)
+                        if rc and EXPERIMENT_ROOM:
+                            await _send(client, EXPERIMENT_ROOM,
+                                f"**{exp_id} complete!** Rollout coherence: {rc:.2f}")
+                        if rc and CONDUCTOR_ROOM:
+                            await _send(client, CONDUCTOR_ROOM,
+                                f"**{exp_id} finished.** RC={rc:.2f}. Awaiting Director evaluation.")
+
+                    elif run.state in ("crashed", "failed"):
+                        if CONDUCTOR_ROOM:
+                            await _send(client, CONDUCTOR_ROOM,
+                                f"**{exp_id} {run.state}!** Check Modal logs.")
+
+                except ImportError:
+                    pass  # wandb not installed, skip polling
+                except Exception as e:
+                    logger.debug("wandb poll failed: %s", e)
+
+            except Exception as e:
+                logger.debug("Poller error: %s", e)
+
+    asyncio.create_task(wandb_poller())
+
     # Sync
-    logger.info("Listening for commands...")
+    logger.info("Listening for commands + wandb polling every 5min...")
     await client.sync_forever(timeout=30000, full_state=True)
 
 
