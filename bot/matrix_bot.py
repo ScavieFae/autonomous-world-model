@@ -30,6 +30,7 @@ import time
 from collections import defaultdict
 from datetime import datetime, timezone
 from pathlib import Path
+from typing import Optional
 
 try:
     from nio import AsyncClient, AsyncClientConfig, MatrixRoom, RoomMessageText
@@ -105,7 +106,7 @@ if _missing and __name__ == "__main__":
 
 # --- Signature verification ---
 
-def load_verify_key() -> VerifyKey | None:
+def load_verify_key() -> "Optional[VerifyKey]":
     """Load the Ed25519 public key for signed command verification."""
     if not SIGNING_PUBKEY:
         logger.warning("No MATRIX_SIGNING_PUBKEY set — signed commands disabled")
@@ -118,7 +119,7 @@ def load_verify_key() -> VerifyKey | None:
         return None
 
 
-def verify_signature(body: str, verify_key: VerifyKey | None) -> tuple[bool, str]:
+def verify_signature(body: str, verify_key: VerifyKey | None) :
     """Verify an Ed25519 signed command.
 
     Expected format:
@@ -169,7 +170,7 @@ class RateLimiter:
         self._last_command: dict[str, float] = {}
         self._hourly_counts: dict[str, list[float]] = defaultdict(list)
 
-    def check(self, user_id: str) -> tuple[bool, str]:
+    def check(self, user_id: str) :
         now = time.time()
 
         # Interval check
@@ -370,7 +371,7 @@ def save_session(client: AsyncClient, resp):
     logger.info("Session saved to %s", SESSION_FILE)
 
 
-def load_session() -> dict | None:
+def load_session() :
     try:
         return json.loads(SESSION_FILE.read_text())
     except (FileNotFoundError, json.JSONDecodeError):
