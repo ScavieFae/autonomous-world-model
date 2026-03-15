@@ -8,16 +8,14 @@ A learned world model that runs onchain as an autonomous world. Trained on Super
 
 ## Current Best
 
-| Checkpoint | Experiment | change_acc | pos_mae | val_loss | AR quality |
-|-----------|-----------|-----------|---------|----------|------------|
-| `e012-clean-fd-top5/best.pt` | E012 | 91.1% | 0.706 | 0.527 | Drifts by frame ~50, dies |
-| `e017a-absolute-y/best.pt` | E017a | 90.7% | 0.979* | 0.507 | Ground-level but jittery |
+| Checkpoint | Experiment | change_acc | pos_mae | rollout_coherence | Notes |
+|-----------|-----------|-----------|---------|-------------------|-------|
+| `e019-baseline-1k/best.pt` | E019 | 78.7% | 0.756 | **6.77** | b001, 1.9K data, full loss suite (10 heads) |
+| `e012-clean-fd-top5/best.pt` | E012 | 91.1% | 0.706 | 6.84 | Pre-migration, partial losses (4 heads) |
 
-*pos_mae inflated — absolute y has wider target distribution than delta.
+E019 is the autoresearch baseline. Lower change_acc than E012 (78.7% vs 91.1%) because the full loss suite dilutes the action gradient — action gets 30% of gradient vs E012's 50%. But rollout coherence is better (6.77 vs 6.84), confirming that TF metrics don't predict AR quality. The model with "worse" action accuracy produces better AR rollouts because velocity and dynamics are now supervised.
 
-**E012** is the TF metrics king. **E017a** is the AR quality king. Neither is good enough.
-
-**Rollout coherence score**: not yet measured. Building the eval is the #1 priority (e018b).
+Val metrics plateau after 1 epoch on 1.9K data (epoch 2 showed identical val performance). 1 epoch is sufficient for Scout experiments.
 
 ## The Eval
 
@@ -25,7 +23,9 @@ A learned world model that runs onchain as an autonomous world. Trained on Super
 
 **Secondary metrics (teacher-forced):** val_change_acc, val_pos_mae, val_loss. These are sanity checks, not targets. A model can have great TF metrics and terrible AR quality (E016 proved this — 38% better val_loss, worse demos).
 
-**The eval script** (`scripts/eval_rollout.py`) does not exist yet. See e018b card. Must run in 30-60 seconds.
+**The eval script** (`scripts/eval_rollout.py`) is built and integrated into the Trainer. Runs automatically after each epoch (~30-60s on A100). Deterministic (seed=42). Results log to wandb as `eval/summary_pos_mae` and per-horizon metrics.
+
+**Known issue:** `vel_mae` reads zero in eval — velocity reconstruction fix is in the code but hasn't been validated on a training run yet. Position and action metrics are correct.
 
 ## What We Know
 
@@ -37,6 +37,7 @@ A learned world model that runs onchain as an autonomous world. Trained on Super
 | ctrl_threshold_features | E010c | +5.9pp change_acc | In all configs since E010d |
 | multi_position=true | E008c | 10x training signal | In all configs since E008c |
 | FD-only + top-5 characters | E012 | Cleaner physics, less noise | Current data filter |
+| Full loss suite (10 heads) | E019 | Better rollout coherence (6.77 vs 6.84) despite -12pp change_acc | Velocity/dynamics supervision improves AR quality |
 
 ### Promising but unfinished
 
@@ -46,7 +47,9 @@ A learned world model that runs onchain as an autonomous world. Trained on Super
 | Cascaded heads | E014 | Fixed damage drift, overfit at 1.9K games | Needs 7.7K+ data |
 | True scheduled sampling | E015 | Designed but not implemented in trainer | Superseded by Self-Forcing (e018a) |
 
-### Dead ends (don't revisit)
+### Dead ends (revisitable with new reasoning)
+
+These didn't work in their original context. Agents CAN revisit if they have specific reasoning for why the context is different now (different data scale, different training regime, new interaction hypothesis). The reasoning must be specific, not hand-wavy.
 
 | Technique | Source | Why it failed |
 |-----------|--------|---------------|
@@ -108,7 +111,7 @@ Ordered by expected impact. An autoresearch agent should try these roughly in or
 
 ## Hard Constraints
 
-- **MPS GPU or Modal H100.** Local training on M3 Max (MPS), production training on H100 via Modal. Experiments must work on both.
+- **Modal A100 40GB for training.** $2.10/hr. H100 only with Mattie approval.
 - **Memory budget.** M3 Max has 128GB unified memory. H100 has 80GB HBM3. Batch sizes and context lengths must fit.
 - **INT8 quantization compatibility.** All architectures must remain quantizable. No operations that break INT8 determinism (no float-dependent branching, no dynamic shapes).
 - **Deterministic eval.** Same checkpoint + same starting frames = same rollout coherence score. No randomness in eval.
@@ -125,12 +128,14 @@ Ordered by expected impact. An autoresearch agent should try these roughly in or
 
 For autoresearch agents:
 
-1. Train for the time budget (~15 min on M3 Max, ~32 min on H100 for 2 epochs on 1.9K data)
-2. Run rollout coherence eval (~30-60 seconds)
-3. Compare to current best rollout coherence score
-4. **Keep** if rollout coherence improves. Write run card with `built_on` citations and numbers.
-5. **Discard** if rollout coherence regresses or stays flat. Write run card documenting the null result.
-6. Either way, the run card is the permanent record. PRs are for discussion, cards are for results.
+1. Start from `experiments/e019-baseline.yaml`. Change ONE thing.
+2. Train on 1.9K data (`encoded-e012-fd-top5.pt`), 1 epoch, bs=512. ~45 min on A100, ~$1.50.
+3. Rollout coherence eval runs automatically after training (integrated in Trainer).
+4. Compare to baseline: **rollout_coherence = 6.77** (E019).
+5. **Keep** if rollout coherence improves. Write run card with `base_build`, `built_on` citations and numbers.
+6. **Discard** if rollout coherence regresses or stays flat. Write run card documenting the null result.
+7. Either way, the run card is the permanent record.
+8. Val metrics plateau after 1 epoch on 1.9K data — don't spend $3 on epoch 2 unless Scout shows signal.
 
 ## Source Papers
 
