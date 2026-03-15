@@ -119,7 +119,7 @@ def load_verify_key() -> "Optional[VerifyKey]":
         return None
 
 
-def verify_signature(body: str, verify_key: VerifyKey | None) :
+def verify_signature(body: str, verify_key: Optional[VerifyKey]) :
     """Verify an Ed25519 signed command.
 
     Expected format:
@@ -381,7 +381,7 @@ def load_session() :
 # --- Message handler ---
 
 async def on_message(room: MatrixRoom, event: RoomMessageText, client: AsyncClient,
-                     verify_key: VerifyKey | None, rate_limiter: RateLimiter):
+                     verify_key: Optional[VerifyKey], rate_limiter: RateLimiter):
     # Ignore own messages
     if event.sender == client.user_id:
         return
