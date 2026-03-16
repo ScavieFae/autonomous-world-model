@@ -10,6 +10,7 @@ Read these files in order:
 - `program.md` — research directions, what we know, what's been tested, core insight, taste
 - `docs/base-builds/b001.yaml` — what's in the stable foundation
 - Recent run cards in `docs/run-cards/` — what's been tried, what the numbers are
+- `docs/decisions/` — **rejected hypotheses and Director reasoning.** Check what's been considered and why it was rejected. If context has changed, you can re-propose with explicit reference to the prior rejection.
 - `docs/RESEARCH-LOG.md` — recent findings, open items, surprises
 - Source paper summaries in `research/sources/` — if relevant to your direction
 

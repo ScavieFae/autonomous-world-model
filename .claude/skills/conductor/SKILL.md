@@ -70,12 +70,19 @@ READ STATE
 3. **Spawn Director agent** (Explore subagent with `.loop/agents/research-director.md` prompt):
    > "Evaluate this hypothesis: [paste full hypothesis]. APPROVE or REJECT."
 
-4. **Notify Matrix** with the full deliberation (hypothesis + Director review):
+4. **Log the decision durably** to `docs/decisions/{date}-cycle{N}.md`:
+   - Full hypothesis text
+   - Full Director reasoning (not summarized)
+   - Verdict: APPROVED / REJECTED
+   - "What would change the verdict" (for rejections)
+   This is the permanent record that future agents can review.
+
+5. **Notify Matrix** with the full deliberation (hypothesis + Director review):
    ```bash
    .venv/bin/python scripts/notify_matrix.py --room research "{hypothesis text}\n\n{director review}"
    ```
 
-5. **If REJECTED:** log to log.jsonl. Try ONE more hypothesis (max 2 attempts per heartbeat to avoid infinite rejection loops). If second is also rejected, done for this heartbeat.
+6. **If REJECTED:** log to log.jsonl. Try ONE more hypothesis (max 2 attempts per heartbeat to avoid infinite rejection loops). If second is also rejected, done for this heartbeat.
 
 6. **If APPROVED — spawn Coder agent** in an isolated worktree:
    ```
