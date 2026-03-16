@@ -1,10 +1,10 @@
 # Experiment Index
 
-*7 experiments — 2 kept, 3 running, 0 proposed, 2 discarded.*
+*7 experiments — 2 kept, 2 running, 0 proposed, 3 discarded.*
 
-*Generated 2026-03-16 07:24 UTC*
+*Generated 2026-03-16 11:09 UTC*
 
-**Best rollout coherence:** 6.03 ([e018c](../run-cards/e018c-rolling-context-window.md))
+**Best rollout coherence:** 5.97 ([e019a](../run-cards/e019a-context-k50.md))
 
 ## Running
 
@@ -12,7 +12,6 @@
 |-----|------|------|----|----------|-------|
 | [e018b](../run-cards/e018b-rollout-coherence-eval.md) | training-regime | b001 | — | e017a | — |
 | [e019](../run-cards/e019-baseline.md) | training-regime | b001 | — | — | — |
-| [e019a](../run-cards/e019a-context-k50.md) | architectural | b001 | — | e018c | [2505.20171](https://arxiv.org/abs/2505.20171) |
 
 ## Kept
 
@@ -27,3 +26,4 @@
 |-----|------|------|----|----------|-------|
 | [e018b](../run-cards/e018b-self-forcing-n5.md) | training-regime | b001 | 6.45 | e018a | [2508.13009](https://arxiv.org/abs/2508.13009) |
 | [e018d](../run-cards/e018d-horizon-weighted-loss.md) | training-regime | b001 | 6.81 | e018a | [2508.13009](https://arxiv.org/abs/2508.13009) |
+| [e019a](../run-cards/e019a-context-k50.md) | architectural | b001 | 5.97 | e018c | [2505.20171](https://arxiv.org/abs/2505.20171) |

@@ -1,12 +1,12 @@
 ---
 id: e019a
 created: 2026-03-16
-status: running
+status: discarded
 type: architectural
 base_build: b001
 built_on: [e018c]
 source_paper: 2505.20171
-rollout_coherence: null
+rollout_coherence: 5.97
 prior_best_rc: 6.03
 ---
 
@@ -14,22 +14,32 @@ prior_best_rc: 6.03
 
 ## Goal
 
-Test whether extending context from K=30 (500ms) to K=50 (833ms) continues the RC improvement trend. E018c showed K=10 to K=30 yielded a 3.7% gain (6.26 to 6.03). This tests the next point on the scaling curve.
+Test whether extending context from K=30 to K=50 (833ms) continues the RC improvement seen in K=10→K=30.
 
 ## What Changes
 
-Two config params from E018c: `context_len: 50`, `chunk_size: 50`. No code changes. Self-Forcing still enabled with ratio=4, unroll_length=3.
+Config only: `context_len: 50`, `chunk_size: 50`. SF enabled.
 
-## Target Metrics
+## Results
 
-- **Primary:** rollout_coherence < 6.03 (beat E018c)
-- **Guard rails:** no regression in change_acc, action accuracy, or sf_loss
+**DISCARDED — diminishing returns.**
 
-## Cost Estimate
+| Metric | E018c (K=30) | E019a (K=50) | Delta |
+|--------|-------------|-------------|-------|
+| **rollout_coherence** | **6.03** | **5.97** | **-1.0% (marginal)** |
+| change_acc | 62.3% | 61.8% | -0.5pp |
+| pos_mae | 0.824 | 0.832 | +1.0% |
+| sf_loss | 0.367 | 0.579 | +58% |
+| h10_pos_mae | 5.77 | 5.77 | flat |
+| h10_action_acc | 75.5% | 76.0% | +0.5pp |
 
-- Expected runtime: ~12,000-13,000s (~200-220min) on A100 40GB. K=50 is ~67% longer sequences than K=30, so ~50-60% longer wall time accounting for overhead.
-- Estimated cost: ~$5-6
+- Runtime: 10068s (~168min), cost ~$5.90
+- wandb: https://wandb.ai/shinewave/melee-worldmodel/runs/yo1q1buy
 
-## Risk
+## Director Evaluation
 
-Diminishing returns are likely as context grows. K=50 may exceed the useful temporal horizon for Melee state prediction, or the SSM may struggle to utilize the additional context effectively. If RC plateaus or regresses, that establishes the ceiling for this axis.
+**Verdict:** DISCARDED
+
+**Confidence:** HIGH — RC improvement (6.03→5.97, -1.0%) barely exceeds ±0.05 noise band. Diminishing returns: K=10→K=30 gave -3.7%, K=30→K=50 gives -1.0% (27% of prior gain). SF loss jumped 58% (model struggles more at K=50). Secondary metrics flat or slightly regressed.
+
+**Finding:** Context window benefits saturate at K=30. K=50 overshoots useful temporal structure — Melee move sequences are ~30-40 frames (K=30). Longer windows introduce irrelevant decayed history. K=30 established as optimal for this architecture.

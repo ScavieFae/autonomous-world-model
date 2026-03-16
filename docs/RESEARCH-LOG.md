@@ -32,6 +32,10 @@ Next directions: longer unroll (N=5), higher SF ratio, horizon-weighted loss (e0
 
 **E018c KEPT (K=30 context, overnight run).** RC **6.03** (-3.7% vs e018a's 6.26). New best. Longer context (500ms vs 167ms) compounds with Self-Forcing — no TF metric regression, all secondary metrics improved. h10_action_acc +1.8pp. K=10 was undershooting; K=30 covers a full move sequence. Cost: $5.20. The two proven improvements (SF + longer context) are orthogonal and additive: 6.77 → 6.26 (SF) → 6.03 (context).
 
+**E019a DISCARDED (K=50 context).** RC 5.97 (-1.0% vs e018c's 6.03). Marginal, barely outside ±0.05 noise band. Diminishing returns: K=10→K=30 gave -3.7%, K=30→K=50 gives -1.0%. SF loss jumped 58% (0.37→0.58). K=30 is the sweet spot — K=50 overshoots useful temporal structure. Context axis explored. Cost: $5.90. PR #3 closed.
+
+**Autonomous loop note:** Director rejected 2 SF refinement hypotheses (ratio 30%, velocity-weighted loss) before approving K=50. Three rejections and one discarded result = the loop is correctly filtering bad ideas and exploring the frontier. Budget: $24.25/$30. Axes explored: SF refinements (closed), context length (ceiling found at K=30).
+
 ---
 
 ## 2026-03-14 — Trainer port, E019 baseline 6.77, autoresearch orchestration

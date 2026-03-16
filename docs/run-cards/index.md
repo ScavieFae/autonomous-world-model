@@ -2,9 +2,9 @@
 
 Individual experiment records. Each card documents one idea tested in isolation.
 
-*7 cards. Generated 2026-03-16 07:24 UTC*
+*7 cards. Generated 2026-03-16 11:09 UTC*
 
-- :hourglass: [Run Card: e019a-context-k50](e019a-context-k50.md) — *running*
+- :x: [Run Card: e019a-context-k50](e019a-context-k50.md) — *discarded*
 - :hourglass: [Run Card: e019-baseline](e019-baseline.md) — *running*
 - :x: [Run Card: e018d-horizon-weighted-loss](e018d-horizon-weighted-loss.md) — *discarded*
 - :white_check_mark: [Run Card: e018c-rolling-context-window](e018c-rolling-context-window.md) — *kept*
