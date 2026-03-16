@@ -28,8 +28,17 @@
     }
   ],
   "experiments": {
-    "in_flight": null,
-    "lock": false,
+    "in_flight": {
+      "id": "e018c-context-k30",
+      "modal_app_id": "ap-zCQVeFeJAQaT2qlzqPj6Gc",
+      "wandb_url": "https://wandb.ai/shinewave/melee-worldmodel/runs/i7bz1gm1",
+      "started_at": "2026-03-16T04:30:00Z",
+      "config": "experiments/e018c-context-k30.yaml",
+      "encoded_file": "/encoded-e012-fd-top5.pt",
+      "cost_tier": "scout",
+      "estimated_cost": 4.00
+    },
+    "lock": true,
     "stale_timeout_hours": 4
   }
 }

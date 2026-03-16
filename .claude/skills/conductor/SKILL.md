@@ -8,6 +8,8 @@ user-invocable: true
 
 One tick of the autoresearch loop. Read state → decide → act → log → exit.
 
+Execute ALL steps yourself. Do not ask the user for confirmation — the budget, Director, and signals are your safety gates.
+
 ## Decision Tree
 
 ```
@@ -17,91 +19,131 @@ READ STATE
   │
   ├── Experiment in flight? (running.json has in_flight != null)
   │   ├── Run: .venv/bin/python scripts/check_run.py {wandb_run_id}
-  │   ├── Check: is it stale? (started_at > stale_timeout_hours ago AND state != "running")
-  │   │   └── YES → Mark stale, release budget, log warning. Treat as "nothing running."
-  │   ├── Check: state == "finished"?
-  │   │   └── YES → EVALUATE (Step A below)
-  │   ├── Check: state == "crashed" or "failed"?
-  │   │   └── YES → Log error, clear in_flight, treat as "nothing running."
-  │   └── state == "running" → Log "waiting for {experiment_id} ({progress_pct}%)", exit
+  │   ├── state == "finished"? → EVALUATE (Step A)
+  │   ├── state == "crashed"/"failed"? → Log error, clear lock, treat as nothing running
+  │   ├── stale? (started_at > stale_timeout_hours ago AND state != "running") → Clear, log warning
+  │   └── state == "running" → Log to .loop/state/log.jsonl ONLY (no Matrix), exit
   │
-  └── Nothing running, no pending eval
-      ├── Budget exhausted? (daily_spent >= daily_limit)
-      │   └── YES → Log "budget exhausted", exit
-      └── Budget available → NEW CYCLE (Step B below)
+  └── Nothing running
+      ├── Budget exhausted? → Log, exit
+      └── Budget available → NEW CYCLE (Step B)
 ```
 
 ## Step A: Evaluate Completed Experiment
 
-1. Read wandb results for the completed run:
+1. **Get metrics:**
    ```bash
    .venv/bin/python scripts/check_run.py {wandb_run_id}
-   # Returns JSON: {"state": "finished", "metrics": {"eval/summary_pos_mae": ..., ...}}
    ```
 
-2. Spawn an **Explore** agent as Research Director (prompt from `.loop/agents/research-director.md`):
-   > "Evaluate this experiment result: [paste metrics]. The prior best rollout coherence is [X]. Is this improvement real? KEPT or DISCARDED?"
+2. **Spawn Director agent** (Explore subagent) with the results and the prior best RC from running.json. Ask: KEPT or DISCARDED? The Director reads program.md, the run card, and the metrics.
 
-3. Based on Director's evaluation:
-   - Update the run card (frontmatter + results section)
+3. **Close out** based on Director verdict:
+   - Update run card frontmatter: `status: kept/discarded`, `rollout_coherence: X.XX`
+   - Add Results section with metrics table and Director evaluation
+   - Append to `docs/RESEARCH-LOG.md`
+   - Update `.loop/state/budget.json` (actual cost from runtime)
+   - Clear `running.json` (set `in_flight: null`, `lock: false`)
+   - If KEPT: merge the experiment's PR (`gh pr merge {pr_number} --merge`)
+   - If DISCARDED: close the PR (`gh pr close {pr_number}`)
    - Run `python scripts/docs_prebuild.py`
-   - Log to `docs/RESEARCH-LOG.md`
-   - Update `.loop/state/budget.json` with actual cost
-   - Clear `running.json` experiment (set `in_flight: null`, `lock: false`)
-   - If KEPT and improvement is significant: queue program.md proposal for Mattie
+   - Commit closeout changes on main, push
+
+4. **Notify Matrix:**
+   ```bash
+   .venv/bin/python scripts/notify_matrix.py --room experiment-results "{full evaluation}"
+   ```
+
+5. **Continue to Step B** (start next cycle in same heartbeat).
 
 ## Step B: Start New Research Cycle
 
-1. Check budget: `daily_spent + 2.0 <= daily_limit` (reserve $2 for Scout)
+1. **Budget check:** `daily_spent + 4.0 <= daily_limit`
 
-2. Spawn an **Explore** agent as Researcher (prompt from `.loop/agents/hypothesis.md`):
-   > "Read program.md and recent run cards. Propose one hypothesis for a Scout experiment."
+2. **Spawn hypothesis agent** (Explore subagent with `.loop/agents/hypothesis.md` prompt):
+   > "Read program.md and recent run cards. Propose one experiment."
 
-3. Spawn an **Explore** agent as Director (prompt from `.loop/agents/research-director.md`):
-   > "Evaluate this hypothesis: [paste]. APPROVE or REJECT with reasoning."
+3. **Spawn Director agent** (Explore subagent with `.loop/agents/research-director.md` prompt):
+   > "Evaluate this hypothesis: [paste full hypothesis]. APPROVE or REJECT."
 
-4. If REJECTED: log to RESEARCH-LOG.md, log to `.loop/state/log.jsonl`. This heartbeat is done.
+4. **Notify Matrix** with the full deliberation (hypothesis + Director review):
+   ```bash
+   .venv/bin/python scripts/notify_matrix.py --room research "{hypothesis text}\n\n{director review}"
+   ```
 
-5. If APPROVED:
-   - Set `running.json`: `lock: true`, `in_flight: {experiment_id, ...}`
-   - Reserve budget: `daily_spent += estimated_cost`
-   - Spawn an agent to execute:
-     - Write the experiment YAML config
-     - Launch on Modal: `modal run --detach scripts/modal_train.py --config ... --encoded-file /encoded-e012-fd-top5.pt`
-     - Record the modal_app_id and wandb_url in `running.json`
-   - Log to `.loop/state/log.jsonl`
+5. **If REJECTED:** log to log.jsonl, done.
 
-## Step C: Log and Notify
+6. **If APPROVED — spawn Coder agent** in an isolated worktree:
+   ```
+   Agent tool with:
+     subagent_type: general-purpose
+     isolation: "worktree"
+     prompt: [from .loop/agents/coder.md + approved hypothesis + director conditions]
+   ```
+   The Coder agent:
+   - Creates a branch named `{experiment-id}` (e.g., `e018c-context-k30`)
+   - Implements the change (config and/or code)
+   - Writes the run card with `status: running`
+   - Commits on the branch
+   - Returns the branch name and worktree path
 
-1. Append to `.loop/state/log.jsonl`:
-```json
-{"timestamp": "2026-03-14T22:00:00Z", "action": "...", "experiment": "...", "reasoning": "...", "budget_spent": 0.0}
-```
+7. **Create PR** from the experiment branch:
+   ```bash
+   git push -u origin {branch}
+   gh pr create --title "{experiment-id}: {short description}" --body "{hypothesis + director review}"
+   ```
 
-2. Post to Matrix via `scripts/notify_matrix.py`:
-```bash
-# Heartbeats → #conductor-log
-.venv/bin/python scripts/notify_matrix.py --room conductor-log "Heartbeat: {experiment} {state} ({pct}%)"
+8. **Launch on Modal** from the branch:
+   ```bash
+   modal run --detach scripts/modal_train.py --config experiments/{id}.yaml --encoded-file /encoded-e012-fd-top5.pt --run-name {id}
+   ```
+   Capture the wandb run ID from Modal output or poll wandb for the run name.
 
-# Experiment results → #experiment-results (include full agent discussion)
-.venv/bin/python scripts/notify_matrix.py --room experiment-results "E018d KEPT: RC X.XX ..."
+9. **Update state:**
+   - Set `running.json`: `lock: true`, `in_flight: {id, wandb_url, pr_number, branch, ...}`
+   - Reserve budget in `budget.json`
+   - Log to `log.jsonl`
 
-# Hypothesis + Director review → #research (post the full deliberation)
-.venv/bin/python scripts/notify_matrix.py --room research "Hypothesis: ... Director: APPROVE/REJECT ..."
+10. **Notify Matrix:**
+    ```bash
+    .venv/bin/python scripts/notify_matrix.py --room conductor-log "Launched {id}: {description}. PR: {url}. wandb: {url}"
+    ```
 
-# Errors/escalations → #escalations
-.venv/bin/python scripts/notify_matrix.py --room escalations "Budget exhausted / experiment stale / ..."
-```
+## Matrix Notification Rules
 
-**Post the full agent discussions** — hypothesis text, Director reasoning, evaluation verdicts. Matrix is the async readout of what the agents are thinking.
+**DO post** (state changes only):
+- Experiment launched (with PR + wandb links)
+- Experiment completed (with full Director evaluation)
+- Hypothesis proposed + Director review (full deliberation text)
+- Errors, crashes, budget exhaustion, escalations
+
+**DO NOT post** routine "still running" heartbeats. Log those to log.jsonl only.
+
+## State Files
+
+| File | Purpose |
+|------|---------|
+| `.loop/state/running.json` | Experiment lock, in-flight tracking, history |
+| `.loop/state/budget.json` | Daily/weekly spend limits and tracking |
+| `.loop/state/log.jsonl` | Append-only decision log |
+| `.loop/state/signals/pause.json` | Pause signal |
+| `.loop/state/signals/escalate.json` | Escalation signal |
+
+## Agent Roles
+
+| Role | Subagent type | Prompt file | When |
+|------|--------------|-------------|------|
+| Hypothesis | Explore | `.loop/agents/hypothesis.md` | New cycle — propose experiment |
+| Director | Explore | `.loop/agents/research-director.md` | Review hypothesis, evaluate results |
+| Coder | general-purpose (worktree) | `.loop/agents/coder.md` | Implement approved experiment on branch |
 
 ## Error Recovery
 
-- **Modal app not found:** Clear `in_flight`, log error, continue to next cycle
-- **wandb run crashed:** Same — clear, log, continue
-- **Agent timeout:** Log timeout, exit. Next heartbeat will retry.
-- **Budget file corrupted:** Reset daily_spent to 0, log warning
-- **Lock stuck (in_flight set but experiment finished):** If wandb shows finished/crashed, clear the lock
+- **Modal app not found / wandb crashed:** Clear `in_flight`, log error, close PR, continue
+- **Agent timeout:** Log, exit. Next heartbeat retries.
+- **Budget corrupted:** Reset daily_spent to 0, log warning
+- **Stuck lock:** If wandb shows finished/crashed but lock is set, clear it
+- **Coder agent fails:** Log error, close PR if created, continue to next heartbeat
 
 ## Starting Autonomous Mode
 
