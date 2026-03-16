@@ -2,9 +2,9 @@
 
 Individual experiment records. Each card documents one idea tested in isolation.
 
-*11 cards. Generated 2026-03-16 22:08 UTC*
+*11 cards. Generated 2026-03-16 22:40 UTC*
 
-- :hourglass: [Run Card: e021b-selective-bptt](e021b-selective-bptt.md) — *running*
+- :x: [Run Card: e021b-selective-bptt](e021b-selective-bptt.md) — *discarded*
 -  [Run Card: e020c-sf-n4](e020c-sf-n4.md) — *cancelled*
 -  [Run Card: e020b-sf-ratio-30](e020b-sf-ratio-30.md) — *cancelled*
 - :x: [Run Card: e020a-sf-ratio-10](e020a-sf-ratio-10.md) — *discarded*
