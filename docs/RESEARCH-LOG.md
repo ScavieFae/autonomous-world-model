@@ -28,7 +28,9 @@ Next directions: longer unroll (N=5), higher SF ratio, horizon-weighted loss (e0
 
 **E018d DISCARDED (horizon-weighted loss).** RC regressed to 6.81 (+8.8% worse than e018a's 6.26, worse than E019 baseline). Linear ramp [0.5, 1.25, 2.0] over-weighted step 3 where truncated BPTT has weakest gradient signal. SF loss +50%, TF loss +84%. The assumption that "later steps are more informative" was wrong under truncated BPTT — later steps have worse gradients, weighting them more amplifies noise. Cost: $4.00.
 
-**Session summary:** 3 experiments, $13.15 total. E018a (uniform SF, N=3) is the winner. Both refinements (longer horizon, weighted loss) regressed. The SF axis within truncated BPTT is explored — next moves should be orthogonal: longer context (e018c), data scaling, full BPTT, or SF ratio.
+**Session summary (2026-03-15):** 3 experiments, $13.15 total. E018a (uniform SF, N=3) is the winner. Both refinements (longer horizon, weighted loss) regressed. The SF axis within truncated BPTT is explored.
+
+**E018c KEPT (K=30 context, overnight run).** RC **6.03** (-3.7% vs e018a's 6.26). New best. Longer context (500ms vs 167ms) compounds with Self-Forcing — no TF metric regression, all secondary metrics improved. h10_action_acc +1.8pp. K=10 was undershooting; K=30 covers a full move sequence. Cost: $5.20. The two proven improvements (SF + longer context) are orthogonal and additive: 6.77 → 6.26 (SF) → 6.03 (context).
 
 ---
 

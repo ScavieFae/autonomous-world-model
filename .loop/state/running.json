@@ -25,20 +25,19 @@
       "prior_best_rc": 6.26,
       "cost": 4.00,
       "completed_at": "2026-03-15T23:15:00Z"
+    },
+    {
+      "id": "e018c-context-k30",
+      "status": "kept",
+      "rollout_coherence": 6.03,
+      "prior_best_rc": 6.26,
+      "cost": 5.20,
+      "completed_at": "2026-03-16T07:07:00Z"
     }
   ],
   "experiments": {
-    "in_flight": {
-      "id": "e018c-context-k30",
-      "modal_app_id": "ap-zCQVeFeJAQaT2qlzqPj6Gc",
-      "wandb_url": "https://wandb.ai/shinewave/melee-worldmodel/runs/i7bz1gm1",
-      "started_at": "2026-03-16T04:30:00Z",
-      "config": "experiments/e018c-context-k30.yaml",
-      "encoded_file": "/encoded-e012-fd-top5.pt",
-      "cost_tier": "scout",
-      "estimated_cost": 4.00
-    },
-    "lock": true,
+    "in_flight": null,
+    "lock": false,
     "stale_timeout_hours": 4
   }
 }
