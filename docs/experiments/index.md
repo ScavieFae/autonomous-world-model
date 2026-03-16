@@ -1,8 +1,8 @@
 # Experiment Index
 
-*6 experiments — 2 kept, 2 running, 0 proposed, 2 discarded.*
+*7 experiments — 2 kept, 3 running, 0 proposed, 2 discarded.*
 
-*Generated 2026-03-16 07:09 UTC*
+*Generated 2026-03-16 07:24 UTC*
 
 **Best rollout coherence:** 6.03 ([e018c](../run-cards/e018c-rolling-context-window.md))
 
@@ -12,6 +12,7 @@
 |-----|------|------|----|----------|-------|
 | [e018b](../run-cards/e018b-rollout-coherence-eval.md) | training-regime | b001 | — | e017a | — |
 | [e019](../run-cards/e019-baseline.md) | training-regime | b001 | — | — | — |
+| [e019a](../run-cards/e019a-context-k50.md) | architectural | b001 | — | e018c | [2505.20171](https://arxiv.org/abs/2505.20171) |
 
 ## Kept
 
