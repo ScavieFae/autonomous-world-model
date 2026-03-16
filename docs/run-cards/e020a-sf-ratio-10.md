@@ -1,7 +1,7 @@
 ---
 id: e020a
 created: 2026-03-16
-status: cancelled
+status: running
 type: training-regime
 base_build: b001
 built_on: [e018c]

@@ -34,3 +34,5 @@
 {"timestamp": "2026-03-16T17:07:00Z", "action": "heartbeat", "experiment": null, "reasoning": "Idle.", "budget_spent": 0.0}
 {"timestamp": "2026-03-16T18:07:00Z", "action": "heartbeat", "experiment": null, "reasoning": "Idle.", "budget_spent": 0.0}
 {"timestamp": "2026-03-16T19:07:00Z", "action": "heartbeat", "experiment": null, "reasoning": "Idle.", "budget_spent": 0.0}
+{"timestamp": "2026-03-16T19:27:00Z", "action": "launch", "experiment": "e020a-sf-ratio-10", "reasoning": "SF frequency axis untested. 10% SF (ratio=9) as regularizer vs 20% baseline. Director approved.", "budget_spent": 5.00}
+{"timestamp": "2026-03-16T19:33:00Z", "action": "launch", "experiment": "e021b-selective-bptt", "reasoning": "Selective BPTT: detach categorical heads at SF steps 2+, keep continuous live. N=4 unroll. Addresses E018b failure mechanism. PR #4. Director approved.", "budget_spent": 5.00}

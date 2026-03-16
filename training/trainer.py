@@ -54,6 +54,7 @@ class Trainer:
         sf_ratio: int = 4,
         sf_unroll_length: int = 3,
         sf_horizon_weights: bool = False,
+        sf_selective_bptt: bool = False,
     ):
         if device is None:
             if torch.backends.mps.is_available():
@@ -138,6 +139,7 @@ class Trainer:
         self._sf_ratio = sf_ratio
         self._sf_unroll = sf_unroll_length
         self._sf_horizon_weights = sf_horizon_weights
+        self._sf_selective_bptt = sf_selective_bptt
         self._sf_valid_starts = None
         if sf_enabled:
             if dataset is None:
@@ -154,8 +156,9 @@ class Trainer:
                         starts.append(t)
                 self._sf_valid_starts = np.array(starts, dtype=np.int64)
                 logger.info(
-                    "Self-Forcing: %d valid starts, ratio=1:%d, unroll=%d",
+                    "Self-Forcing: %d valid starts, ratio=1:%d, unroll=%d, selective_bptt=%s",
                     len(self._sf_valid_starts), sf_ratio, sf_unroll_length,
+                    sf_selective_bptt,
                 )
 
         # Shape preflight
@@ -316,6 +319,21 @@ class Trainer:
             ctrl_d = ctrl.to(self.device)
 
             preds = self.model(ctx_f, ctx_i, ctrl_d)
+
+            # Selective BPTT: for steps >= 1, detach categorical heads so
+            # only continuous/binary heads receive gradient through the
+            # autoregressive chain. Categorical heads (action_state etc.)
+            # still get teacher-forced gradient at step 0.
+            if self._sf_selective_bptt and step > 0:
+                _CONTINUOUS_KEYS = {
+                    'continuous_delta', 'velocity_delta',
+                    'dynamics_pred', 'binary_logits',
+                }
+                preds = {
+                    k: v if k in _CONTINUOUS_KEYS else v.detach()
+                    for k, v in preds.items()
+                }
+
             loss, metrics = self.metrics.compute_loss(
                 preds, float_tgt.to(self.device), int_tgt.to(self.device), ctx_i,
             )
