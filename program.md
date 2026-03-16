@@ -71,44 +71,54 @@ E018a confirmed this empirically: Self-Forcing improved RC by 7.5% while regress
 
 ## Research Directions
 
-Ordered by expected impact. Self-Forcing is proven (E018a). The directions below refine and extend it.
+### What we've tested (observations, not conclusions)
 
-### 1. Self-Forcing refinements (e018b, e018d)
+| Direction | Experiments | Results | Confidence |
+|-----------|------------|---------|------------|
+| Self-Forcing (basic) | E018a (20% SF, N=3) | RC 6.26 (-7.5%). KEPT. | HIGH — large effect, clear mechanism |
+| SF longer unroll | E018b (N=5) | RC 6.45 (+3.0%). Regressed. | 1/1 regressed — could be N=5 specifically, not all N>3 |
+| SF loss weighting | E018d (linear ramp) | RC 6.81 (+8.8%). Regressed. | 1/1 regressed — one weighting scheme tested |
+| Context length | E018c (K=30), E019a (K=50) | K=30: RC 6.03 (-3.7%). K=50: RC 5.97 (-1.0%, marginal). | K=30 is a clear win. K=50 is diminishing returns but not zero. |
+| SF ratio | untested | — | Director rejected 20%→30% proposal. 0 experiments run. |
+| Dropout tuning | untested | — | Director rejected 0.1→0.05 proposal. 0 experiments run. |
 
-**E018b (in flight):** Longer unroll N=5 vs N=3. Tests whether more drift exposure improves RC further. Target: RC < 6.10.
+**Important:** "Regressed in 1 experiment" ≠ "axis is closed." The SF refinement experiments (E018b, E018d) tested specific configurations, not the entire parameter space. Different unroll lengths (N=4), different weighting schemes (exponential, step-function), or different SF ratios may behave differently. Agents should maintain uncertainty and can revisit with specific reasoning.
 
-**E018d (next):** Horizon-weighted SF loss. Step 1 of AR is nearly TF; step 5 is where drift happens. Weight later steps more heavily.
+### Engineering directions (require code changes)
 
-**Cards:** `docs/run-cards/e018b-self-forcing-n5.md`, `docs/run-cards/e018d-horizon-weighted-loss.md`
+#### 1. Full backpropagation through Self-Forcing steps
+Currently gradients are truncated (detached) between the 3 Self-Forcing steps. This limits what the model can learn about multi-step error recovery. Full BPTT would let gradients flow through `reconstruct_frame()`, potentially enabling N=5+ and better error correction.
 
-### 2. Longer context window (e018c)
+**Challenge:** `reconstruct_frame()` uses argmax for categorical predictions (action state, jumps), which isn't differentiable. Options: Gumbel-softmax relaxation, straight-through estimator, or gradient flow only through continuous heads.
 
-**The bet:** K=10 at 60fps is 167ms — less than a Melee reaction window. Longer context gives the model more temporal information to stabilize predictions.
+**Expected cost:** ~$10-15 per experiment (need gradient checkpointing for memory).
 
-**Why:** The SSM paper (2505.20171) shows SSMs benefit from longer context. Our Mamba2 backbone supports it. K=30 (500ms) would cover a full move sequence.
+#### 2. Data scaling to 7.7K games
+The 7.7K dataset exists on the Modal volume but loading takes 9hr/epoch with `num_workers=0` (fork OOM with `num_workers=4`, `share_memory_()` fails on Modal). E016 showed dramatic TF metric improvement at 7.7K — unknown if AR quality scales similarly.
 
-**Card:** `docs/run-cards/e018c-rolling-context-window.md`
+**Blocker:** Data loader infrastructure. Fix before running experiments.
 
-### 3. Horizon-weighted Self-Forcing loss (e018d)
+#### 3. Cascaded heads + Self-Forcing
+E014 showed cascaded heads fixed damage drift at 1.9K. Code not ported to this repo. Requires implementation work.
 
-**The bet:** Weight later AR steps more heavily in the Self-Forcing loss. The model prioritizes long-horizon stability.
+### Config directions (no code changes, lower expected value)
 
-**Why:** Step 1 of AR is nearly identical to TF. Step 5+ is where drift happens. Equal weighting wastes capacity on easy short-horizon predictions.
+#### 4. SF parameter space (revisitable)
+- **SF ratio:** Only 20% tested. 10%, 30%, 50% are all untested. Low priority given E018b/E018d regressions, but not ruled out.
+- **Unroll N=4:** Between the working N=3 and failing N=5. Might find a sweet spot.
+- **Alternative loss weighting:** Exponential, step-function, inverse-loss weighting. Linear ramp failed but other schemes untested.
 
-**Card:** `docs/run-cards/e018d-horizon-weighted-loss.md`
-**Depends on:** e018a (baseline Self-Forcing results)
+#### 5. Model architecture
+- **d_model scaling:** 384→512 untested in SF+K=30 regime
+- **n_layers:** 4 layers untested against alternatives
+- **Dropout:** 0.1 untested against alternatives in SF regime
 
-### 4. Data scaling
-
-**The bet:** 1.9K games may not be enough. E016 used 7.7K games and TF metrics improved dramatically. The question is whether more data also improves AR quality.
-
-**No card yet.** Need rollout coherence eval first to measure the effect. Run E012 config on 7.7K data, compare AR metrics.
-
-### 5. Cascaded heads + Self-Forcing
-
-**The bet:** E014 (cascaded heads) fixed damage drift. Self-Forcing should fix position/velocity drift. Together: structurally coherent outputs AND robustness to own errors.
-
-**No card yet.** Run after Self-Forcing baseline is established.
+#### 6. Broader research
+Agents should actively search for techniques from the world model, video prediction, and reinforcement learning literature that might apply. The source papers list is small (4 papers). There may be relevant work on:
+- Differentiable world models and planning through learned dynamics
+- Curriculum learning for autoregressive models
+- Contrastive or auxiliary losses for temporal consistency
+- Knowledge distillation from teacher-forced to autoregressive models
 
 ## Hard Constraints
 
@@ -129,14 +139,21 @@ Ordered by expected impact. Self-Forcing is proven (E018a). The directions below
 
 For autoresearch agents:
 
-1. Start from `experiments/e018a-sf-minimal.yaml`. Change ONE thing.
-2. Train on 1.9K data (`encoded-e012-fd-top5.pt`), 1 epoch, bs=512. ~2hr on A100, ~$4.
+1. Start from `experiments/e018c-context-k30.yaml` (current best: SF + K=30). Change ONE thing.
+2. Train on 1.9K data (`encoded-e012-fd-top5.pt`), 1 epoch, bs=512. ~2.5hr on A100, ~$5.
 3. Rollout coherence eval runs automatically after training (integrated in Trainer).
-4. Compare to baseline: **rollout_coherence = 6.26** (E018a).
+4. Compare to baseline: **rollout_coherence = 6.03** (E018c).
 5. **Keep** if rollout coherence improves. Write run card with `base_build`, `built_on` citations and numbers.
 6. **Discard** if rollout coherence regresses or stays flat. Write run card documenting the null result.
-7. Either way, the run card is the permanent record.
+7. Either way, the run card is the permanent record. Null results are data.
 8. Val metrics plateau after 1 epoch on 1.9K data — don't spend $3 on epoch 2 unless Scout shows signal.
+
+### Epistemic standards for agents
+
+- **State hit rates, not conclusions.** "0/1 experiments improved" not "axis is closed."
+- **Maintain uncertainty.** One failed experiment on an axis doesn't rule out the axis. Two failures with different configurations increases confidence. Three is strong evidence.
+- **Bring in outside ideas.** Don't just recombine what's in program.md. Search for papers, techniques, and approaches we haven't considered.
+- **Challenge assumptions.** If program.md says something is a dead end and you have specific reasoning for why it might work in a new context, propose it. The Director will evaluate.
 
 ## Source Papers
 

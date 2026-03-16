@@ -2,7 +2,7 @@
 
 Individual experiment records. Each card documents one idea tested in isolation.
 
-*7 cards. Generated 2026-03-16 11:09 UTC*
+*7 cards. Generated 2026-03-16 19:10 UTC*
 
 - :x: [Run Card: e019a-context-k50](e019a-context-k50.md) — *discarded*
 - :hourglass: [Run Card: e019-baseline](e019-baseline.md) — *running*
