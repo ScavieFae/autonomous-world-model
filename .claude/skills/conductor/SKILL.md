@@ -1,6 +1,6 @@
 ---
 name: conductor
-description: Run one conductor heartbeat — check experiment state, evaluate completed runs, dispatch new research cycles. The autoresearch loop entry point. Use with `/loop 60m /conductor` for autonomous operation, or manually for single heartbeats.
+description: Run one conductor heartbeat — check experiment state, evaluate completed runs, dispatch new research cycles. Supports parallel experiments. Use with `/loop 60m /conductor` for autonomous operation.
 user-invocable: true
 ---
 
@@ -10,6 +10,8 @@ One tick of the autoresearch loop. Read state → decide → act → log → exi
 
 Execute ALL steps yourself. Do not ask the user for confirmation — the budget, Director, and signals are your safety gates.
 
+**Supports parallel experiments.** Multiple experiments can be in flight simultaneously, up to `max_concurrent`. Each heartbeat checks all in-flight experiments, evaluates any that finished, and launches new ones if slots and budget are available.
+
 ## Decision Tree
 
 ```
@@ -17,16 +19,20 @@ READ STATE
   ├── Signal: pause.json active? → Log "paused", exit
   ├── Signal: escalate.json active? → Report to user, exit
   │
-  ├── Experiment in flight? (running.json has in_flight != null)
+  ├── CHECK ALL IN-FLIGHT EXPERIMENTS (running.json → experiments.in_flight[])
+  │   For each experiment in the list:
   │   ├── Run: .venv/bin/python scripts/check_run.py {wandb_run_id}
-  │   ├── state == "finished"? → EVALUATE (Step A)
-  │   ├── state == "crashed"/"failed"? → Log error, clear lock, treat as nothing running
-  │   ├── stale? (started_at > stale_timeout_hours ago AND state != "running") → Clear, log warning
-  │   └── state == "running" → Log to .loop/state/log.jsonl ONLY (no Matrix), exit
+  │   ├── state == "finished"? → EVALUATE (Step A) — remove from in_flight
+  │   ├── state == "crashed"/"failed"? → Log error, remove from in_flight, close PR
+  │   ├── stale? → Clear, log warning, remove from in_flight
+  │   └── state == "running" → Log to log.jsonl ONLY (no Matrix)
   │
-  └── Nothing running
-      ├── Budget exhausted? → Log, exit
-      └── Budget available → NEW CYCLE (Step B)
+  ├── After processing all in-flight:
+  │   ├── Open slots? (len(in_flight) < max_concurrent, default 3)
+  │   │   ├── Budget available? (daily_spent + 5.0 <= daily_limit)
+  │   │   │   └── YES → NEW CYCLE (Step B) — repeat until slots or budget exhausted
+  │   │   └── NO → Log "budget exhausted", done
+  │   └── No open slots → done (wait for next heartbeat)
 ```
 
 ## Step A: Evaluate Completed Experiment
@@ -36,14 +42,14 @@ READ STATE
    .venv/bin/python scripts/check_run.py {wandb_run_id}
    ```
 
-2. **Spawn Director agent** (Explore subagent) with the results and the prior best RC from running.json. Ask: KEPT or DISCARDED? The Director reads program.md, the run card, and the metrics.
+2. **Spawn Director agent** (Explore subagent) with the results and the prior best RC. Ask: KEPT or DISCARDED? The Director reads program.md, the run card, and the metrics.
 
 3. **Close out** based on Director verdict:
    - Update run card frontmatter: `status: kept/discarded`, `rollout_coherence: X.XX`
    - Add Results section with metrics table and Director evaluation
    - Append to `docs/RESEARCH-LOG.md`
    - Update `.loop/state/budget.json` (actual cost from runtime)
-   - Clear `running.json` (set `in_flight: null`, `lock: false`)
+   - Remove this experiment from `running.json → experiments.in_flight[]`
    - If KEPT: merge the experiment's PR (`gh pr merge {pr_number} --merge`)
    - If DISCARDED: close the PR (`gh pr close {pr_number}`)
    - Run `python scripts/docs_prebuild.py`
@@ -54,14 +60,12 @@ READ STATE
    .venv/bin/python scripts/notify_matrix.py --room experiment-results "{full evaluation}"
    ```
 
-5. **Continue to Step B** (start next cycle in same heartbeat).
-
 ## Step B: Start New Research Cycle
 
-1. **Budget check:** `daily_spent + 4.0 <= daily_limit`
+1. **Budget check:** `daily_spent + 5.0 <= daily_limit`
 
 2. **Spawn hypothesis agent** (Explore subagent with `.loop/agents/hypothesis.md` prompt):
-   > "Read program.md and recent run cards. Propose one experiment."
+   > "Read program.md and recent run cards. Propose one experiment. Currently {N} experiments in flight: {list ids}. Propose something on a DIFFERENT axis from what's already running."
 
 3. **Spawn Director agent** (Explore subagent with `.loop/agents/research-director.md` prompt):
    > "Evaluate this hypothesis: [paste full hypothesis]. APPROVE or REJECT."
@@ -71,7 +75,7 @@ READ STATE
    .venv/bin/python scripts/notify_matrix.py --room research "{hypothesis text}\n\n{director review}"
    ```
 
-5. **If REJECTED:** log to log.jsonl, done.
+5. **If REJECTED:** log to log.jsonl. Try ONE more hypothesis (max 2 attempts per heartbeat to avoid infinite rejection loops). If second is also rejected, done for this heartbeat.
 
 6. **If APPROVED — spawn Coder agent** in an isolated worktree:
    ```
@@ -81,11 +85,11 @@ READ STATE
      prompt: [from .loop/agents/coder.md + approved hypothesis + director conditions]
    ```
    The Coder agent:
-   - Creates a branch named `{experiment-id}` (e.g., `e018c-context-k30`)
+   - Creates a branch named `{experiment-id}`
    - Implements the change (config and/or code)
    - Writes the run card with `status: running`
    - Commits on the branch
-   - Returns the branch name and worktree path
+   - Returns the branch name
 
 7. **Create PR** from the experiment branch:
    ```bash
@@ -93,37 +97,50 @@ READ STATE
    gh pr create --title "{experiment-id}: {short description}" --body "{hypothesis + director review}"
    ```
 
-8. **Launch on Modal** from the branch:
+8. **Copy config to main and launch on Modal:**
    ```bash
-   modal run --detach scripts/modal_train.py --config experiments/{id}.yaml --encoded-file /encoded-e012-fd-top5.pt --run-name {id}
+   # Config must exist on main for Modal to see it
+   git checkout {branch} -- experiments/{id}.yaml
+   modal run --detach scripts/modal_train.py --config experiments/{id}.yaml \
+     --encoded-file /encoded-e012-fd-top5.pt --run-name {id}
    ```
-   Capture the wandb run ID from Modal output or poll wandb for the run name.
+   Poll wandb for the run ID (filter by display_name).
 
 9. **Update state:**
-   - Set `running.json`: `lock: true`, `in_flight: {id, wandb_url, pr_number, branch, ...}`
+   - Append to `running.json → experiments.in_flight[]`: `{id, wandb_url, pr_number, branch, started_at, ...}`
    - Reserve budget in `budget.json`
    - Log to `log.jsonl`
 
 10. **Notify Matrix:**
     ```bash
-    .venv/bin/python scripts/notify_matrix.py --room conductor-log "Launched {id}: {description}. PR: {url}. wandb: {url}"
+    .venv/bin/python scripts/notify_matrix.py --room conductor-log "Launched {id}. PR: {url}. wandb: {url}. Slots: {used}/{max}"
     ```
 
-## Matrix Notification Rules
-
-**DO post** (state changes only):
-- Experiment launched (with PR + wandb links)
-- Experiment completed (with full Director evaluation)
-- Hypothesis proposed + Director review (full deliberation text)
-- Errors, crashes, budget exhaustion, escalations
-
-**DO NOT post** routine "still running" heartbeats. Log those to log.jsonl only.
+11. **Loop back to check slots** — if more slots and budget available, run Step B again to fill them.
 
 ## State Files
 
+### running.json schema (parallel)
+
+```json
+{
+  "experiments": {
+    "in_flight": [
+      {"id": "e020a", "wandb_run_id": "abc123", "pr_number": 4, "branch": "e020a-sf-ratio-10", "started_at": "...", "estimated_cost": 5.0},
+      {"id": "e020b", "wandb_run_id": "def456", "pr_number": 5, "branch": "e020b-sf-ratio-30", "started_at": "...", "estimated_cost": 5.0}
+    ],
+    "max_concurrent": 3,
+    "stale_timeout_hours": 4
+  },
+  "history": [...],
+  "prior_best_rc": 6.03
+}
+```
+
+### Other state files
+
 | File | Purpose |
 |------|---------|
-| `.loop/state/running.json` | Experiment lock, in-flight tracking, history |
 | `.loop/state/budget.json` | Daily/weekly spend limits and tracking |
 | `.loop/state/log.jsonl` | Append-only decision log |
 | `.loop/state/signals/pause.json` | Pause signal |
@@ -137,20 +154,27 @@ READ STATE
 | Director | Explore | `.loop/agents/research-director.md` | Review hypothesis, evaluate results |
 | Coder | general-purpose (worktree) | `.loop/agents/coder.md` | Implement approved experiment on branch |
 
+## Matrix Notification Rules
+
+**DO post** (state changes only):
+- Experiment launched (with PR + wandb links + slot count)
+- Experiment completed (with full Director evaluation)
+- Hypothesis proposed + Director review (full deliberation text)
+- Errors, crashes, budget exhaustion, escalations
+
+**DO NOT post** routine "still running" heartbeats. Log those to log.jsonl only.
+
 ## Error Recovery
 
-- **Modal app not found / wandb crashed:** Clear `in_flight`, log error, close PR, continue
+- **Modal app not found / wandb crashed:** Remove from in_flight, log error, close PR
 - **Agent timeout:** Log, exit. Next heartbeat retries.
 - **Budget corrupted:** Reset daily_spent to 0, log warning
-- **Stuck lock:** If wandb shows finished/crashed but lock is set, clear it
-- **Coder agent fails:** Log error, close PR if created, continue to next heartbeat
+- **Stuck experiment:** If wandb shows finished/crashed but still in in_flight, remove it
+- **Coder agent fails:** Log error, close PR if created, continue to next slot
 
 ## Starting Autonomous Mode
 
 ```bash
-# Run one heartbeat manually:
-/conductor
-
-# Run every 60 minutes autonomously:
-/loop 60m /conductor
+/conductor                    # One heartbeat
+/loop 60m /conductor          # Every hour
 ```

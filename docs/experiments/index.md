@@ -1,8 +1,8 @@
 # Experiment Index
 
-*7 experiments — 2 kept, 2 running, 0 proposed, 3 discarded.*
+*10 experiments — 2 kept, 2 running, 0 proposed, 3 discarded.*
 
-*Generated 2026-03-16 19:10 UTC*
+*Generated 2026-03-16 19:23 UTC*
 
 **Best rollout coherence:** 5.97 ([e019a](../run-cards/e019a-context-k50.md))
 

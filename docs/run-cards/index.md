@@ -2,8 +2,11 @@
 
 Individual experiment records. Each card documents one idea tested in isolation.
 
-*7 cards. Generated 2026-03-16 19:10 UTC*
+*10 cards. Generated 2026-03-16 19:23 UTC*
 
+-  [Run Card: e020c-sf-n4](e020c-sf-n4.md) — *cancelled*
+-  [Run Card: e020b-sf-ratio-30](e020b-sf-ratio-30.md) — *cancelled*
+-  [Run Card: e020a-sf-ratio-10](e020a-sf-ratio-10.md) — *cancelled*
 - :x: [Run Card: e019a-context-k50](e019a-context-k50.md) — *discarded*
 - :hourglass: [Run Card: e019-baseline](e019-baseline.md) — *running*
 - :x: [Run Card: e018d-horizon-weighted-loss](e018d-horizon-weighted-loss.md) — *discarded*

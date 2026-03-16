@@ -1,16 +1,15 @@
 {
-  "active_briefs": [],
-  "completed_pending_eval": [],
+  "experiments": {
+    "in_flight": [],
+    "max_concurrent": 3,
+    "stale_timeout_hours": 4
+  },
+  "prior_best_rc": 6.03,
   "history": [
     {"id": "e018a-sf-minimal", "status": "kept", "rollout_coherence": 6.26, "prior_best_rc": 6.77, "cost": 3.90, "completed_at": "2026-03-15T18:04:00Z"},
     {"id": "e018b-sf-n5", "status": "discarded", "rollout_coherence": 6.45, "prior_best_rc": 6.26, "cost": 5.25, "completed_at": "2026-03-15T21:15:00Z"},
     {"id": "e018d-horizon-weighted", "status": "discarded", "rollout_coherence": 6.81, "prior_best_rc": 6.26, "cost": 4.00, "completed_at": "2026-03-15T23:15:00Z"},
     {"id": "e018c-context-k30", "status": "kept", "rollout_coherence": 6.03, "prior_best_rc": 6.26, "cost": 5.20, "completed_at": "2026-03-16T07:07:00Z"},
     {"id": "e019a-context-k50", "status": "discarded", "rollout_coherence": 5.97, "prior_best_rc": 6.03, "cost": 5.90, "completed_at": "2026-03-16T11:07:00Z"}
-  ],
-  "experiments": {
-    "in_flight": null,
-    "lock": false,
-    "stale_timeout_hours": 4
-  }
+  ]
 }
