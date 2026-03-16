@@ -44,7 +44,12 @@ READ STATE
 
 2. **Spawn Director agent** (Explore subagent) with the results and the prior best RC. Ask: KEPT or DISCARDED? The Director reads program.md, the run card, and the metrics.
 
-3. **Close out** based on Director verdict:
+3. **Post Director evaluation to Matrix immediately:**
+   ```bash
+   .venv/bin/python scripts/notify_matrix.py --room experiment-results "🎯 [Director] {FULL evaluation output}"
+   ```
+
+4. **Close out** based on Director verdict:
    - Update run card frontmatter: `status: kept/discarded`, `rollout_coherence: X.XX`
    - Add Results section with metrics table and Director evaluation
    - Append to `docs/RESEARCH-LOG.md`
@@ -67,24 +72,29 @@ READ STATE
 2. **Spawn hypothesis agent** (Explore subagent with `.loop/agents/hypothesis.md` prompt):
    > "Read program.md and recent run cards. Propose one experiment. Currently {N} experiments in flight: {list ids}. Propose something on a DIFFERENT axis from what's already running."
 
-3. **Spawn Director agent** (Explore subagent with `.loop/agents/research-director.md` prompt):
+3. **Post hypothesis to Matrix immediately** (before Director reviews):
+   ```bash
+   .venv/bin/python scripts/notify_matrix.py --room research "🔬 [Hypothesis Agent] {FULL agent output — paste the entire proposal, not a summary}"
+   ```
+
+4. **Spawn Director agent** (Explore subagent with `.loop/agents/research-director.md` prompt):
    > "Evaluate this hypothesis: [paste full hypothesis]. APPROVE or REJECT."
 
-4. **Log the decision durably** to `docs/decisions/{date}-cycle{N}.md`:
+5. **Post Director review to Matrix immediately:**
+   ```bash
+   .venv/bin/python scripts/notify_matrix.py --room research "🎯 [Director] {FULL agent output — paste the entire review, not a summary}"
+   ```
+
+6. **Log the decision durably** to `docs/decisions/{date}-cycle{N}.md`:
    - Full hypothesis text
    - Full Director reasoning (not summarized)
    - Verdict: APPROVED / REJECTED
    - "What would change the verdict" (for rejections)
    This is the permanent record that future agents can review.
 
-5. **Notify Matrix** with the full deliberation (hypothesis + Director review):
-   ```bash
-   .venv/bin/python scripts/notify_matrix.py --room research "{hypothesis text}\n\n{director review}"
-   ```
+7. **If REJECTED:** log to log.jsonl. Try ONE more hypothesis (max 2 attempts per heartbeat). If second also rejected, done.
 
-6. **If REJECTED:** log to log.jsonl. Try ONE more hypothesis (max 2 attempts per heartbeat to avoid infinite rejection loops). If second is also rejected, done for this heartbeat.
-
-6. **If APPROVED — spawn Coder agent** in an isolated worktree:
+8. **If APPROVED — spawn Coder agent** in an isolated worktree:
    ```
    Agent tool with:
      subagent_type: general-purpose
@@ -98,7 +108,12 @@ READ STATE
    - Commits on the branch
    - Returns the branch name
 
-7. **Create PR** from the experiment branch:
+9. **Post Coder output to Matrix:**
+   ```bash
+   .venv/bin/python scripts/notify_matrix.py --room worker-updates "🔧 [Coder] {agent output — what was implemented, branch name, files changed}"
+   ```
+
+10. **Create PR** from the experiment branch:
    ```bash
    git push -u origin {branch}
    gh pr create --title "{experiment-id}: {short description}" --body "{hypothesis + director review}"
