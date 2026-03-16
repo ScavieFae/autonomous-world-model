@@ -2,16 +2,6 @@
   "experiments": {
     "in_flight": [
       {
-        "id": "e020a-sf-ratio-10",
-        "wandb_run_id": "ryv7n04y",
-        "modal_app_id": "ap-r9MbRrUW1N2Ka78QhHWLab",
-        "pr_number": null,
-        "branch": null,
-        "started_at": "2026-03-16T19:27:00Z",
-        "config": "experiments/e020a-sf-ratio-10.yaml",
-        "estimated_cost": 5.00
-      },
-      {
         "id": "e021b-selective-bptt",
         "wandb_run_id": "ibg5r4ya",
         "modal_app_id": "ap-NPxD0pm36ngnCquxB5jVWn",
@@ -31,6 +21,7 @@
     {"id": "e018b-sf-n5", "status": "discarded", "rollout_coherence": 6.45, "prior_best_rc": 6.26, "cost": 5.25, "completed_at": "2026-03-15T21:15:00Z"},
     {"id": "e018d-horizon-weighted", "status": "discarded", "rollout_coherence": 6.81, "prior_best_rc": 6.26, "cost": 4.00, "completed_at": "2026-03-15T23:15:00Z"},
     {"id": "e018c-context-k30", "status": "kept", "rollout_coherence": 6.03, "prior_best_rc": 6.26, "cost": 5.20, "completed_at": "2026-03-16T07:07:00Z"},
-    {"id": "e019a-context-k50", "status": "discarded", "rollout_coherence": 5.97, "prior_best_rc": 6.03, "cost": 5.90, "completed_at": "2026-03-16T11:07:00Z"}
+    {"id": "e019a-context-k50", "status": "discarded", "rollout_coherence": 5.97, "prior_best_rc": 6.03, "cost": 5.90, "completed_at": "2026-03-16T11:07:00Z"},
+    {"id": "e020a-sf-ratio-10", "status": "discarded", "rollout_coherence": 6.62, "prior_best_rc": 6.03, "cost": 4.25, "completed_at": "2026-03-17T00:23:00Z"}
   ]
 }
