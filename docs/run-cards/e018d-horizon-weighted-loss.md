@@ -1,12 +1,12 @@
 ---
 id: e018d
 created: 2026-03-09
-status: running
+status: discarded
 type: training-regime
 base_build: b001
 built_on: [e018a]
 source_paper: 2508.13009
-rollout_coherence: null
+rollout_coherence: 6.81
 prior_best_rc: 6.26
 ---
 
@@ -31,28 +31,31 @@ sf_loss = (losses * weights).sum() / weights.sum()
 
 Step 1 (nearly TF, easy) gets 0.5× weight. Step 3 (max drift, hardest) gets 2.0× weight.
 
-Config: `experiments/e018d-horizon-weighted.yaml` — `self_forcing.horizon_weights: true`
+## Results
 
-## Why This Matters
+**DISCARDED — substantial regression.**
 
-E018b proved that N=5 with uniform weighting regressed (SF loss doubled, RC +3% worse). The gradient signal degrades over longer horizons with truncated BPTT. Rather than going longer, we optimize within N=3:
+| Metric | E018a (uniform) | E018d (weighted) | Delta |
+|--------|-----------------|-----------------|-------|
+| **rollout_coherence** | **6.26** | **6.81** | **+8.8% (worse)** |
+| change_acc | 61.6% | 61.6% | flat |
+| pos_mae | 0.825 | 0.830 | ~flat |
+| sf_loss | 0.383 | 0.576 | +50% |
+| tf_loss | 0.164 | 0.302 | +84% |
+| action_acc | 95.3% | 95.3% | flat |
 
-- Step 1 is nearly identical to TF — easy for the model, low learning value
-- Step 3 is where real drift happens — hardest but most informative
-- Uniform weighting wastes 33% of capacity on the easy step
+### Cost
 
-## Data
+- Runtime: 6884s (~115min) on A100 40GB
+- Cost: ~$4.00
+- wandb: https://wandb.ai/shinewave/melee-worldmodel/runs/gabdfivr
 
-1.9K FD top-5, 1 epoch, bs=512. Identical to E018a.
+## Director Evaluation
 
-## Target Metrics
+**Verdict:** DISCARDED
 
-| Metric | E018a (uniform) | Target | Kill threshold |
-|--------|-----------------|--------|---------------|
-| **rollout_coherence** | **6.26** | **< 6.20** | ≥ 6.26 (no improvement) |
-| change_acc | 61.6% | Stable | < 50% |
-| sf_loss | 0.383 | Monitor | > 0.60 (destabilized) |
+**Confidence:** HIGH — RC 6.81 is worse than even the E019 baseline (6.77). The horizon weighting actively hurt training. SF loss increased 50% (0.38→0.58), and TF loss nearly doubled (0.16→0.30), indicating the ramp destabilized training across both objectives.
 
-## Cost Estimate
+**Finding:** Linear ramp [0.5, 1.25, 2.0] over-weighted step 3 where truncated BPTT has the weakest gradient signal, amplifying noise rather than learning signal. The assumption that "later steps are more informative" was wrong — with truncated BPTT, later steps have worse gradients, and weighting them more makes things worse. Combined with e018b (N=5 regression), this confirms: truncated BPTT's limitation is fundamental, not fixable by reweighting within the window.
 
-~$4 (2hr on A100 40GB). Scout tier.
+**Implication:** The SF refinement axis (within truncated BPTT) is explored. E018a's uniform N=3 is the current best configuration. Next directions should be orthogonal: longer context (e018c), data scaling, full BPTT, or SF ratio changes.

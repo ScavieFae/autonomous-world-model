@@ -24,7 +24,11 @@ Cost: $3.90 (1.85hr A100). wandb: https://wandb.ai/shinewave/melee-worldmodel/ru
 
 Next directions: longer unroll (N=5), higher SF ratio, horizon-weighted loss (e018d), full BPTT.
 
-**E018b DISCARDED (N=5 unroll).** RC regressed to 6.45 (+3.0% worse than e018a's 6.26). SF loss nearly doubled (0.38→0.74) — the model couldn't learn from 5 steps of drift with truncated BPTT. Gradient signal degraded rather than improved. Key finding: truncated BPTT saturates at N=3 (~150ms at 60fps). Longer horizons need full BPTT or horizon-weighted loss. Cost: $5.25. Next: e018d (horizon-weighted loss on N=3).
+**E018b DISCARDED (N=5 unroll).** RC regressed to 6.45 (+3.0% worse than e018a's 6.26). SF loss nearly doubled (0.38→0.74) — the model couldn't learn from 5 steps of drift with truncated BPTT. Gradient signal degraded rather than improved. Key finding: truncated BPTT saturates at N=3 (~150ms at 60fps). Longer horizons need full BPTT or horizon-weighted loss. Cost: $5.25.
+
+**E018d DISCARDED (horizon-weighted loss).** RC regressed to 6.81 (+8.8% worse than e018a's 6.26, worse than E019 baseline). Linear ramp [0.5, 1.25, 2.0] over-weighted step 3 where truncated BPTT has weakest gradient signal. SF loss +50%, TF loss +84%. The assumption that "later steps are more informative" was wrong under truncated BPTT — later steps have worse gradients, weighting them more amplifies noise. Cost: $4.00.
+
+**Session summary:** 3 experiments, $13.15 total. E018a (uniform SF, N=3) is the winner. Both refinements (longer horizon, weighted loss) regressed. The SF axis within truncated BPTT is explored — next moves should be orthogonal: longer context (e018c), data scaling, full BPTT, or SF ratio.
 
 ---
 
