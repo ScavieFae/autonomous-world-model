@@ -45,3 +45,34 @@
 {"timestamp": "2026-03-17T01:30:00Z", "action": "evaluate", "experiment": "e021b-selective-bptt", "reasoning": "RC 6.87 vs 6.03 (+13.9%). DISCARDED. SF loss exploded 4x (0.37→1.48). Selective BPTT removed too much gradient signal. Categorical heads are structurally important. PR #4 closed.", "budget_spent": 6.40}
 {"timestamp": "2026-03-17T02:23:00Z", "action": "reject_hypothesis", "experiment": "e022a-sf-action-weight", "reasoning": "Director REJECT: same family as e018d/e021b (gradient balance in truncated BPTT). 0/3 experiments in this family improved. Redirecting to SF ratio 30%.", "budget_spent": 0.0}
 {"timestamp": "2026-03-17T02:25:00Z", "action": "reject_hypothesis", "experiment": "e020b-sf-ratio-30", "reasoning": "Director REJECT: 10% regressed, 20% is sweet spot. Extrapolating that 30% would also regress. 2/2 rejections this heartbeat — cycle exhausted.", "budget_spent": 0.0}
+{"timestamp": "2026-03-17T03:23:00Z", "action": "heartbeat", "experiment": null, "reasoning": "Idle. 0 in flight. Budget available but last cycle exhausted 2/2 hypotheses. No new context since last rejections. Waiting for local training infrastructure or new session.", "budget_spent": 0.0}
+{"timestamp": "2026-03-17T04:23:00Z", "action": "heartbeat", "experiment": null, "reasoning": "Idle. Hypothesis space exhausted. Waiting for local training data download and compute platform research.", "budget_spent": 0.0}
+{"timestamp": "2026-03-17T05:23:00Z", "action": "heartbeat", "experiment": null, "reasoning": "Idle. Infrastructure work in progress: local training data download, Nosana/Vast.ai research complete. Waiting for data access solution (R2 upload) before resuming experiments.", "budget_spent": 0.0}
+{"timestamp": "2026-03-17T06:23:00Z", "action": "heartbeat", "experiment": null, "reasoning": "Idle. Infrastructure blocker: data access.", "budget_spent": 0.0}
+{"timestamp": "2026-03-17T07:23:00Z", "action": "heartbeat", "experiment": null, "reasoning": "Idle.", "budget_spent": 0.0}
+{"timestamp": "2026-03-17T08:23:00Z", "action": "heartbeat", "experiment": null, "reasoning": "Idle.", "budget_spent": 0.0}
+{"timestamp": "2026-03-17T09:23:00Z", "action": "heartbeat", "experiment": null, "reasoning": "Idle.", "budget_spent": 0.0}
+{"timestamp": "2026-03-17T10:23:00Z", "action": "heartbeat", "experiment": null, "reasoning": "Idle.", "budget_spent": 0.0}
+{"timestamp": "2026-03-17T11:23:00Z", "action": "heartbeat", "experiment": null, "reasoning": "Idle.", "budget_spent": 0.0}
+{"timestamp": "2026-03-17T12:23:00Z", "action": "heartbeat", "experiment": null, "reasoning": "Idle.", "budget_spent": 0.0}
+{"timestamp": "2026-03-17T13:23:00Z", "action": "heartbeat", "experiment": null, "reasoning": "Idle.", "budget_spent": 0.0}
+{"timestamp": "2026-03-17T14:23:00Z", "action": "heartbeat", "experiment": null, "reasoning": "Idle.", "budget_spent": 0.0}
+{"timestamp": "2026-03-17T15:23:00Z", "action": "heartbeat", "experiment": null, "reasoning": "Idle.", "budget_spent": 0.0}
+{"timestamp": "2026-03-17T16:23:00Z", "action": "heartbeat", "experiment": null, "reasoning": "Idle.", "budget_spent": 0.0}
+{"timestamp": "2026-03-17T17:23:00Z", "action": "heartbeat", "experiment": null, "reasoning": "Idle.", "budget_spent": 0.0}
+{"timestamp": "2026-03-17T18:23:00Z", "action": "heartbeat", "experiment": null, "reasoning": "Idle. Date rolled to 03-17. Daily budget resets available but hypothesis space still exhausted from last cycle. Waiting for user to unblock infrastructure work (data access, compute platform setup).", "budget_spent": 0.0}
+{"timestamp": "2026-03-17T19:23:00Z", "action": "heartbeat", "experiment": null, "reasoning": "Idle.", "budget_spent": 0.0}
+{"timestamp": "2026-03-17T20:23:00Z", "action": "heartbeat", "experiment": null, "reasoning": "Idle.", "budget_spent": 0.0}
+{"timestamp": "2026-03-17T21:23:00Z", "action": "heartbeat", "experiment": null, "reasoning": "Idle.", "budget_spent": 0.0}
+{"timestamp": "2026-03-17T22:23:00Z", "action": "heartbeat", "experiment": null, "reasoning": "Idle.", "budget_spent": 0.0}
+{"timestamp": "2026-03-17T23:23:00Z", "action": "heartbeat", "experiment": null, "reasoning": "Idle.", "budget_spent": 0.0}
+{"timestamp": "2026-03-18T00:23:00Z", "action": "heartbeat", "experiment": null, "reasoning": "Idle.", "budget_spent": 0.0}
+{"timestamp": "2026-03-18T01:23:00Z", "action": "heartbeat", "experiment": null, "reasoning": "Idle.", "budget_spent": 0.0}
+{"timestamp": "2026-03-18T02:23:00Z", "action": "heartbeat", "experiment": null, "reasoning": "Idle.", "budget_spent": 0.0}
+{"timestamp": "2026-03-18T03:23:00Z", "action": "heartbeat", "experiment": null, "reasoning": "Idle.", "budget_spent": 0.0}
+{"timestamp": "2026-03-18T04:23:00Z", "action": "heartbeat", "experiment": null, "reasoning": "Idle.", "budget_spent": 0.0}
+{"timestamp": "2026-03-18T05:23:00Z", "action": "heartbeat", "experiment": null, "reasoning": "Idle.", "budget_spent": 0.0}
+{"timestamp": "2026-03-18T06:23:00Z", "action": "heartbeat", "experiment": null, "reasoning": "Idle.", "budget_spent": 0.0}
+{"timestamp": "2026-03-18T07:23:00Z", "action": "heartbeat", "experiment": null, "reasoning": "Idle. Cron loop approaching 3-day auto-expiry.", "budget_spent": 0.0}
+{"timestamp": "2026-03-18T08:23:00Z", "action": "heartbeat", "experiment": null, "reasoning": "Idle. This may be one of the last heartbeats — cron auto-expires after 3 days.", "budget_spent": 0.0}
+{"timestamp": "2026-03-18T09:23:00Z", "action": "heartbeat", "experiment": null, "reasoning": "Idle. Final heartbeat — cron auto-expiring.", "budget_spent": 0.0}
