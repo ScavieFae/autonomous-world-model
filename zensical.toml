@@ -36,6 +36,8 @@ nav = [
     { "Training Pipeline" = "training-pipeline-research.md" },
   ] },
   { "Operations" = [
+    { "GPU Ops" = "gpu-ops.md" },
+    { "Troubleshooting" = "TROUBLESHOOTING.md" },
     { "Handoff" = "HANDOFF.md" },
   ] },
 ]
