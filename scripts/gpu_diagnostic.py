@@ -22,7 +22,7 @@ app = modal.App("awm-gpu-diagnostic")
 
 image = (
     modal.Image.debian_slim(python_version="3.11")
-    .pip_install("torch==2.5.1", "numpy", "pyyaml")
+    .pip_install("torch==2.5.1", "numpy", "pyyaml", "pyarrow")
     .add_local_dir(".", remote_path="/app", ignore=[
         ".git", "site", "solana", ".loop", ".obsidian", ".claude",
         "checkpoints", "node_modules", "__pycache__", "*.pyc",
@@ -60,7 +60,7 @@ def run_diagnostic(gpu_name: str):
     print(f"  CUDA available: {torch.cuda.is_available()}")
     if torch.cuda.is_available():
         print(f"  GPU: {torch.cuda.get_device_name(0)}")
-        print(f"  VRAM: {torch.cuda.get_device_properties(0).total_mem / 1e9:.1f} GB")
+        print(f"  VRAM: {torch.cuda.get_device_properties(0).total_memory / 1e9:.1f} GB")
         print(f"  Compute capability: {torch.cuda.get_device_capability()}")
         print(f"  CUDA version: {torch.version.cuda}")
     done("GPU info", t)

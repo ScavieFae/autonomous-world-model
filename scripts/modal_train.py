@@ -62,7 +62,7 @@ vol = modal.Volume.from_name("melee-training-data")
 
 @app.function(
     image=image,
-    gpu="A100-40GB",  # L4/T4 hang before wandb init — needs debugging
+    gpu="L4",  # 24GB, $0.80/hr — 53% cheaper than A100, 1.28x slower
     timeout=14400,  # 4 hours
     volumes={"/data": vol},
     secrets=[modal.Secret.from_name("wandb-key")],
@@ -331,7 +331,7 @@ def train(
 
 @app.function(
     image=image,
-    gpu="A100-40GB",  # L4/T4 hang before wandb init — needs debugging
+    gpu="L4",  # 24GB, $0.80/hr — 53% cheaper than A100, 1.28x slower
     timeout=3600,
     volumes={"/data": vol},
     secrets=[],
