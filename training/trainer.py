@@ -294,14 +294,13 @@ class Trainer:
 
         return ctrl, float_tgt, int_tgt
 
-    def _self_forcing_step(self) -> tuple[torch.Tensor, BatchMetrics]:
+    def _self_forcing_step(self) -> tuple[float, "BatchMetrics"]:
         """One Self-Forcing step: unroll N AR steps, loss vs ground truth.
 
-        Each step feeds the model's own reconstructed output as context
-        (truncated BPTT — detached between steps). Ground-truth controller
-        inputs and targets at every step.
+        Pre-builds all data on CPU, transfers once to GPU, runs all steps
+        on GPU. Reconstruction stays on CPU (uses argmax which is cheap).
 
-        Returns (averaged_loss, last_step_metrics).
+        Returns (averaged_loss_scalar, last_step_metrics).
         """
         dataset = self._rollout_dataset
         K = self.model.context_len
@@ -315,27 +314,37 @@ class Trainer:
         )
         starts = self._sf_valid_starts[idx]
 
-        # Build initial context from ground truth
-        batch_floats = torch.stack([dataset.floats[t - K:t] for t in starts])
-        batch_ints = torch.stack([dataset.ints[t - K:t] for t in starts])
+        # Pre-build ALL context and targets on CPU, transfer once
+        # Context: vectorized slice instead of per-sample loop
+        offsets = np.arange(-K, 0)
+        ctx_indices = starts[:, None] + offsets[None, :]  # (B, K)
+        batch_floats = dataset.floats[ctx_indices]  # (B, K, F)
+        batch_ints = dataset.ints[ctx_indices]  # (B, K, I)
+
+        # Pre-build targets for all N steps at once
+        all_ctrls = []
+        all_float_tgts = []
+        all_int_tgts = []
+        for step in range(N):
+            ctrl, float_tgt, int_tgt = self._build_sf_targets(starts + step)
+            all_ctrls.append(ctrl)
+            all_float_tgts.append(float_tgt)
+            all_int_tgts.append(int_tgt)
+
+        # Transfer targets to GPU once (not per-step)
+        all_ctrls_gpu = [c.to(self.device) for c in all_ctrls]
+        all_float_tgts_gpu = [f.to(self.device) for f in all_float_tgts]
+        all_int_tgts_gpu = [i.to(self.device) for i in all_int_tgts]
 
         total_sf_loss = 0.0
         last_metrics = None
 
         for step in range(N):
-            frame_indices = starts + step
-            ctrl, float_tgt, int_tgt = self._build_sf_targets(frame_indices)
-
             ctx_f = batch_floats[:, -K:, :].to(self.device)
             ctx_i = batch_ints[:, -K:, :].to(self.device)
-            ctrl_d = ctrl.to(self.device)
 
-            preds = self.model(ctx_f, ctx_i, ctrl_d)
+            preds = self.model(ctx_f, ctx_i, all_ctrls_gpu[step])
 
-            # Selective BPTT: for steps >= 1, detach categorical heads so
-            # only continuous/binary heads receive gradient through the
-            # autoregressive chain. Categorical heads (action_state etc.)
-            # still get teacher-forced gradient at step 0.
             if self._sf_selective_bptt and step > 0:
                 _CONTINUOUS_KEYS = {
                     'continuous_delta', 'velocity_delta',
@@ -347,21 +356,18 @@ class Trainer:
                 }
 
             loss, metrics = self.metrics.compute_loss(
-                preds, float_tgt.to(self.device), int_tgt.to(self.device), ctx_i,
+                preds, all_float_tgts_gpu[step], all_int_tgts_gpu[step], ctx_i,
             )
-            # Backward each step immediately to free the computation graph.
-            # This keeps peak GPU memory at ~1 forward pass instead of N.
-            # Gradients accumulate in parameters across steps.
             (loss / N).backward()
             total_sf_loss += loss.item()
             last_metrics = metrics
 
-            # Reconstruct next frame — detached (truncated BPTT)
+            # Reconstruct next frame — on CPU (argmax is cheap, keeps GPU free)
             with torch.no_grad():
                 preds_cpu = {k: v.cpu() for k, v in preds.items()}
                 next_float, next_int = reconstruct_frame(
                     preds_cpu, batch_floats[:, -1, :],
-                    batch_ints[:, -1, :], ctrl, self.cfg,
+                    batch_ints[:, -1, :], all_ctrls[step], self.cfg,
                 )
             batch_floats = torch.cat(
                 [batch_floats, next_float.unsqueeze(1)], dim=1,
