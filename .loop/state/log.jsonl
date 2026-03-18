@@ -97,3 +97,8 @@
 {"timestamp": "2026-03-19T04:23:00Z", "action": "heartbeat", "experiment": null, "reasoning": "Idle.", "budget_spent": 0.0}
 {"timestamp": "2026-03-19T05:23:00Z", "action": "heartbeat", "experiment": null, "reasoning": "Idle.", "budget_spent": 0.0}
 {"timestamp": "2026-03-19T06:23:00Z", "action": "heartbeat", "experiment": null, "reasoning": "Idle.", "budget_spent": 0.0}
+{"timestamp": "2026-03-19T07:23:00Z", "action": "heartbeat", "experiment": null, "reasoning": "Idle. Cron expired — this is a straggler invocation.", "budget_spent": 0.0}
+{"timestamp": "2026-03-19T08:23:00Z", "action": "heartbeat", "experiment": null, "reasoning": "Idle.", "budget_spent": 0.0}
+{"timestamp": "2026-03-19T09:23:00Z", "action": "heartbeat", "experiment": null, "reasoning": "Idle.", "budget_spent": 0.0}
+{"timestamp": "2026-03-19T10:23:00Z", "action": "heartbeat", "experiment": null, "reasoning": "Idle.", "budget_spent": 0.0}
+{"timestamp": "2026-03-19T11:23:00Z", "action": "heartbeat", "experiment": null, "reasoning": "Idle.", "budget_spent": 0.0}
