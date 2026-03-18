@@ -79,7 +79,8 @@ E018a confirmed this empirically: Self-Forcing improved RC by 7.5% while regress
 | SF longer unroll | E018b (N=5) | RC 6.45 (+3.0%). Regressed. | 1/1 regressed — could be N=5 specifically, not all N>3 |
 | SF loss weighting | E018d (linear ramp) | RC 6.81 (+8.8%). Regressed. | 1/1 regressed — one weighting scheme tested |
 | Context length | E018c (K=30), E019a (K=50) | K=30: RC 6.03 (-3.7%). K=50: RC 5.97 (-1.0%, marginal). | K=30 is a clear win. K=50 is diminishing returns but not zero. |
-| SF ratio | untested | — | Director rejected 20%→30% proposal. 0 experiments run. |
+| SF ratio (10%) | E020a (10% SF) | RC 6.62 (+9.8%). Regressed. | 1/1 regressed. 10% too little SF signal. 20% remains only proven ratio. |
+| Selective BPTT | E021b (detach categoricals after step 0) | RC 6.87 (+13.9%). Regressed. | 1/1 regressed. SF loss 4× higher — destabilized training. |
 | Dropout tuning | untested | — | Director rejected 0.1→0.05 proposal. 0 experiments run. |
 
 **Important:** "Regressed in 1 experiment" ≠ "axis is closed." The SF refinement experiments (E018b, E018d) tested specific configurations, not the entire parameter space. Different unroll lengths (N=4), different weighting schemes (exponential, step-function), or different SF ratios may behave differently. Agents should maintain uncertainty and can revisit with specific reasoning.
@@ -101,19 +102,56 @@ The 7.7K dataset exists on the Modal volume but loading takes 9hr/epoch with `nu
 #### 3. Cascaded heads + Self-Forcing
 E014 showed cascaded heads fixed damage drift at 1.9K. Code not ported to this repo. Requires implementation work.
 
-### Config directions (no code changes, lower expected value)
+#### 4. Muon optimizer
+The optimizer space is unexplored — vanilla AdamW since day one. Muon (Newton-Schulz orthogonalized SGD for weight matrices, AdamW for embeddings/scalars) showed strong results in Karpathy's autoresearch. Open question whether it helps for Mamba2 (different weight matrix structure than transformer Q/K/V). Low-risk: if it doesn't help, revert.
 
-#### 4. SF parameter space (revisitable)
-- **SF ratio:** Only 20% tested. 10%, 30%, 50% are all untested. Low priority given E018b/E018d regressions, but not ruled out.
+### Config directions (no code changes)
+
+#### 5. SF parameter space (revisitable)
+- **SF ratio:** 10% regressed (E020a, RC 6.62). 30%, 50% untested. 20% remains the only proven ratio.
 - **Unroll N=4:** Between the working N=3 and failing N=5. Might find a sweet spot.
 - **Alternative loss weighting:** Exponential, step-function, inverse-loss weighting. Linear ramp failed but other schemes untested.
 
-#### 5. Model architecture
-- **d_model scaling:** 384→512 untested in SF+K=30 regime
-- **n_layers:** 4 layers untested against alternatives
-- **Dropout:** 0.1 untested against alternatives in SF regime
+#### 6. Batch size sweep
+Karpathy's autoresearch found halving batch size was his single largest improvement. We've locked bs=512 without a systematic sweep. Test 256 (half) and 1024 (double), coupled with LR scaling (linear scaling rule: LR ∝ batch_size). Especially relevant given short training (1 epoch on 1.9K data).
 
-#### 6. Broader research
+#### 7. Architecture exploration (ref: issue #6)
+
+The model is ~4.3M params (d_model=384, n_layers=4, d_state=64, headdim=64). This was inherited from the nojohns migration without a formal ablation. We don't know if the model is the right size or shape.
+
+**Phase 1 — Width/Depth Grid (config-only, autonomous)**
+
+Run against E018c baseline (SF + K=30, RC 6.03). Change ONE dimension at a time. Double or half:
+
+| Variable | Half | Current | Double | What it teaches |
+|---|---|---|---|---|
+| d_model (width) | 192 (~1.1M) | 384 (~4.3M) | 768 (~17M) | Is the trunk too narrow? |
+| n_layers (depth) | 2 (~2.2M) | 4 (~4.3M) | 8 (~8.5M) | Does it need more processing stages? |
+| d_state (SSM memory) | 32 | 64 | 128 | Is the recurrent state forgetting game state? |
+| headdim (head granularity) | 32 (→24 heads) | 64 (→12 heads) | 128 (→6 heads) | Many independent streams vs few rich ones? |
+| Combined scale-up | — | — | d_model=768, n_layers=8 (~34M) | Is the model just too small? |
+
+Also test dropout=0.0 and dropout=0.3 (current 0.1).
+
+**Decision rules for Phase 2 (autonomous):**
+- If width (d_model) improves RC more than depth (n_layers): try d_model=512 at n_layers=4.
+- If depth improves more than width: try n_layers=6 at d_model=384.
+- If the 8× scale-up doesn't beat the best single-axis change: model isn't capacity-limited — stop scaling, focus on training/encoding.
+- If d_state=128 improves RC by >3%: extend to d_state=256.
+- If any single experiment improves RC by >5%: axis is high-value — run intermediate values to find the efficient frontier.
+- If ALL Tier 1 experiments are within ±2% of baseline: architecture isn't the bottleneck — deprioritize and move to training regime or data.
+
+**Phase 3 — Structural changes (requires Mattie approval)**
+
+These require code changes to `models/mamba2.py`. Don't attempt without sign-off:
+- Player-specific intermediate layers before heads
+- Cascaded heads (action → continuous) — revisit E014 with SF
+- Wider heads (2-layer MLP instead of single linear)
+- Hybrid SSM + attention (replace one Mamba2 layer with causal self-attention)
+
+Run on whatever model size wins from Phases 1-2.
+
+#### 8. Broader research
 Agents should actively search for techniques from the world model, video prediction, and reinforcement learning literature that might apply. The source papers list is small (4 papers). There may be relevant work on:
 - Differentiable world models and planning through learned dynamics
 - Curriculum learning for autoregressive models
@@ -134,6 +172,7 @@ Agents should actively search for techniques from the world model, video predict
 - **State observations with hit rates, not editorials.** "WD 0.001 improved in 3/3 experiments" not "weight decay is important."
 - **One idea per experiment.** Don't combine untested changes. If Self-Forcing + longer context both help, we want to know which helped how much.
 - **Kill fast.** If an experiment isn't showing signal by epoch 1, kill it. Don't throw good compute after bad.
+- **Double or half, not +1.** When exploring a parameter, make big moves to see directional shift. We're triangulating, not hill-climbing. Going from 4 layers to 8 is better than 4 to 5.
 
 ## The Eval Protocol
 
