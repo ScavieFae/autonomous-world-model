@@ -2,7 +2,7 @@
 
 Individual experiment records. Each card documents one idea tested in isolation.
 
-*11 cards. Generated 2026-03-18 17:06 UTC*
+*11 cards. Generated 2026-03-18 22:36 UTC*
 
 - :x: [Run Card: e021b-selective-bptt](e021b-selective-bptt.md) — *discarded*
 -  [Run Card: e020c-sf-n4](e020c-sf-n4.md) — *cancelled*

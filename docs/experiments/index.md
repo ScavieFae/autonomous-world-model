@@ -2,7 +2,7 @@
 
 *11 experiments — 2 kept, 2 running, 0 proposed, 5 discarded.*
 
-*Generated 2026-03-18 17:06 UTC*
+*Generated 2026-03-18 22:36 UTC*
 
 **Best rollout coherence:** 5.97 ([e019a](../run-cards/e019a-context-k50.md))
 
