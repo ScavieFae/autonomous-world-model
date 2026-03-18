@@ -179,7 +179,11 @@ class Mamba2Block(nn.Module):
         )
         x = x.view(batch, seqlen, self.nheads, self.headdim)
 
-        if self.chunk_size is not None and seqlen % self.chunk_size == 0:
+        if (self.chunk_size is not None
+                and seqlen % self.chunk_size == 0
+                and seqlen > self.chunk_size):
+            # SSD only benefits when nchunks > 1; with nchunks=1 the
+            # inter-chunk propagation is a no-op and sequential is faster.
             x_scaled = x * dt.unsqueeze(-1)
             y = self._ssd_scan(x_scaled, A, B, C, dt)
         else:

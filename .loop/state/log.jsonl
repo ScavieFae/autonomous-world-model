@@ -125,3 +125,4 @@
 {"timestamp": "2026-03-20T08:23:00Z", "action": "heartbeat", "experiment": null, "reasoning": "Idle.", "budget_spent": 0.0}
 {"timestamp": "2026-03-20T09:23:00Z", "action": "heartbeat", "experiment": null, "reasoning": "Idle.", "budget_spent": 0.0}
 {"timestamp": "2026-03-20T10:23:00Z", "action": "heartbeat", "experiment": null, "reasoning": "Idle.", "budget_spent": 0.0}
+{"timestamp": "2026-03-20T11:23:00Z", "action": "heartbeat", "experiment": "t4-benchmark", "reasoning": "T4 GPU benchmark in progress. Testing cheaper compute.", "budget_spent": 0.0}

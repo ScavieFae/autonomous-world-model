@@ -62,7 +62,7 @@ vol = modal.Volume.from_name("melee-training-data")
 
 @app.function(
     image=image,
-    gpu="A100-40GB",
+    gpu="L4",  # 24GB, $0.80/hr — benchmarking (T4 works but slow)
     timeout=14400,  # 4 hours
     volumes={"/data": vol},
     secrets=[modal.Secret.from_name("wandb-key")],
@@ -173,6 +173,21 @@ def train(
         for i in range(dataset.num_games)
     ]
 
+    # Move tensors to shared memory so DataLoader workers (num_workers>0)
+    # can access them without copying across the fork boundary.
+    # Without this, workers deadlock on Modal containers where /dev/shm is
+    # small (64MB default). The MeleeDataset.__init__ path does this
+    # automatically, but __new__ bypasses it.
+    try:
+        dataset.floats.share_memory_()
+        dataset.ints.share_memory_()
+        logging.info("Tensors moved to shared memory")
+    except RuntimeError as e:
+        # share_memory_() can fail if /dev/shm is too small for the tensors.
+        # Fall back to num_workers=0 (set below).
+        logging.warning("share_memory_() failed (%s) — will use num_workers=0", e)
+        train_cfg["num_workers"] = 0
+
     logging.info("Dataset: %d games, %d frames", dataset.num_games, dataset.total_frames)
 
     # Build train/val splits
@@ -262,6 +277,7 @@ def train(
         loss_weights=loss_weights,
         save_dir=save_dir,
         device="cuda",
+        num_workers=train_cfg.get("num_workers"),  # None = auto (4 for CUDA), 0 = no multiprocessing
         dataset=dataset,
         epoch_callback=lambda: vol.commit(),
         sf_enabled=sf_cfg.get("enabled", False),
@@ -322,7 +338,7 @@ def train(
 
 @app.function(
     image=image,
-    gpu="A100-40GB",
+    gpu="L4",  # 24GB, $0.80/hr — benchmarking (T4 works but slow)
     timeout=3600,
     volumes={"/data": vol},
     secrets=[],

@@ -33,7 +33,7 @@ model:
   n_layers: 4
   headdim: 64
   dropout: 0.1
-  chunk_size: 30        # must equal context_len for SSD scan
+  chunk_size: 15        # must divide context_len; use < context_len for SSD benefit
 
 training:
   lr: 0.0005
