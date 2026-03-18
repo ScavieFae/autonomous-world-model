@@ -62,7 +62,7 @@ vol = modal.Volume.from_name("melee-training-data")
 
 @app.function(
     image=image,
-    gpu="L4",  # 24GB, $0.80/hr — 53% cheaper than A100, 1.28x slower
+    gpu="T4",  # 16GB, $0.59/hr — diagnostic validated, 452ms/batch
     timeout=14400,  # 4 hours
     volumes={"/data": vol},
     secrets=[modal.Secret.from_name("wandb-key")],
@@ -173,13 +173,9 @@ def train(
         for i in range(dataset.num_games)
     ]
 
-    # Force num_workers=0 on non-A100 GPUs to avoid DataLoader deadlock.
-    # Modal T4/L4 containers have small /dev/shm (64MB) which causes
-    # multiprocess DataLoader to deadlock even with share_memory_().
-    # A100 containers have larger /dev/shm and work with num_workers=4.
-    # Single-process loading is slower but reliable.
-    train_cfg["num_workers"] = 0
-    logging.info("Using num_workers=0 (avoids /dev/shm deadlock on smaller GPUs)")
+    # share_memory_() above enables num_workers>0. Diagnostic confirmed
+    # num_workers=4 works on T4 and L4 after share_memory_().
+    # Don't override — let trainer use its default (4 for CUDA).
 
     logging.info("Dataset: %d games, %d frames", dataset.num_games, dataset.total_frames)
 
@@ -331,7 +327,7 @@ def train(
 
 @app.function(
     image=image,
-    gpu="L4",  # 24GB, $0.80/hr — 53% cheaper than A100, 1.28x slower
+    gpu="T4",  # 16GB, $0.59/hr — diagnostic validated, 452ms/batch
     timeout=3600,
     volumes={"/data": vol},
     secrets=[],

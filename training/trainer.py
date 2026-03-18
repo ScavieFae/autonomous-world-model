@@ -307,7 +307,7 @@ class Trainer:
         batch_floats = torch.stack([dataset.floats[t - K:t] for t in starts])
         batch_ints = torch.stack([dataset.ints[t - K:t] for t in starts])
 
-        all_losses = []
+        total_sf_loss = 0.0
         last_metrics = None
 
         for step in range(N):
@@ -337,7 +337,11 @@ class Trainer:
             loss, metrics = self.metrics.compute_loss(
                 preds, float_tgt.to(self.device), int_tgt.to(self.device), ctx_i,
             )
-            all_losses.append(loss)
+            # Backward each step immediately to free the computation graph.
+            # This keeps peak GPU memory at ~1 forward pass instead of N.
+            # Gradients accumulate in parameters across steps.
+            (loss / N).backward()
+            total_sf_loss += loss.item()
             last_metrics = metrics
 
             # Reconstruct next frame — detached (truncated BPTT)
@@ -354,13 +358,10 @@ class Trainer:
                 [batch_ints, next_int.unsqueeze(1)], dim=1,
             )
 
-        losses = torch.stack(all_losses)
-        if self._sf_horizon_weights:
-            weights = torch.linspace(0.5, 2.0, steps=N, device=losses.device)
-            sf_loss = (losses * weights).sum() / weights.sum()
-        else:
-            sf_loss = losses.mean()
-        return sf_loss, last_metrics
+        # Gradients already accumulated via per-step backward().
+        # Return None for loss (caller should NOT call backward again).
+        avg_loss = total_sf_loss / N
+        return avg_loss, last_metrics
 
     def _train_epoch(self) -> dict[str, float]:
         self.model.train()
@@ -379,7 +380,9 @@ class Trainer:
             )
 
             if is_sf:
-                loss, batch_metrics = self._self_forcing_step()
+                # SF does per-step backward internally (saves GPU memory).
+                # Returns scalar loss, not tensor — don't call backward.
+                loss_val, batch_metrics = self._self_forcing_step()
                 sf_count += 1
             else:
                 float_ctx = float_ctx.to(self.device)
@@ -391,8 +394,8 @@ class Trainer:
                 loss, batch_metrics = self.metrics.compute_loss(
                     predictions, float_tgt, int_tgt, int_ctx,
                 )
+                loss.backward()
 
-            loss.backward()
             torch.nn.utils.clip_grad_norm_(self.model.parameters(), max_norm=1.0)
             self.optimizer.step()
             epoch_metrics.update(batch_metrics)
