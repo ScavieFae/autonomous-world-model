@@ -62,7 +62,7 @@ vol = modal.Volume.from_name("melee-training-data")
 
 @app.function(
     image=image,
-    gpu="L4",  # 24GB, $0.80/hr — benchmarking (T4 works but slow)
+    gpu="A100-40GB",  # L4/T4 hang before wandb init — needs debugging
     timeout=14400,  # 4 hours
     volumes={"/data": vol},
     secrets=[modal.Secret.from_name("wandb-key")],
@@ -173,20 +173,13 @@ def train(
         for i in range(dataset.num_games)
     ]
 
-    # Move tensors to shared memory so DataLoader workers (num_workers>0)
-    # can access them without copying across the fork boundary.
-    # Without this, workers deadlock on Modal containers where /dev/shm is
-    # small (64MB default). The MeleeDataset.__init__ path does this
-    # automatically, but __new__ bypasses it.
-    try:
-        dataset.floats.share_memory_()
-        dataset.ints.share_memory_()
-        logging.info("Tensors moved to shared memory")
-    except RuntimeError as e:
-        # share_memory_() can fail if /dev/shm is too small for the tensors.
-        # Fall back to num_workers=0 (set below).
-        logging.warning("share_memory_() failed (%s) — will use num_workers=0", e)
-        train_cfg["num_workers"] = 0
+    # Force num_workers=0 on non-A100 GPUs to avoid DataLoader deadlock.
+    # Modal T4/L4 containers have small /dev/shm (64MB) which causes
+    # multiprocess DataLoader to deadlock even with share_memory_().
+    # A100 containers have larger /dev/shm and work with num_workers=4.
+    # Single-process loading is slower but reliable.
+    train_cfg["num_workers"] = 0
+    logging.info("Using num_workers=0 (avoids /dev/shm deadlock on smaller GPUs)")
 
     logging.info("Dataset: %d games, %d frames", dataset.num_games, dataset.total_frames)
 
@@ -338,7 +331,7 @@ def train(
 
 @app.function(
     image=image,
-    gpu="L4",  # 24GB, $0.80/hr — benchmarking (T4 works but slow)
+    gpu="A100-40GB",  # L4/T4 hang before wandb init — needs debugging
     timeout=3600,
     volumes={"/data": vol},
     secrets=[],
