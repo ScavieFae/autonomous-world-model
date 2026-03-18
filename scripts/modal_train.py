@@ -62,7 +62,7 @@ vol = modal.Volume.from_name("melee-training-data")
 
 @app.function(
     image=image,
-    gpu="T4",  # 16GB, $0.59/hr — diagnostic validated, 452ms/batch
+    gpu="L4",  # $0.80/hr — fast batch loader should fix data bottleneck
     timeout=14400,  # 4 hours
     volumes={"/data": vol},
     secrets=[modal.Secret.from_name("wandb-key")],
@@ -327,7 +327,7 @@ def train(
 
 @app.function(
     image=image,
-    gpu="T4",  # 16GB, $0.59/hr — diagnostic validated, 452ms/batch
+    gpu="L4",  # $0.80/hr — fast batch loader should fix data bottleneck
     timeout=3600,
     volumes={"/data": vol},
     secrets=[],

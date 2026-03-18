@@ -65,8 +65,13 @@ class Trainer:
                 device = "cpu"
         self.device = torch.device(device)
         logger.info("Using device: %s", self.device)
+        if self.device.type == "cuda":
+            vram_gb = torch.cuda.get_device_properties(0).total_memory / 1e9
+            logger.info("GPU VRAM: %.1f GB", vram_gb)
 
         self.model = model.to(self.device)
+        if self.device.type == "cuda":
+            logger.info("VRAM after model.to(): %.2f GB", torch.cuda.memory_allocated() / 1e9)
         self.cfg = cfg
         self.batch_size = batch_size
         self.num_epochs = num_epochs
@@ -86,14 +91,21 @@ class Trainer:
         logger.info("DataLoader: num_workers=%d", num_workers)
 
         is_iterable = isinstance(train_dataset, IterableDataset)
+
+        # Use fast vectorized batch loading if the dataset supports it.
+        # This is ~100x faster than DataLoader's per-sample __getitem__ + collation
+        # because it uses advanced indexing on contiguous tensors.
+        self._use_fast_loader = hasattr(train_dataset, 'get_batch') and not is_iterable
+        if self._use_fast_loader:
+            logger.info("Using fast vectorized batch loader (bypasses DataLoader)")
         self.train_loader = DataLoader(
             train_dataset,
             batch_size=batch_size,
             shuffle=not is_iterable,
-            num_workers=num_workers,
+            num_workers=num_workers if not self._use_fast_loader else 0,
             drop_last=True,
-            pin_memory=(device != "cpu"),
-            **loader_kwargs,
+            pin_memory=False,  # pin_memory=True can hang on OOM (PyTorch #73003)
+            **({} if self._use_fast_loader else loader_kwargs),
         )
         self.val_loader = None
         if val_dataset and len(val_dataset) > 0:
@@ -103,7 +115,7 @@ class Trainer:
                 shuffle=False,
                 num_workers=num_workers,
                 drop_last=False,
-                pin_memory=(device != "cpu"),
+                pin_memory=False,  # pin_memory=True can hang on OOM (PyTorch #73003)
                 **loader_kwargs,
             )
 
@@ -363,14 +375,35 @@ class Trainer:
         avg_loss = total_sf_loss / N
         return avg_loss, last_metrics
 
+    def _fast_batch_iter(self):
+        """Yield batches using vectorized get_batch instead of DataLoader.
+
+        Shuffles indices each epoch, slices into batch-sized chunks,
+        and calls dataset.get_batch() which does one advanced-index
+        operation instead of N __getitem__ calls.
+        """
+        ds = self.train_loader.dataset
+        n = len(ds)
+        indices = np.random.permutation(n)
+        bs = self.batch_size
+        for start in range(0, n - bs + 1, bs):
+            batch_indices = indices[start:start + bs]
+            yield ds.get_batch(batch_indices)
+
     def _train_epoch(self) -> dict[str, float]:
         self.model.train()
         epoch_metrics = EpochMetrics()
-        num_batches = len(self.train_loader)
+
+        if self._use_fast_loader:
+            batch_iter = self._fast_batch_iter()
+            num_batches = len(self.train_loader.dataset) // self.batch_size
+        else:
+            batch_iter = iter(self.train_loader)
+            num_batches = len(self.train_loader)
         log_interval = self._compute_log_interval(num_batches)
 
         sf_count = 0
-        for batch_idx, (float_ctx, int_ctx, next_ctrl, float_tgt, int_tgt) in enumerate(self.train_loader):
+        for batch_idx, (float_ctx, int_ctx, next_ctrl, float_tgt, int_tgt) in enumerate(batch_iter):
             self.optimizer.zero_grad()
 
             # Interleave: every (ratio+1)th batch is Self-Forcing
@@ -399,6 +432,14 @@ class Trainer:
             torch.nn.utils.clip_grad_norm_(self.model.parameters(), max_norm=1.0)
             self.optimizer.step()
             epoch_metrics.update(batch_metrics)
+
+            # Log VRAM peak after first batch
+            if batch_idx == 0 and self.device.type == "cuda":
+                logger.info(
+                    "VRAM peak after first batch: %.2f GB (allocated: %.2f GB)",
+                    torch.cuda.max_memory_allocated() / 1e9,
+                    torch.cuda.memory_allocated() / 1e9,
+                )
 
             if (batch_idx + 1) % log_interval == 0:
                 pct = 100.0 * (batch_idx + 1) / num_batches
