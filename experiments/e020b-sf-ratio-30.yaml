@@ -1,7 +1,10 @@
-# E020b: SF ratio 30% (1 SF per 2.33 TF batches → ratio=3)
-# From E018c baseline. Tests whether MORE Self-Forcing helps.
-# E018a used 20%. Director previously rejected this but we have
-# 0 data points — worth one test.
+# E020b: SF ratio ~33% (ratio:3 vs E018c ratio:4 = 25%)
+# Changes from E018c: self_forcing.ratio 4 → 3
+# Everything else identical.
+#
+# Hypothesis: more SF exposure (every 3rd step vs every 4th)
+# improves error recovery and rollout coherence.
+# Note: ratio:3 = 1/3 ≈ 33%, not exactly 30%.
 
 data:
   dataset_dir: null
@@ -30,7 +33,7 @@ model:
   n_layers: 4
   headdim: 64
   dropout: 0.1
-  chunk_size: 30
+  chunk_size: 15        # must divide context_len; use < context_len for SSD benefit
 
 training:
   lr: 0.0005
@@ -42,7 +45,7 @@ training:
 
 self_forcing:
   enabled: true
-  ratio: 3              # 30% SF (was 4 = 20% in e018c)
+  ratio: 3              # was 4 in E018c — SF every 3rd step (~33%)
   unroll_length: 3
 
 loss_weights:
