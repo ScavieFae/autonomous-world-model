@@ -1,10 +1,10 @@
-# E020b: SF ratio ~33% (ratio:3 vs E018c ratio:4 = 25%)
-# Changes from E018c: self_forcing.ratio 4 → 3
-# Everything else identical.
+# E022a: Halve batch size 512 -> 256
+# Changes from E018c: batch_size 512 -> 256, lr 5e-4 -> 2.5e-4
+# LR scaled linearly with batch size (linear scaling rule).
+# Everything else identical to E018c.
 #
-# Hypothesis: more SF exposure (every 3rd step vs every 4th)
-# improves error recovery and rollout coherence.
-# Note: ratio:3 = 1/3 ≈ 33%, not exactly 30%.
+# Hypothesis: smaller batches = 2x gradient updates on 1.9K dataset,
+# plus implicit regularization from noisier gradients.
 
 data:
   dataset_dir: null
@@ -27,7 +27,7 @@ encoding:
 
 model:
   arch: mamba2
-  context_len: 30
+  context_len: 30       # was 10 — 500ms instead of 167ms
   d_model: 384
   d_state: 64
   n_layers: 4
@@ -36,16 +36,16 @@ model:
   chunk_size: 15        # must divide context_len; use < context_len for SSD benefit
 
 training:
-  lr: 0.0005
+  lr: 0.00025           # halved from 0.0005 (linear scaling rule: LR ∝ BS)
   weight_decay: 0.00001
-  batch_size: 512
+  batch_size: 256       # halved from 512
   num_epochs: 1
   train_split: 0.9
   log_interval: 100
 
 self_forcing:
   enabled: true
-  ratio: 3              # was 4 in E018c — SF every 3rd step (~33%)
+  ratio: 4
   unroll_length: 3
 
 loss_weights:
@@ -60,4 +60,4 @@ loss_weights:
   ground: 0.3
   last_attack: 0.3
 
-save_dir: checkpoints/e020b-sf-ratio-30
+save_dir: checkpoints/e022a-bs256

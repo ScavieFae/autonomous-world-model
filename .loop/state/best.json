@@ -1,0 +1,39 @@
+{
+  "current_best": {
+    "experiment": "e023b",
+    "checkpoint": "e023b-dmodel768-r3/best.pt",
+    "config": "experiments/e023b-dmodel768.yaml",
+    "rollout_coherence": 5.775,
+    "metrics": {
+      "change_acc": 0.6599,
+      "pos_mae": 0.8229,
+      "p0_action_acc": 0.9578,
+      "sf_loss": 0.6182,
+      "h10_pos_mae": 5.4257,
+      "h10_action_acc": 0.7733
+    },
+    "model": {
+      "arch": "mamba2",
+      "d_model": 768,
+      "d_state": 64,
+      "n_layers": 4,
+      "headdim": 64,
+      "params": 15794548
+    },
+    "training": {
+      "sf_ratio": 4,
+      "sf_unroll": 3,
+      "context_len": 30,
+      "batch_size": 512,
+      "lr": 0.0005
+    },
+    "wandb": "https://wandb.ai/shinewave/melee-worldmodel/runs/9xacat7s",
+    "kept_at": "2026-03-20"
+  },
+  "history": [
+    {"experiment": "e019", "rc": 6.77, "kept_at": "2026-03-14"},
+    {"experiment": "e018a", "rc": 6.26, "kept_at": "2026-03-15"},
+    {"experiment": "e018c", "rc": 6.03, "kept_at": "2026-03-16"},
+    {"experiment": "e023b", "rc": 5.775, "kept_at": "2026-03-20"}
+  ]
+}

@@ -1,12 +1,12 @@
 {
   "daily_limit": 30.00,
   "weekly_limit": 150.00,
-  "daily_spent": 20.65,
-  "weekly_spent": 44.90,
-  "last_reset_daily": "2026-03-16",
-  "last_reset_weekly": "2026-03-14",
-  "experiments_run": 9,
-  "experiments_kept": 2,
-  "experiments_discarded": 5,
-  "total_spent": 44.90
+  "daily_spent": 0,
+  "weekly_spent": 35.26,
+  "last_reset_daily": "2026-03-21",
+  "last_reset_weekly": "2026-03-20",
+  "experiments_run": 14,
+  "experiments_kept": 3,
+  "experiments_discarded": 10,
+  "total_spent": 80.16
 }

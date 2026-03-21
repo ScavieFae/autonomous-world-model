@@ -1,10 +1,12 @@
 {
   "experiments": {
-    "in_flight": [],
+    "in_flight": [
+      {"id": "e024a-full-bptt", "modal_app_id": "ap-9S9cG0nUsFm0DgFNmIj7UT", "pr_number": 15, "branch": "e024a-full-bptt", "started_at": "2026-03-21T12:00:00Z", "estimated_cost": 9.0, "note": "A100 40GB, full BPTT SF, d_model=768"}
+    ],
     "max_concurrent": 3,
     "stale_timeout_hours": 4
   },
-  "prior_best_rc": 6.03,
+  "prior_best_rc": 5.775,
   "history": [
     {"id": "e018a-sf-minimal", "status": "kept", "rollout_coherence": 6.26, "prior_best_rc": 6.77, "cost": 3.90, "completed_at": "2026-03-15T18:04:00Z"},
     {"id": "e018b-sf-n5", "status": "discarded", "rollout_coherence": 6.45, "prior_best_rc": 6.26, "cost": 5.25, "completed_at": "2026-03-15T21:15:00Z"},
@@ -12,6 +14,12 @@
     {"id": "e018c-context-k30", "status": "kept", "rollout_coherence": 6.03, "prior_best_rc": 6.26, "cost": 5.20, "completed_at": "2026-03-16T07:07:00Z"},
     {"id": "e019a-context-k50", "status": "discarded", "rollout_coherence": 5.97, "prior_best_rc": 6.03, "cost": 5.90, "completed_at": "2026-03-16T11:07:00Z"},
     {"id": "e020a-sf-ratio-10", "status": "discarded", "rollout_coherence": 6.62, "prior_best_rc": 6.03, "cost": 4.25, "completed_at": "2026-03-17T00:23:00Z"},
-    {"id": "e021b-selective-bptt", "status": "discarded", "rollout_coherence": 6.87, "prior_best_rc": 6.03, "cost": 6.40, "completed_at": "2026-03-17T01:30:00Z"}
+    {"id": "e021b-selective-bptt", "status": "discarded", "rollout_coherence": 6.87, "prior_best_rc": 6.03, "cost": 6.40, "completed_at": "2026-03-17T01:30:00Z"},
+    {"id": "e023a-dmodel192", "status": "discarded", "rollout_coherence": 6.065, "prior_best_rc": 6.03, "cost": 2.56, "completed_at": "2026-03-20T03:30:00Z"},
+    {"id": "e020b-sf-ratio-30", "status": "discarded", "rollout_coherence": 6.289, "prior_best_rc": 6.03, "cost": 7.35, "completed_at": "2026-03-20T08:40:00Z"},
+    {"id": "e022a-bs256", "status": "discarded", "rollout_coherence": 6.026, "prior_best_rc": 6.03, "cost": 10.15, "completed_at": "2026-03-20T13:10:00Z"},
+    {"id": "e023b-dmodel768", "status": "kept", "rollout_coherence": 5.775, "prior_best_rc": 6.03, "cost": 8.70, "completed_at": "2026-03-20T16:30:00Z"},
+    {"id": "e023c-dmodel512", "status": "discarded", "rollout_coherence": 6.203, "prior_best_rc": 5.775, "cost": 6.50, "completed_at": "2026-03-20T20:50:00Z"},
+    {"id": "e023d-nlayers8", "status": "discarded", "rollout_coherence": 7.108, "prior_best_rc": 5.775, "cost": 13.00, "completed_at": "2026-03-21T00:00:00Z"}
   ]
 }

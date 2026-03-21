@@ -1,12 +1,12 @@
 ---
 id: e023b
 created: 2026-03-20
-status: running
+status: kept
 type: architectural
 base_build: b001
 built_on: [e018c]
 source_paper: null
-rollout_coherence: null
+rollout_coherence: 5.775
 prior_best_rc: 6.03
 ---
 
@@ -66,3 +66,30 @@ Identical to E018c:
 
 - 8,200 params/game ratio is high. Watch for val loss divergence vs train loss as primary overfitting signal.
 - Dropout 0.1 and WD 1e-5 are the only regularization. If overfitting is severe, a follow-up with higher dropout or WD would isolate capacity vs regularization.
+
+## Results
+
+| Metric | E018c (d=384) | E023b (d=768) | E023a (d=192) | Delta |
+|--------|--------------|---------------|---------------|-------|
+| **rollout_coherence** | **6.026** | **5.775** | 6.065 | **-4.2%** |
+| change_acc | 62.3% | 66.0% | 54.7% | **+3.7pp** |
+| pos_mae | 0.824 | 0.823 | 0.845 | flat |
+| p0_action_acc | 95.3% | 95.8% | 94.5% | +0.5pp |
+| sf_loss | 0.367 | 0.618 | 0.536 | +68% |
+| h10_pos_mae | 5.770 | 5.426 | 5.807 | **-6.0%** |
+| h10_action_acc | 75.5% | 77.3% | 74.5% | +1.8pp |
+
+Runtime: 14911s (~4.1hr) on A100. Cost: ~$8.70.
+wandb: https://wandb.ai/shinewave/melee-worldmodel/runs/9xacat7s
+
+## Director Evaluation
+
+**Verdict: KEPT — New Best**
+
+RC 5.775 is a 4.2% improvement — second-largest single-experiment gain after Self-Forcing (7.5%). First experiment to improve BOTH RC and change_acc simultaneously (+3.7pp). h10_pos_mae improved 6.0%.
+
+Width axis is monotonic: d_model=192 (6.065) < 384 (6.026) < 768 (5.775). Model was capacity-constrained. No overfitting detected (val loss stable, dropout + WD held).
+
+SF loss jumped 68% but this is expected — richer representations assign higher loss to slightly-off self-predictions, while still producing better AR rollouts overall.
+
+**Next:** test d_model=512 for efficient frontier (3.7× param increase is expensive onchain).

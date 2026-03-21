@@ -1,10 +1,10 @@
-# E020b: SF ratio ~33% (ratio:3 vs E018c ratio:4 = 25%)
-# Changes from E018c: self_forcing.ratio 4 → 3
+# E023c: Intermediate d_model — 384 → 512 → 768
+# Changes from E023b: d_model 768 → 512
 # Everything else identical.
 #
-# Hypothesis: more SF exposure (every 3rd step vs every 4th)
-# improves error recovery and rollout coherence.
-# Note: ratio:3 = 1/3 ≈ 33%, not exactly 30%.
+# Phase 2 architecture grid — find efficient frontier.
+# d_inner = 2*d_model = 1024, num_heads = d_inner/headdim = 1024/64 = 16.
+# Tests whether d_model=512 captures most of 768's gain at lower param cost.
 
 data:
   dataset_dir: null
@@ -27,8 +27,8 @@ encoding:
 
 model:
   arch: mamba2
-  context_len: 30
-  d_model: 384
+  context_len: 30       # was 10 — 500ms instead of 167ms
+  d_model: 512
   d_state: 64
   n_layers: 4
   headdim: 64
@@ -45,7 +45,7 @@ training:
 
 self_forcing:
   enabled: true
-  ratio: 3              # was 4 in E018c — SF every 3rd step (~33%)
+  ratio: 4
   unroll_length: 3
 
 loss_weights:
@@ -60,4 +60,4 @@ loss_weights:
   ground: 0.3
   last_attack: 0.3
 
-save_dir: checkpoints/e020b-sf-ratio-30
+save_dir: checkpoints/e023c-dmodel512

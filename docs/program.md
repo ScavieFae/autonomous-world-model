@@ -10,11 +10,12 @@ A learned world model that runs onchain as an autonomous world. Trained on Super
 
 | Checkpoint | Experiment | change_acc | pos_mae | rollout_coherence | Notes |
 |-----------|-----------|-----------|---------|-------------------|-------|
-| `e018a-sf-minimal/best.pt` | E018a | 61.6% | 0.825 | **6.26** | b001 + Self-Forcing (20% SF, N=3), 1.9K data |
+| `e023b-dmodel768-r3/best.pt` | E023b | 66.0% | 0.823 | **5.775** | b001 + SF + K=30 + d_model=768, 1.9K data |
+| `e018c-context-k30/best.pt` | E018c | 62.3% | 0.824 | 6.03 | b001 + SF + K=30, d_model=384 |
+| `e018a-sf-minimal/best.pt` | E018a | 61.6% | 0.825 | 6.26 | b001 + Self-Forcing (20% SF, N=3), 1.9K data |
 | `e019-baseline-1k/best.pt` | E019 | 78.7% | 0.756 | 6.77 | b001, 1.9K data, full loss suite (10 heads) |
-| `e012-clean-fd-top5/best.pt` | E012 | 91.1% | 0.706 | 6.84 | Pre-migration, partial losses (4 heads) |
 
-E018a is the new best. Self-Forcing improved rollout coherence by 7.5% (6.77→6.26) despite -17pp change_acc and +9% pos_mae regression in TF metrics. The trend from E012→E019→E018a is consistent: each step trades TF accuracy for AR quality. SF loss (0.38) was 2.3× TF loss (0.16), confirming the model faces harder predictions from its own state. E018b (N=5 unroll) is in flight testing whether longer horizon helps further.
+E023b is the new best. Doubling d_model (384→768) improved RC by 4.2% (6.03→5.775) — the first experiment to improve BOTH RC and change_acc (+3.7pp). Width axis is monotonic: d_model 192 (6.065) < 384 (6.03) < 768 (5.775). The model was capacity-constrained. Cumulative improvement from E019 baseline: -14.7% (6.77→5.775).
 
 Val metrics plateau after 1 epoch on 1.9K data (epoch 2 showed identical val performance). 1 epoch is sufficient for Scout experiments.
 
@@ -117,21 +118,20 @@ Karpathy's autoresearch found halving batch size was his single largest improvem
 
 #### 7. Architecture exploration (ref: issue #6)
 
-The model is ~4.3M params (d_model=384, n_layers=4, d_state=64, headdim=64). This was inherited from the nojohns migration without a formal ablation. We don't know if the model is the right size or shape.
+The model was ~4.3M params (d_model=384). E023b proved it was capacity-constrained: d_model=768 (~15.8M) improved RC 4.2% and change_acc +3.7pp. Width axis is monotonic and high-value.
 
 **Phase 1 — Width/Depth Grid (config-only, autonomous)**
 
-Run against E018c baseline (SF + K=30, RC 6.03). Change ONE dimension at a time. Double or half:
-
-| Variable | Half | Current | Double | What it teaches |
+| Variable | Half | Current | Double | Results |
 |---|---|---|---|---|
-| d_model (width) | 192 (~1.1M) | 384 (~4.3M) | 768 (~17M) | Is the trunk too narrow? |
-| n_layers (depth) | 2 (~2.2M) | 4 (~4.3M) | 8 (~8.5M) | Does it need more processing stages? |
-| d_state (SSM memory) | 32 | 64 | 128 | Is the recurrent state forgetting game state? |
-| headdim (head granularity) | 32 (→24 heads) | 64 (→12 heads) | 128 (→6 heads) | Many independent streams vs few rich ones? |
-| Combined scale-up | — | — | d_model=768, n_layers=8 (~34M) | Is the model just too small? |
+| d_model (width) | 192 (~1.3M) | 384 (~4.3M) | **768 (~15.8M)** | **192: RC 6.065 (underfit). 768: RC 5.775 (-4.2%, KEPT). Monotonic.** |
+| n_layers (depth) | 2 (~2.2M) | 4 (~4.3M) | 8 (~8.5M) | Untested |
+| d_state (SSM memory) | 32 | 64 | 128 | Untested |
+| headdim (head granularity) | 32 (→24 heads) | 64 (→12 heads) | 128 (→6 heads) | Untested |
 
-Also test dropout=0.0 and dropout=0.3 (current 0.1).
+**Phase 2 — now active (triggered by d_model=768 improving RC >5%):**
+- Test d_model=512 at n_layers=4 to find efficient frontier (onchain weight size matters).
+- If 512 ≈ 768 in RC: efficient frontier is 512. If 512 << 768: scaling law continues.
 
 **Decision rules for Phase 2 (autonomous):**
 - If width (d_model) improves RC more than depth (n_layers): try d_model=512 at n_layers=4.
@@ -178,10 +178,10 @@ Agents should actively search for techniques from the world model, video predict
 
 For autoresearch agents:
 
-1. Start from `experiments/e018c-context-k30.yaml` (current best: SF + K=30). Change ONE thing.
-2. Train on 1.9K data (`encoded-e012-fd-top5.pt`), 1 epoch, bs=512. ~2.5hr on A100, ~$5.
+1. Start from the current best config (see `.loop/state/best.json`). Change ONE thing.
+2. Train on 1.9K data (`encoded-e012-fd-top5.pt`), 1 epoch, A100. Cost varies with model size.
 3. Rollout coherence eval runs automatically after training (integrated in Trainer).
-4. Compare to baseline: **rollout_coherence = 6.03** (E018c).
+4. Compare to baseline RC in `.loop/state/best.json`.
 5. **Keep** if rollout coherence improves. Write run card with `base_build`, `built_on` citations and numbers.
 6. **Discard** if rollout coherence regresses or stays flat. Write run card documenting the null result.
 7. Either way, the run card is the permanent record. Null results are data.

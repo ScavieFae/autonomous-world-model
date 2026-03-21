@@ -115,3 +115,53 @@ Built the `/push` skill as a communication workflow. The design: scope audit →
 Key feedback from Mattie: program.md is the human's lever — never modify autonomously, only propose. RUNNING.md (not RESEARCH-DIARY.md) is the right place for session-level notes and findings. Saved these as persistent memories.
 
 Still need: baseline rollout coherence numbers for E012 and E017a. That's the next session's first task — run the eval, get numbers, update program.md (with Mattie), then Self-Forcing can start.
+
+## 2026-03-20: e023a-dmodel192 — DISCARDED
+
+- **RC: 6.065** (baseline 6.03, +0.58% — within noise)
+- d_model 384→192, 4.35M→1.29M params (3.36× reduction)
+- TF metrics regressed: change_acc -7.6pp, sf_loss +45%
+- **Finding:** d_model=384 is not over-parameterized at 1.9K data. Halving width underfits. The smaller model achieves similar AR quality but through a different (worse) error regime.
+- **Next:** test d_model=768 to check if model is capacity-constrained.
+- wandb: https://wandb.ai/shinewave/melee-worldmodel/runs/15p6li64
+- Cost: ~$2.56 (3.2hr L4)
+
+## 2026-03-20: e020b-sf-ratio-30 — DISCARDED
+
+- **RC: 6.289** (baseline 6.03, +4.3% regression)
+- SF ratio:3 (~33% SF) vs baseline ratio:4 (25% SF)
+- SF loss +15% (0.37→0.427), change_acc -2.1pp
+- **Finding:** SF ratio axis closed with 3 data points. Symmetric degradation: 10% RC 6.62, 20% RC 6.03 (optimal), 33% RC 6.289. ratio:4 locked as proven improvement.
+- wandb: https://wandb.ai/shinewave/melee-worldmodel/runs/8powgzv7
+- Cost: ~$7.35 (3.5hr A100)
+
+## 2026-03-20: e022a-bs256 — DISCARDED
+
+- **RC: 6.026** (baseline 6.03, -0.07% — flat, within noise)
+- batch_size 512→256, lr 5e-4→2.5e-4 (linear scaling rule)
+- SF loss +46% (0.37→0.539), change_acc -1.8pp, pos_mae -2.2% (improved)
+- **Finding:** Karpathy's batch size halving did not replicate. Smaller batches destabilize Self-Forcing (SF loss +46%). The implicit regularization mechanism is weaker with deterministic data + existing SF regularizer. Batch size axis: 0/1 improvements.
+- wandb: https://wandb.ai/shinewave/melee-worldmodel/runs/22yh97ft
+- Cost: ~$10.15 (4.8hr A100)
+
+## 2026-03-20: e023b-dmodel768 — KEPT (NEW BEST!)
+
+- **RC: 5.775** (baseline 6.026, **-4.2% improvement** — second-largest ever after Self-Forcing)
+- d_model 384→768, 4.3M→15.8M params (3.7× increase)
+- **First experiment to improve BOTH RC and change_acc** (+3.7pp to 66.0%)
+- h10_pos_mae -6.0% (5.770→5.426) — significantly less drift at 10-step horizon
+- SF loss +68% (expected — richer representations, harder self-prediction)
+- **Width axis monotonic:** d_model 192 (6.065) < 384 (6.026) < 768 (5.775)
+- **Finding:** Model was capacity-constrained at d_model=384. Doubling width lifts all metrics. No overfitting at 15.8M params on 1.9K data.
+- **Next:** d_model=512 for efficient frontier (onchain weight size matters)
+- wandb: https://wandb.ai/shinewave/melee-worldmodel/runs/9xacat7s
+- Cost: ~$8.70 (4.1hr A100)
+
+## 2026-03-20: e023c-dmodel512 — DISCARDED
+
+- **RC: 6.203** (regresses vs both d=384 baseline 6.026 and d=768 best 5.775)
+- d_model=512, 7.3M params, 16 heads
+- change_acc 63.8% (monotonic improvement on TF), but RC non-monotonic
+- **Finding:** Width scaling is NOT monotonic for RC: 192→384→512(!)→768. d=512 with 16 heads may be pathological. TF metrics are monotonic — the issue is specific to AR rollout quality.
+- wandb: https://wandb.ai/shinewave/melee-worldmodel/runs/7av6ingz
+- Cost: ~$6.50 (3.1hr A100)
