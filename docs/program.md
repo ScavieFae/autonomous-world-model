@@ -125,9 +125,11 @@ The model was ~4.3M params (d_model=384). E023b proved it was capacity-constrain
 | Variable | Half | Current | Double | Results |
 |---|---|---|---|---|
 | d_model (width) | 192 (~1.3M) | 384 (~4.3M) | **768 (~15.8M)** | **192: RC 6.065 (underfit). 768: RC 5.775 (-4.2%, KEPT). Monotonic.** |
-| n_layers (depth) | 2 (~2.2M) | 4 (~4.3M) | 8 (~8.5M) | Untested |
+| n_layers (depth) | 2 (~2.2M) | 4 (~4.3M) | 8 (~30.5M at d=768) | **8: RC 7.108 (+23.1%, regressed). Depth hurts at d_model=768.** |
 | d_state (SSM memory) | 32 | 64 | 128 | Untested |
 | headdim (head granularity) | 32 (→24 heads) | 64 (→12 heads) | 128 (→6 heads) | Untested |
+
+**Phase 1 status:** Width axis is the clear winner (monotonic, -4.2% RC at 768). Depth regressed 23.1% (0/1 improved). d_state and headdim are lower priority — the depth result suggests the model is already over-parameterized for 1.9K data at d_model=768, so further capacity axes are unlikely to help without more data.
 
 **Phase 2 — now active (triggered by d_model=768 improving RC >5%):**
 - Test d_model=512 at n_layers=4 to find efficient frontier (onchain weight size matters).

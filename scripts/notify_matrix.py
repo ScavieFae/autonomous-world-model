@@ -31,6 +31,7 @@ ROOMS = {
     "escalations": "!vzOSznMmGhfnnLYwJC:scaviefae.matrix",
     "worker-updates": "!eIBTJrcmgzagIMcwJq:scaviefae.matrix",
     "awm": "!zltalEmYxGVBwTmuha:scaviefae.matrix",
+    "github-activity": "!YcELSmuaWiBUWpvBxr:scaviefae.matrix",
 }
 
 _token_cache = None

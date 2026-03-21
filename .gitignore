@@ -41,3 +41,4 @@ bot/crypto_store/
 .claude/last_pull.json
 .claude/settings.local.json
 .loop/modules/docs/state/site/
+.github_poller_state.json

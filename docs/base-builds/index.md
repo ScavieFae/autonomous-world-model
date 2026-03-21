@@ -2,7 +2,7 @@
 
 Versioned packages of canonical findings — stable sets of design decisions that experiments build on.
 
-*1 base build(s). Generated 2026-03-20 20:04 UTC*
+*1 base build(s). Generated 2026-03-21 18:47 UTC*
 
 ## b001
 

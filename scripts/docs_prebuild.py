@@ -75,6 +75,145 @@ def parse_yaml_comments(text: str) -> dict:
     return fm
 
 
+def _node_key(card):
+    """Unique Mermaid node key from filename stem (handles duplicate IDs like e018b)."""
+    return card.get("filename", "").replace(".md", "").replace("-", "_")
+
+
+def _build_experiment_tree(cards):
+    """Build a Mermaid flowchart of experiment lineage from built_on relationships."""
+    # Only include cards that have built_on or are referenced by built_on
+    graphed = [c for c in cards if c.get("built_on") is not None or c.get("base_build")]
+    if not graphed:
+        return []
+
+    status_styles = {
+        "kept": "fill:#2e7d32,color:#fff",
+        "running": "fill:#1565c0,color:#fff",
+        "proposed": "fill:#f9a825,color:#000",
+        "discarded": "fill:#616161,color:#fff",
+        "cancelled": "fill:#424242,color:#999",
+    }
+
+    lines = [
+        "## Experiment Tree",
+        "",
+        "```mermaid",
+        "flowchart TD",
+    ]
+
+    # Build lookup: card ID → list of node keys (for edge targets)
+    id_to_keys = {}
+    for c in graphed:
+        cid = c.get("id", "?")
+        id_to_keys.setdefault(cid, []).append(_node_key(c))
+
+    # Collect all referenced base builds
+    base_builds = set()
+    for c in graphed:
+        bb = c.get("base_build")
+        if bb:
+            base_builds.add(bb)
+
+    # Add base build nodes
+    for bb in sorted(base_builds):
+        lines.append(f'    {bb}["{bb}"]')
+
+    # Add experiment nodes with RC in label
+    for c in graphed:
+        nk = _node_key(c)
+        cid = c.get("id", "?")
+        rc = c.get("rollout_coherence")
+        status = c.get("status", "")
+        label = cid
+        if rc:
+            label += f"\\nRC {rc}"
+        if status == "kept":
+            lines.append(f'    {nk}(["{label}"])')
+        elif status in ("discarded", "cancelled"):
+            lines.append(f'    {nk}["{label}"]')
+        else:
+            lines.append(f'    {nk}("{label}")')
+
+    # Add edges
+    for c in graphed:
+        nk = _node_key(c)
+        built_on = c.get("built_on", [])
+        if isinstance(built_on, list) and built_on:
+            for parent_id in built_on:
+                # Connect from first node with that ID (usually only one)
+                parent_keys = id_to_keys.get(parent_id, [])
+                if parent_keys:
+                    lines.append(f"    {parent_keys[0]} --> {nk}")
+                else:
+                    # Parent might be a pre-schema card not in the graph
+                    lines.append(f"    {parent_id} --> {nk}")
+        elif isinstance(built_on, list) and not built_on:
+            # Empty list = root experiment, connect to base build
+            bb = c.get("base_build")
+            if bb:
+                lines.append(f"    {bb} --> {nk}")
+
+    # Apply styles
+    for c in graphed:
+        nk = _node_key(c)
+        status = c.get("status", "")
+        style = status_styles.get(status)
+        if style:
+            lines.append(f"    style {nk} {style}")
+
+    for bb in sorted(base_builds):
+        lines.append(f"    style {bb} fill:#4a148c,color:#fff")
+
+    lines.append("```")
+    lines.append("")
+
+    return lines
+
+
+def _build_rc_leaderboard(cards):
+    """Build a rollout coherence leaderboard sorted best to worst."""
+    scored = [c for c in cards if c.get("rollout_coherence")]
+    if not scored:
+        return []
+
+    scored.sort(key=lambda c: float(c["rollout_coherence"]))
+
+    # Find the best RC for the progress bar scaling
+    rcs = [float(c["rollout_coherence"]) for c in scored]
+    rc_min, rc_max = min(rcs), max(rcs)
+
+    lines = [
+        "## Rollout Coherence",
+        "",
+        "*Lower is better. Mean position MAE over K=20 autoregressive horizons.*",
+        "",
+        "| Rank | Experiment | RC | Status | Delta vs Best |",
+        "|------|-----------|-----|--------|---------------|",
+    ]
+
+    best_rc = rcs[0]
+    for i, c in enumerate(scored):
+        cid = c.get("id", "?")
+        rc = float(c["rollout_coherence"])
+        status = c.get("status", "?")
+        delta = rc - best_rc
+        delta_str = f"+{delta:.2f}" if delta > 0 else "**best**"
+        link = f"[{cid}](../run-cards/{c['filename']})"
+
+        status_icons = {
+            "kept": ":white_check_mark:",
+            "discarded": ":x:",
+            "running": ":hourglass:",
+            "cancelled": ":stop_sign:",
+        }
+        icon = status_icons.get(status, "")
+        lines.append(f"| {i+1} | {link} | {rc} | {icon} {status} | {delta_str} |")
+
+    lines.append("")
+    return lines
+
+
 def generate_experiment_index():
     """Generate experiments/index.md from run card frontmatter."""
     EXPERIMENTS_DIR.mkdir(parents=True, exist_ok=True)
@@ -116,6 +255,12 @@ def generate_experiment_index():
             f"([{best['id']}](../run-cards/{best['filename']}))"
         )
         lines.append("")
+
+    # Experiment tree (Mermaid)
+    lines.extend(_build_experiment_tree(cards))
+
+    # RC leaderboard
+    lines.extend(_build_rc_leaderboard(cards))
 
     for section_name, section_cards in [
         ("Running", running),

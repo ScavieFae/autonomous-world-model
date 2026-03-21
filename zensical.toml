@@ -16,6 +16,7 @@ nav = [
       { "Diary (Archive)" = "RESEARCH-DIARY.md" },
     ] },
     { "Autonomous Research" = [
+      { "Agent System" = "agent-system.md" },
       { "Program" = "program.md" },
       { "Autoresearch Plan" = "autoresearch-plan.md" },
     ] },
@@ -33,6 +34,7 @@ nav = [
     { "Arena Mechanics" = "design-arena-mechanics.md" },
   ] },
   { "Reference" = [
+    { "Research Canon" = "research-canon.md" },
     { "Training Pipeline" = "training-pipeline-research.md" },
   ] },
   { "Operations" = [

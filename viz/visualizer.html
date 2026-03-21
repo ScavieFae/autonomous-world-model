@@ -314,6 +314,29 @@
   }
   .data-source .file-btn:hover { background: var(--surface-el); }
 
+  .track-selector {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .track-selector label {
+    font-family: var(--mono);
+    font-size: 10px;
+    color: var(--dim);
+    text-transform: uppercase;
+    letter-spacing: 1px;
+  }
+  .track-selector select {
+    font-family: var(--mono);
+    font-size: 11px;
+    padding: 4px 8px;
+    border-radius: 4px;
+    border: 1px solid var(--border-b);
+    background: var(--surface2);
+    color: var(--text);
+    cursor: pointer;
+  }
+
   .canvas-area.drag-over::after {
     content: 'Drop JSON file to load';
     position: absolute;
@@ -365,6 +388,10 @@
     </select>
     <button class="file-btn" id="btnLoadFile" type="button">Load JSON</button>
     <input id="fileInput" type="file" accept=".json,application/json" hidden>
+  </div>
+  <div class="track-selector" id="trackSelector" style="display:none">
+    <label>Track:</label>
+    <select id="trackSelect"></select>
   </div>
   <div class="frame-counter">Frame <b id="frameNum">0</b> / <b id="totalFrames">0</b></div>
 </div>
@@ -1401,6 +1428,7 @@ function updatePanel(frame) {
 
 let frames = [];
 let loadedFrames = null;
+let loadedTracks = null;  // comparison mode: {trackName: frames[], ...}
 let loadedFileName = '';
 let currentFrame = 0;
 let playing = false;
@@ -1421,6 +1449,8 @@ const dataSource = document.getElementById('dataSource');
 const dataTag = document.getElementById('dataTag');
 const btnLoadFile = document.getElementById('btnLoadFile');
 const fileInput = document.getElementById('fileInput');
+const trackSelector = document.getElementById('trackSelector');
+const trackSelect = document.getElementById('trackSelect');
 
 function setCanvasError(message) {
   canvasErrorMessage = message || '';
@@ -1548,15 +1578,51 @@ async function loadJsonFile(file) {
   try {
     const text = await file.text();
     const parsed = JSON.parse(text);
-    const normalized = validateAndNormalizeLoadedFrames(parsed);
-    loadedFrames = normalized;
-    loadedFileName = file.name || '';
-    const loadedOption = ensureLoadedOption();
-    loadedOption.textContent = 'Loaded file';
-    loadedOption.title = loadedFileName;
-    dataSource.value = 'loaded';
-    if (playing) togglePlay();
-    loadLoadedFrames();
+
+    if (parsed && parsed.comparison && parsed.tracks) {
+      // Comparison format: {comparison: true, tracks: {name: frames[], ...}}
+      loadedTracks = {};
+      const trackNames = Object.keys(parsed.tracks);
+      for (const name of trackNames) {
+        loadedTracks[name] = validateAndNormalizeLoadedFrames(parsed.tracks[name]);
+      }
+      const defaultTrack = parsed.default_track || trackNames[0];
+      loadedFrames = loadedTracks[defaultTrack];
+
+      // Populate track selector
+      trackSelect.innerHTML = '';
+      for (const name of trackNames) {
+        const opt = document.createElement('option');
+        opt.value = name;
+        opt.textContent = name;
+        trackSelect.appendChild(opt);
+      }
+      trackSelect.value = defaultTrack;
+      trackSelector.style.display = '';
+
+      loadedFileName = file.name || '';
+      const loadedOption = ensureLoadedOption();
+      loadedOption.textContent = parsed.meta
+        ? `${parsed.meta.checkpoint || 'comparison'}`
+        : 'Comparison';
+      loadedOption.title = loadedFileName;
+      dataSource.value = 'loaded';
+      if (playing) togglePlay();
+      loadLoadedFrames();
+    } else {
+      // Standard format: bare array of frames
+      loadedTracks = null;
+      trackSelector.style.display = 'none';
+      const normalized = validateAndNormalizeLoadedFrames(parsed);
+      loadedFrames = normalized;
+      loadedFileName = file.name || '';
+      const loadedOption = ensureLoadedOption();
+      loadedOption.textContent = 'Loaded file';
+      loadedOption.title = loadedFileName;
+      dataSource.value = 'loaded';
+      if (playing) togglePlay();
+      loadLoadedFrames();
+    }
   } catch (err) {
     const msg = err && err.message ? err.message : String(err);
     setCanvasError(msg);
@@ -1635,7 +1701,20 @@ dataSource.addEventListener('change', () => {
     loadLoadedFrames();
     return;
   }
+  trackSelector.style.display = 'none';
   loadScenario(dataSource.value);
+});
+
+trackSelect.addEventListener('change', () => {
+  if (!loadedTracks) return;
+  const trackName = trackSelect.value;
+  loadedFrames = loadedTracks[trackName];
+  const savedFrame = currentFrame;
+  resetPlaybackWithFrames(loadedFrames);
+  // Preserve frame position when switching tracks
+  currentFrame = Math.min(savedFrame, frames.length - 1);
+  timeline.value = currentFrame;
+  renderCurrentFrame();
 });
 
 btnLoadFile.addEventListener('click', () => fileInput.click());
@@ -1677,6 +1756,17 @@ document.addEventListener('keydown', (e) => {
       playSpeed = SPEEDS[speedIdx];
       btnSpeed.textContent = `${playSpeed}x`;
       speedLabel.textContent = `${Math.round(60 * playSpeed)} fps`;
+      break;
+    case 'ArrowUp': case 'ArrowDown':
+      if (loadedTracks) {
+        e.preventDefault();
+        const opts = Array.from(trackSelect.options);
+        const curIdx = opts.findIndex(o => o.value === trackSelect.value);
+        const dir = e.key === 'ArrowUp' ? -1 : 1;
+        const nextIdx = (curIdx + dir + opts.length) % opts.length;
+        trackSelect.value = opts[nextIdx].value;
+        trackSelect.dispatchEvent(new Event('change'));
+      }
       break;
   }
 });
