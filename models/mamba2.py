@@ -292,20 +292,57 @@ class FrameStackMamba2(nn.Module):
         self.p0_last_attack_head = nn.Linear(d_model, cfg.last_attack_vocab)
         self.p1_last_attack_head = nn.Linear(d_model, cfg.last_attack_vocab)
 
-    def _encode_frames(self, float_ctx, int_ctx):
-        """Encode context frames into per-frame vectors."""
-        c = self._int_cols
+    @staticmethod
+    def _soft_embed(
+        embed: nn.Embedding,
+        indices: torch.Tensor,
+        logits: torch.Tensor | None = None,
+    ) -> torch.Tensor:
+        """Embed integer indices, with optional soft override for the last frame.
 
-        p0_action_emb = self.action_embed(int_ctx[:, :, c["p0_action"]])
-        p0_jumps_emb = self.jumps_embed(int_ctx[:, :, c["p0_jumps"]])
+        When logits is provided, the last frame's embedding is computed as
+        softmax(logits) @ embed.weight — fully differentiable for BPTT.
+
+        Args:
+            embed: Embedding layer.
+            indices: (B, K) integer indices.
+            logits: (B, vocab) logits for the last frame (optional).
+
+        Returns:
+            (B, K, embed_dim)
+        """
+        if logits is None:
+            return embed(indices)
+        # Normal embedding for frames [0:K-1], soft for last frame
+        normal = embed(indices[:, :-1])  # (B, K-1, D)
+        soft = F.softmax(logits, dim=-1) @ embed.weight  # (B, D)
+        return torch.cat([normal, soft.unsqueeze(1)], dim=1)  # (B, K, D)
+
+    def _encode_frames(self, float_ctx, int_ctx, soft_cat_last=None):
+        """Encode context frames into per-frame vectors.
+
+        Args:
+            soft_cat_last: Optional dict of logit tensors for differentiable
+                embedding of the last frame's predicted categoricals (action/jumps).
+                Keys: p0_action_logits, p0_jumps_logits, p1_action_logits, p1_jumps_logits.
+        """
+        c = self._int_cols
+        scl = soft_cat_last or {}
+
+        p0_action_emb = self._soft_embed(
+            self.action_embed, int_ctx[:, :, c["p0_action"]], scl.get("p0_action_logits"))
+        p0_jumps_emb = self._soft_embed(
+            self.jumps_embed, int_ctx[:, :, c["p0_jumps"]], scl.get("p0_jumps_logits"))
         p0_char_emb = self.character_embed(int_ctx[:, :, c["p0_char"]])
         p0_lc_emb = self.l_cancel_embed(int_ctx[:, :, c["p0_l_cancel"]])
         p0_hb_emb = self.hurtbox_embed(int_ctx[:, :, c["p0_hurtbox"]])
         p0_gnd_emb = self.ground_embed(int_ctx[:, :, c["p0_ground"]])
         p0_la_emb = self.last_attack_embed(int_ctx[:, :, c["p0_last_attack"]])
 
-        p1_action_emb = self.action_embed(int_ctx[:, :, c["p1_action"]])
-        p1_jumps_emb = self.jumps_embed(int_ctx[:, :, c["p1_jumps"]])
+        p1_action_emb = self._soft_embed(
+            self.action_embed, int_ctx[:, :, c["p1_action"]], scl.get("p1_action_logits"))
+        p1_jumps_emb = self._soft_embed(
+            self.jumps_embed, int_ctx[:, :, c["p1_jumps"]], scl.get("p1_jumps_logits"))
         p1_char_emb = self.character_embed(int_ctx[:, :, c["p1_char"]])
         p1_lc_emb = self.l_cancel_embed(int_ctx[:, :, c["p1_l_cancel"]])
         p1_hb_emb = self.hurtbox_embed(int_ctx[:, :, c["p1_hurtbox"]])
@@ -331,11 +368,16 @@ class FrameStackMamba2(nn.Module):
 
         return torch.cat(parts, dim=-1)
 
-    def forward(self, float_ctx, int_ctx, next_ctrl):
-        """Forward pass — same signature as FrameStackMLP."""
+    def forward(self, float_ctx, int_ctx, next_ctrl, soft_cat_last=None):
+        """Forward pass — same signature as FrameStackMLP.
+
+        Args:
+            soft_cat_last: Optional dict of logit tensors for differentiable
+                encoding of the last context frame (for full BPTT SF).
+        """
         B, K, _ = float_ctx.shape
 
-        frame_enc = self._encode_frames(float_ctx, int_ctx)
+        frame_enc = self._encode_frames(float_ctx, int_ctx, soft_cat_last)
         x = self.input_dropout(self.frame_proj(frame_enc))
 
         for layer in self.layers:

@@ -15,7 +15,7 @@ from torch.utils.data import DataLoader, IterableDataset
 
 from data.dataset import MeleeFrameDataset
 from models.encoding import EncodingConfig
-from scripts.ar_utils import build_ctrl_batch, reconstruct_frame
+from scripts.ar_utils import build_ctrl_batch, reconstruct_frame, reconstruct_frame_differentiable
 from training.metrics import BatchMetrics, EpochMetrics, LossWeights, MetricsTracker
 
 try:
@@ -55,6 +55,7 @@ class Trainer:
         sf_unroll_length: int = 3,
         sf_horizon_weights: bool = False,
         sf_selective_bptt: bool = False,
+        sf_full_bptt: bool = False,
     ):
         if device is None:
             if torch.backends.mps.is_available():
@@ -152,6 +153,7 @@ class Trainer:
         self._sf_unroll = sf_unroll_length
         self._sf_horizon_weights = sf_horizon_weights
         self._sf_selective_bptt = sf_selective_bptt
+        self._sf_full_bptt = sf_full_bptt
         self._sf_valid_starts = None
         if sf_enabled:
             if dataset is None:
@@ -168,9 +170,9 @@ class Trainer:
                         starts.append(t)
                 self._sf_valid_starts = np.array(starts, dtype=np.int64)
                 logger.info(
-                    "Self-Forcing: %d valid starts, ratio=1:%d, unroll=%d, selective_bptt=%s",
+                    "Self-Forcing: %d valid starts, ratio=1:%d, unroll=%d, selective_bptt=%s, full_bptt=%s",
                     len(self._sf_valid_starts), sf_ratio, sf_unroll_length,
-                    sf_selective_bptt,
+                    sf_selective_bptt, sf_full_bptt,
                 )
 
         # Shape preflight
@@ -297,11 +299,13 @@ class Trainer:
     def _self_forcing_step(self) -> tuple[float, "BatchMetrics"]:
         """One Self-Forcing step: unroll N AR steps, loss vs ground truth.
 
-        Pre-builds all data on CPU, transfers once to GPU, runs all steps
-        on GPU. Reconstruction stays on CPU (uses argmax which is cheap).
+        Dispatches to full BPTT variant if enabled. Otherwise uses truncated
+        BPTT (per-step backward, detached reconstruction).
 
         Returns (averaged_loss_scalar, last_step_metrics).
         """
+        if self._sf_full_bptt:
+            return self._self_forcing_step_full_bptt()
         dataset = self._rollout_dataset
         K = self.model.context_len
         N = self._sf_unroll
@@ -379,6 +383,83 @@ class Trainer:
         # Gradients already accumulated via per-step backward().
         # Return None for loss (caller should NOT call backward again).
         avg_loss = total_sf_loss / N
+        return avg_loss, last_metrics
+
+    def _self_forcing_step_full_bptt(self) -> tuple[float, "BatchMetrics"]:
+        """Full BPTT Self-Forcing: gradients flow through reconstruction.
+
+        Unlike truncated BPTT:
+        - Differentiable reconstruction keeps float gradients flowing
+        - Categorical predictions use soft embeddings (softmax @ embed.weight)
+        - Single backward() at the end instead of per-step
+        - Everything stays on GPU
+
+        This lets the model learn multi-step error correction: "my position
+        error at step 1 caused an action mispredict at step 3."
+        """
+        dataset = self._rollout_dataset
+        K = self.model.context_len
+        N = self._sf_unroll
+        B = self.batch_size
+
+        # Sample starting points
+        idx = np.random.choice(
+            len(self._sf_valid_starts), size=B,
+            replace=len(self._sf_valid_starts) < B,
+        )
+        starts = self._sf_valid_starts[idx]
+
+        # Pre-build context (CPU, then transfer once)
+        offsets = np.arange(-K, 0)
+        ctx_indices = starts[:, None] + offsets[None, :]
+        batch_floats = dataset.floats[ctx_indices].to(self.device)  # (B, K, F)
+        batch_ints = dataset.ints[ctx_indices].to(self.device)  # (B, K, I)
+
+        # Pre-build targets for all N steps, transfer to GPU
+        all_ctrls_gpu = []
+        all_float_tgts_gpu = []
+        all_int_tgts_gpu = []
+        for step in range(N):
+            ctrl, float_tgt, int_tgt = self._build_sf_targets(starts + step)
+            all_ctrls_gpu.append(ctrl.to(self.device))
+            all_float_tgts_gpu.append(float_tgt.to(self.device))
+            all_int_tgts_gpu.append(int_tgt.to(self.device))
+
+        total_loss = torch.tensor(0.0, device=self.device)
+        last_metrics = None
+        cat_logits = None  # soft categoricals from previous step's reconstruction
+
+        for step in range(N):
+            ctx_f = batch_floats[:, -K:, :]
+            ctx_i = batch_ints[:, -K:, :]
+
+            # Pass soft categoricals from previous reconstruction (step > 0)
+            preds = self.model(ctx_f, ctx_i, all_ctrls_gpu[step],
+                               soft_cat_last=cat_logits)
+
+            loss, metrics = self.metrics.compute_loss(
+                preds, all_float_tgts_gpu[step], all_int_tgts_gpu[step], ctx_i,
+            )
+            total_loss = total_loss + loss / N
+            last_metrics = metrics
+
+            # Differentiable reconstruction — gradients flow through
+            next_float, next_int, cat_logits = reconstruct_frame_differentiable(
+                preds, batch_floats[:, -1, :],
+                batch_ints[:, -1, :], all_ctrls_gpu[step], self.cfg,
+            )
+
+            batch_floats = torch.cat(
+                [batch_floats, next_float.unsqueeze(1)], dim=1,
+            )
+            batch_ints = torch.cat(
+                [batch_ints, next_int.unsqueeze(1)], dim=1,
+            )
+
+        # Single backward for all steps — gradients flow through entire unroll
+        total_loss.backward()
+
+        avg_loss = total_loss.item()
         return avg_loss, last_metrics
 
     def _fast_batch_iter(self):

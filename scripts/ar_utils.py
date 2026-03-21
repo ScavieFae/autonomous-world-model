@@ -3,7 +3,8 @@
 Contains the frame reconstruction logic used by:
 - rollout.py (demo generation)
 - eval_rollout.py (rollout coherence evaluation)
-- Self-Forcing training (e018a, future)
+- Self-Forcing training (e018a+)
+- Full BPTT Self-Forcing (e024a+)
 
 The reconstruction must be identical everywhere to ensure the eval
 measures the same behavior as the demos.
@@ -96,6 +97,88 @@ def reconstruct_frame(
     # character, l_cancel, hurtbox, ground, last_attack, stage: carry forward
 
     return next_float, next_int
+
+
+def reconstruct_frame_differentiable(
+    preds: dict[str, torch.Tensor],
+    prev_float: torch.Tensor,
+    prev_int: torch.Tensor,
+    ctrl_float: torch.Tensor,
+    cfg: EncodingConfig,
+) -> tuple[torch.Tensor, torch.Tensor, dict[str, torch.Tensor]]:
+    """Differentiable frame reconstruction for full BPTT Self-Forcing.
+
+    Unlike reconstruct_frame:
+    - Builds the float tensor functionally (no in-place ops) to ensure
+      clean autograd graph.
+    - Binary predictions use sigmoid (differentiable) instead of threshold.
+    - Returns categorical logits separately for soft embedding in the
+      next model forward pass.
+    - Everything stays on the same device (GPU).
+
+    Returns:
+        (next_float, next_int, cat_logits)
+        - next_float: gradients flow through continuous/binary predictions
+        - next_int: detached (action/jumps filled with argmax for compatibility)
+        - cat_logits: dict of logit tensors for soft embedding override
+    """
+    fp = cfg.float_per_player
+    ccd = cfg.core_continuous_dim  # 4
+    vd = cfg.velocity_dim  # 5
+    bd = cfg.binary_dim
+    ipp = cfg.int_per_player
+    raw_cd = cfg.controller_dim  # 13
+    dpp = cfg.predicted_dynamics_dim // 2  # 3
+
+    def _build_player(p_off, cont_off, vel_off, dyn_off, bin_off, ctrl_slice):
+        """Build one player's float tensor from predictions (functional)."""
+        # Core continuous: prev + predicted delta
+        core = prev_float[..., p_off:p_off + ccd] + preds["continuous_delta"][..., cont_off:cont_off + ccd]
+
+        # Velocity: prev + predicted delta
+        vs = p_off + ccd
+        vel = prev_float[..., vs:vs + vd] + preds["velocity_delta"][..., vel_off:vel_off + vd]
+
+        parts = [core, vel]
+
+        # State age (carried forward as float, not predicted) — only when not embedded
+        if not cfg.state_age_as_embed:
+            sa_idx = p_off + ccd + vd
+            parts.append(prev_float[..., sa_idx:sa_idx + 1])
+
+        # Dynamics (absolute predictions: hitlag, stocks, combo)
+        dyn = preds["dynamics_pred"][..., dyn_off:dyn_off + dpp]
+        parts.append(dyn)
+
+        # Binary — sigmoid for differentiability (vs hard threshold in non-BPTT)
+        binary = torch.sigmoid(preds["binary_logits"][..., bin_off:bin_off + bd])
+        parts.append(binary)
+
+        # Controller (ground truth, detach — not predicted)
+        parts.append(ctrl_slice.detach())
+
+        return torch.cat(parts, dim=-1)
+
+    p0 = _build_player(0, 0, 0, 0, 0, ctrl_float[..., :raw_cd])
+    p1 = _build_player(fp, ccd, vd, dpp, bd, ctrl_float[..., raw_cd:raw_cd * 2])
+    next_float = torch.cat([p0, p1], dim=-1)
+
+    # Int tensor — detached, argmax for compatibility with non-soft code paths
+    next_int = prev_int.clone().detach()
+    next_int[..., 0] = preds["p0_action_logits"].detach().argmax(dim=-1)
+    next_int[..., 1] = preds["p0_jumps_logits"].detach().argmax(dim=-1)
+    next_int[..., ipp] = preds["p1_action_logits"].detach().argmax(dim=-1)
+    next_int[..., ipp + 1] = preds["p1_jumps_logits"].detach().argmax(dim=-1)
+
+    # Categorical logits for soft embedding in next step
+    cat_logits = {
+        "p0_action_logits": preds["p0_action_logits"],
+        "p0_jumps_logits": preds["p0_jumps_logits"],
+        "p1_action_logits": preds["p1_action_logits"],
+        "p1_jumps_logits": preds["p1_jumps_logits"],
+    }
+
+    return next_float, next_int, cat_logits
 
 
 def _append_threshold_features(ctrl: torch.Tensor, cfg: EncodingConfig) -> torch.Tensor:

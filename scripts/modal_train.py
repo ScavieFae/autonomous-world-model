@@ -13,6 +13,10 @@ Usage:
     modal run --detach scripts/modal_train.py --config experiments/e019-baseline.yaml \
         --encoded-file /encoded-v3-ranked-fd-top5.pt
 
+    # With GPU selection (default: L4):
+    modal run scripts/modal_train.py --config experiments/e019-baseline.yaml \
+        --encoded-file /encoded-e012-fd-top5.pt --gpu A100
+
     # With CLI overrides:
     modal run scripts/modal_train.py --config experiments/e019-baseline.yaml \
         --encoded-file /encoded-v3-ranked-fd-top5.pt \
@@ -58,22 +62,44 @@ image = (
 vol = modal.Volume.from_name("melee-training-data")
 
 
-# --- Training function ---
+# --- Training functions (one per GPU tier) ---
 
-@app.function(
+_train_kwargs = dict(
     image=image,
-    gpu="L4",  # $0.80/hr — fast batch loader should fix data bottleneck
-    timeout=14400,  # 4 hours
+    timeout=86400,  # 24 hours (budget gate is the real cost control)
     volumes={"/data": vol},
     secrets=[modal.Secret.from_name("wandb-key")],
 )
-def train(
+
+@app.function(gpu="L4", **_train_kwargs)           # $0.80/hr
+def train_l4(config_path, encoded_file, run_name="", epochs=0, batch_size=0, lr=0.0, resume=""):
+    return _train_impl(config_path, encoded_file, run_name, epochs, batch_size, lr, resume)
+
+@app.function(gpu="A100-40GB", **_train_kwargs)    # $2.10/hr
+def train_a100(config_path, encoded_file, run_name="", epochs=0, batch_size=0, lr=0.0, resume=""):
+    return _train_impl(config_path, encoded_file, run_name, epochs, batch_size, lr, resume)
+
+@app.function(gpu="A100-80GB", **_train_kwargs)    # $2.70/hr
+def train_a100_80(config_path, encoded_file, run_name="", epochs=0, batch_size=0, lr=0.0, resume=""):
+    return _train_impl(config_path, encoded_file, run_name, epochs, batch_size, lr, resume)
+
+@app.function(gpu="H100", **_train_kwargs)         # $3.95/hr — needs Mattie approval
+def train_h100(config_path, encoded_file, run_name="", epochs=0, batch_size=0, lr=0.0, resume=""):
+    return _train_impl(config_path, encoded_file, run_name, epochs, batch_size, lr, resume)
+
+GPU_FUNCS = {
+    "L4": train_l4, "A100": train_a100,
+    "A100-80": train_a100_80, "H100": train_h100,
+}
+
+def _train_impl(
     config_path: str,
     encoded_file: str,
     run_name: str = "",
     epochs: int = 0,
     batch_size: int = 0,
     lr: float = 0.0,
+    resume: str = "",
 ):
     """Train a world model on Modal with pre-encoded data.
 
@@ -274,6 +300,8 @@ def train(
         sf_unroll_length=sf_cfg.get("unroll_length", 3),
         sf_horizon_weights=sf_cfg.get("horizon_weights", False),
         sf_selective_bptt=sf_cfg.get("selective_bptt", False),
+        sf_full_bptt=sf_cfg.get("full_bptt", False),
+        resume_from=f"/data{resume}" if resume else None,
     )
 
     history = trainer.train()
@@ -325,14 +353,19 @@ def train(
 
 # --- Eval-only function (for existing checkpoints) ---
 
-@app.function(
-    image=image,
-    gpu="L4",  # $0.80/hr — fast batch loader should fix data bottleneck
-    timeout=3600,
-    volumes={"/data": vol},
-    secrets=[],
-)
-def eval_checkpoint(
+_eval_kwargs = dict(image=image, timeout=86400, volumes={"/data": vol}, secrets=[])
+
+@app.function(gpu="L4", **_eval_kwargs)
+def eval_l4(checkpoint, encoded_file, config=""):
+    return _eval_impl(checkpoint, encoded_file, config)
+
+@app.function(gpu="A100-40GB", **_eval_kwargs)
+def eval_a100(checkpoint, encoded_file, config=""):
+    return _eval_impl(checkpoint, encoded_file, config)
+
+EVAL_GPU_FUNCS = {"L4": eval_l4, "A100": eval_a100}
+
+def _eval_impl(
     checkpoint: str,
     encoded_file: str,
     config: str = "",
@@ -449,19 +482,28 @@ def eval_checkpoint(
 @app.local_entrypoint()
 def main(
     config: str = "experiments/e019-baseline.yaml",
-    encoded_file: str = "/encoded-v3-ranked-fd-top5.pt",
+    encoded_file: str = "/encoded-e012-fd-top5.pt",
     run_name: str = "",
     epochs: int = 0,
     batch_size: int = 0,
     lr: float = 0.0,
+    gpu: str = "L4",
+    resume: str = "",
 ):
-    result = train.remote(
+    train_fn = GPU_FUNCS.get(gpu)
+    if train_fn is None:
+        raise ValueError(f"Unknown GPU '{gpu}'. Options: {list(GPU_FUNCS.keys())}")
+    print(f"GPU: {gpu}")
+    if resume:
+        print(f"Resume: {resume}")
+    result = train_fn.remote(
         config_path=config,
         encoded_file=encoded_file,
         run_name=run_name,
         epochs=epochs,
         batch_size=batch_size,
         lr=lr,
+        resume=resume,
     )
     print(f"\nDone: {result['run_name']}")
     print(f"Checkpoint: {result['checkpoint']}")
