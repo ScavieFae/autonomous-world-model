@@ -164,3 +164,8 @@
 {"timestamp":"2026-03-20T20:50:00Z","event":"evaluated","experiment":"e023c-dmodel512","verdict":"discarded","rollout_coherence":6.203,"prior_best_rc":5.775,"cost":6.50,"finding":"Width non-monotonic at 512. RC worse than both 384 and 768. 16-head config may be pathological."}
 {"timestamp":"2026-03-20T21:07:00Z","event":"heartbeat","in_flight":["e023d-nlayers8"],"states":["running 60% (H100, jg3cnzxs)"],"slots":"1/3","budget":"exhausted","note":"e023d at 60%, ETA ~1.8hr. The big one."}
 {"timestamp":"2026-03-20T22:07:00Z","event":"heartbeat","in_flight":["e023d-nlayers8"],"states":["running 90% (H100)"],"slots":"1/3","note":"e023d at 90%, ~25min to results. The depth+width experiment."}
+{"ts":"2026-03-21T19:37:00Z","event":"heartbeat","in_flight":["e024a-full-bptt","e023b-epoch2"],"status":"both running","slots":"2/3","daily_spent":0,"budget_remaining":30.0}
+{"ts":"2026-03-21T20:07:00Z","event":"heartbeat","in_flight":["e024a-full-bptt","e023b-epoch2"],"status":"both running on Modal","slots":"2/3","daily_spent":0,"budget_remaining":30.0}
+{"ts":"2026-03-21T21:07:00Z","event":"heartbeat","in_flight":["e024a-full-bptt","e023b-epoch2"],"status":"both running","slots":"2/3","daily_spent":0}
+{"ts":"2026-03-21T22:30:00Z","event":"eval_complete","id":"e024a-full-bptt","status":"discarded","rc":8.980,"prior_best_rc":5.775,"cost":8.60}
+{"ts":"2026-03-21T22:30:00Z","event":"eval_complete","id":"e023b-epoch2","status":"discarded","rc":5.775,"prior_best_rc":5.775,"cost":4.50,"note":"RC flat, TF metrics improved massively. AMP validated."}

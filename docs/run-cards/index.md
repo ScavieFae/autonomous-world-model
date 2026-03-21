@@ -2,10 +2,12 @@
 
 Individual experiment records. Each card documents one idea tested in isolation.
 
-*16 cards. Generated 2026-03-21 18:47 UTC*
+*18 cards. Generated 2026-03-21 23:11 UTC*
 
+- :x: [Run Card: e024a-full-bptt](e024a-full-bptt.md) — *discarded*
 - :x: [Run Card: e023d-nlayers8](e023d-nlayers8.md) — *discarded*
 - :x: [Run Card: e023c-dmodel512](e023c-dmodel512.md) — *discarded*
+- :x: [Run Card: e023b-epoch2](e023b-epoch2.md) — *discarded*
 - :white_check_mark: [Run Card: e023b-dmodel768](e023b-dmodel768.md) — *kept*
 - :x: [Run Card: e023a-dmodel192](e023a-dmodel192.md) — *discarded*
 - :x: [Run Card: e022a-bs256](e022a-bs256.md) — *discarded*

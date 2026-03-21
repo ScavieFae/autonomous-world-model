@@ -1,8 +1,6 @@
 {
   "experiments": {
-    "in_flight": [
-      {"id": "e024a-full-bptt", "modal_app_id": "ap-9S9cG0nUsFm0DgFNmIj7UT", "pr_number": 15, "branch": "e024a-full-bptt", "started_at": "2026-03-21T12:00:00Z", "estimated_cost": 9.0, "note": "A100 40GB, full BPTT SF, d_model=768"}
-    ],
+    "in_flight": [],
     "max_concurrent": 3,
     "stale_timeout_hours": 4
   },
@@ -20,6 +18,8 @@
     {"id": "e022a-bs256", "status": "discarded", "rollout_coherence": 6.026, "prior_best_rc": 6.03, "cost": 10.15, "completed_at": "2026-03-20T13:10:00Z"},
     {"id": "e023b-dmodel768", "status": "kept", "rollout_coherence": 5.775, "prior_best_rc": 6.03, "cost": 8.70, "completed_at": "2026-03-20T16:30:00Z"},
     {"id": "e023c-dmodel512", "status": "discarded", "rollout_coherence": 6.203, "prior_best_rc": 5.775, "cost": 6.50, "completed_at": "2026-03-20T20:50:00Z"},
-    {"id": "e023d-nlayers8", "status": "discarded", "rollout_coherence": 7.108, "prior_best_rc": 5.775, "cost": 13.00, "completed_at": "2026-03-21T00:00:00Z"}
+    {"id": "e023d-nlayers8", "status": "discarded", "rollout_coherence": 7.108, "prior_best_rc": 5.775, "cost": 13.00, "completed_at": "2026-03-21T00:00:00Z"},
+    {"id": "e024a-full-bptt", "status": "discarded", "rollout_coherence": 8.980, "prior_best_rc": 5.775, "cost": 8.60, "completed_at": "2026-03-21T22:30:00Z"},
+    {"id": "e023b-epoch2", "status": "discarded", "rollout_coherence": 5.775, "prior_best_rc": 5.775, "cost": 4.50, "completed_at": "2026-03-21T22:30:00Z"}
   ]
 }
