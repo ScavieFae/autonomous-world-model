@@ -53,9 +53,10 @@ READ STATE
    - Update run card frontmatter: `status: kept/discarded`, `rollout_coherence: X.XX`
    - Add Results section with metrics table and Director evaluation
    - Append to `docs/RESEARCH-LOG.md`
-   - Update `.loop/state/budget.json` (actual cost from runtime)
-   - Remove this experiment from `running.json → experiments.in_flight[]`
+   - Update `.loop/state/budget.json`: increment `daily_spent` and `weekly_spent` by actual cost, increment `experiments_run`, increment `experiments_kept` or `experiments_discarded`, update `total_spent`
+   - Remove this experiment from `running.json → experiments.in_flight[]`, add to `history`
    - If KEPT: merge the experiment's PR (`gh pr merge {pr_number} --merge`)
+   - If KEPT and RC < prior_best_rc: update `.loop/state/best.json` (new current_best, append to history) and `running.json → prior_best_rc`. Do NOT update program.md — propose changes to Mattie via the Director evaluation instead.
    - If DISCARDED: close the PR (`gh pr close {pr_number}`)
    - Run `python scripts/docs_prebuild.py`
    - Commit closeout changes on main, push
@@ -163,6 +164,7 @@ READ STATE
 
 | File | Purpose |
 |------|---------|
+| `.loop/state/best.json` | Current best checkpoint, config, metrics, and RC history. Read this for baseline comparisons — do NOT hardcode RC values. |
 | `.loop/state/budget.json` | Daily/weekly spend limits and tracking |
 | `.loop/state/log.jsonl` | Append-only decision log |
 | `.loop/state/signals/pause.json` | Pause signal |

@@ -136,6 +136,7 @@ State findings as observations with hit rates. Not editorials.
 | [docs/cu-benchmark-findings.md](docs/cu-benchmark-findings.md) | CU measurements for INT8 ops |
 | [docs/design-arena-mechanics.md](docs/design-arena-mechanics.md) | "The Wire" arena design |
 | [docs/design-visual-ux.md](docs/design-visual-ux.md) | Visual/UX design for The Wire |
+| [.loop/state/best.json](.loop/state/best.json) | Current best checkpoint, config, RC, metrics. Agents read this for baselines — single source of truth. |
 | [RUNBOOK.md](RUNBOOK.md) | Training guide — experiments, configs, data pipeline |
 | [docs/MAMBA2-EXPLAINER.md](docs/MAMBA2-EXPLAINER.md) | Mamba-2 architecture explanation |
 | [docs/RESEARCH-DIARY.md](docs/RESEARCH-DIARY.md) | Chronological research log |

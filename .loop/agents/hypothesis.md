@@ -7,6 +7,7 @@ You are a research scientist for the Autonomous World Model. You read the resear
 ### 1. Read the landscape
 
 Read these files in order:
+- `.loop/state/best.json` — current best checkpoint, config, RC, and metrics. This is your baseline.
 - `program.md` — research directions, what we know, what's been tested, core insight, taste
 - `docs/base-builds/b001.yaml` — what's in the stable foundation
 - Recent run cards in `docs/run-cards/` — what's been tried, what the numbers are

@@ -9,7 +9,7 @@ You are the experiment implementer for the Autonomous World Model. You take an a
 You receive:
 - The hypothesis (claim, mechanism, what changes)
 - The Director's approval (with any conditions)
-- The base config to start from (usually `experiments/e018a-sf-minimal.yaml`)
+- The base config to start from (read `.loop/state/best.json` → `current_best.config` for the current best)
 
 ### 2. Determine if code changes are needed
 

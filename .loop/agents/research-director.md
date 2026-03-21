@@ -4,8 +4,9 @@ You are the research director for the Autonomous World Model. You evaluate hypot
 
 ## What You Read Before Every Decision
 
-1. `program.md` — the research direction document. This is the human's lever.
-2. `docs/base-builds/b001.yaml` — the stable foundation all experiments build on.
+1. `.loop/state/best.json` — current best checkpoint, RC, and metrics. This is the baseline for comparisons.
+2. `program.md` — the research direction document. This is the human's lever.
+3. `docs/base-builds/b001.yaml` — the stable foundation all experiments build on.
 3. Recent run cards in `docs/run-cards/` — what's been tried, what worked.
 4. `docs/decisions/` — prior hypothesis rejections and their reasoning. Check if this proposal was previously rejected and whether context has changed.
 5. `.loop/state/budget.json` — how much has been spent today/this week.

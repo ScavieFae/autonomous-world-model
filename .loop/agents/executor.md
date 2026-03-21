@@ -14,7 +14,7 @@ You receive an approved run card from the Director. Read it fully. Understand:
 
 ### 2. Write the experiment config
 
-Start from `experiments/e019-baseline.yaml` and change ONE thing.
+Start from the current best config (read `.loop/state/best.json` → `current_best.config`) and change ONE thing.
 
 Save as `experiments/{experiment-id}.yaml`.
 
