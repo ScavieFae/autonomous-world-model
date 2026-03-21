@@ -9,6 +9,7 @@ from typing import Callable, Optional
 import numpy as np
 import torch
 import torch.nn as nn
+from torch.amp import GradScaler, autocast
 from torch.optim import AdamW
 from torch.optim.lr_scheduler import CosineAnnealingLR
 from torch.utils.data import DataLoader, IterableDataset
@@ -55,6 +56,7 @@ class Trainer:
         sf_unroll_length: int = 3,
         sf_horizon_weights: bool = False,
         sf_selective_bptt: bool = False,
+        use_amp: bool = False,
     ):
         if device is None:
             if torch.backends.mps.is_available():
@@ -68,6 +70,13 @@ class Trainer:
         if self.device.type == "cuda":
             vram_gb = torch.cuda.get_device_properties(0).total_memory / 1e9
             logger.info("GPU VRAM: %.1f GB", vram_gb)
+
+        # AMP: only on CUDA (MPS has limited float16 support)
+        self._use_amp = use_amp and (device == "cuda")
+        self._amp_dtype = torch.float16
+        self._scaler = GradScaler(enabled=self._use_amp)
+        if self._use_amp:
+            logger.info("AMP enabled (float16 autocast + GradScaler)")
 
         self.model = model.to(self.device)
         if self.device.type == "cuda":
@@ -343,22 +352,23 @@ class Trainer:
             ctx_f = batch_floats[:, -K:, :].to(self.device)
             ctx_i = batch_ints[:, -K:, :].to(self.device)
 
-            preds = self.model(ctx_f, ctx_i, all_ctrls_gpu[step])
+            with autocast("cuda", enabled=self._use_amp, dtype=self._amp_dtype):
+                preds = self.model(ctx_f, ctx_i, all_ctrls_gpu[step])
 
-            if self._sf_selective_bptt and step > 0:
-                _CONTINUOUS_KEYS = {
-                    'continuous_delta', 'velocity_delta',
-                    'dynamics_pred', 'binary_logits',
-                }
-                preds = {
-                    k: v if k in _CONTINUOUS_KEYS else v.detach()
-                    for k, v in preds.items()
-                }
+                if self._sf_selective_bptt and step > 0:
+                    _CONTINUOUS_KEYS = {
+                        'continuous_delta', 'velocity_delta',
+                        'dynamics_pred', 'binary_logits',
+                    }
+                    preds = {
+                        k: v if k in _CONTINUOUS_KEYS else v.detach()
+                        for k, v in preds.items()
+                    }
 
-            loss, metrics = self.metrics.compute_loss(
-                preds, all_float_tgts_gpu[step], all_int_tgts_gpu[step], ctx_i,
-            )
-            (loss / N).backward()
+                loss, metrics = self.metrics.compute_loss(
+                    preds, all_float_tgts_gpu[step], all_int_tgts_gpu[step], ctx_i,
+                )
+            self._scaler.scale(loss / N).backward()
             total_sf_loss += loss.item()
             last_metrics = metrics
 
@@ -429,14 +439,17 @@ class Trainer:
                 next_ctrl = next_ctrl.to(self.device)
                 float_tgt = float_tgt.to(self.device)
                 int_tgt = int_tgt.to(self.device)
-                predictions = self.model(float_ctx, int_ctx, next_ctrl)
-                loss, batch_metrics = self.metrics.compute_loss(
-                    predictions, float_tgt, int_tgt, int_ctx,
-                )
-                loss.backward()
+                with autocast("cuda", enabled=self._use_amp, dtype=self._amp_dtype):
+                    predictions = self.model(float_ctx, int_ctx, next_ctrl)
+                    loss, batch_metrics = self.metrics.compute_loss(
+                        predictions, float_tgt, int_tgt, int_ctx,
+                    )
+                self._scaler.scale(loss).backward()
 
+            self._scaler.unscale_(self.optimizer)
             torch.nn.utils.clip_grad_norm_(self.model.parameters(), max_norm=1.0)
-            self.optimizer.step()
+            self._scaler.step(self.optimizer)
+            self._scaler.update()
             epoch_metrics.update(batch_metrics)
 
             # Log VRAM peak after first batch

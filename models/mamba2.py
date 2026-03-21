@@ -160,15 +160,17 @@ class Mamba2Block(nn.Module):
 
     def forward(self, u: torch.Tensor) -> torch.Tensor:
         batch, seqlen, _ = u.shape
-        A = -torch.exp(self.A_log)
+        A = -torch.exp(self.A_log.float())
 
+        # Projections benefit from float16 tensor cores on A100/H100.
+        # SSM scan math (exp, cumsum, segsum) stays float32 for stability.
         zxbcdt = self.in_proj(u)
         z, xBC, dt = torch.split(
             zxbcdt,
             [self.d_inner, self.d_inner + 2 * self.d_state, self.nheads],
             dim=-1,
         )
-        dt = F.softplus(dt + self.dt_bias)
+        dt = F.softplus(dt.float() + self.dt_bias.float())
 
         xBC = _silu(
             self.conv1d(xBC.transpose(1, 2)).transpose(1, 2)[:, :seqlen, :]
@@ -178,6 +180,11 @@ class Mamba2Block(nn.Module):
             xBC, [self.d_inner, self.d_state, self.d_state], dim=-1,
         )
         x = x.view(batch, seqlen, self.nheads, self.headdim)
+
+        # SSM scan in float32 — exp/cumsum are precision-sensitive
+        x = x.float()
+        B = B.float()
+        C = C.float()
 
         if (self.chunk_size is not None
                 and seqlen % self.chunk_size == 0
@@ -189,10 +196,10 @@ class Mamba2Block(nn.Module):
         else:
             y = self._sequential_scan(x, A, B, C, dt)
 
-        y = y + x * self.D.unsqueeze(-1)
+        y = y + x * self.D.float().unsqueeze(-1)
         y = y.reshape(batch, seqlen, self.d_inner)
-        y = self.norm(y, z)
-        return self.out_proj(y)
+        y = self.norm(y, z.float())
+        return self.out_proj(y.to(u.dtype))
 
 
 # ---------- Full World Model ----------

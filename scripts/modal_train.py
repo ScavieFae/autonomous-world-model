@@ -274,6 +274,7 @@ def train(
         sf_unroll_length=sf_cfg.get("unroll_length", 3),
         sf_horizon_weights=sf_cfg.get("horizon_weights", False),
         sf_selective_bptt=sf_cfg.get("selective_bptt", False),
+        use_amp=train_cfg.get("amp", False),
     )
 
     history = trainer.train()
