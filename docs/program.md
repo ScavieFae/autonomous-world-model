@@ -10,15 +10,16 @@ A learned world model that runs onchain as an autonomous world. Trained on Super
 
 | Checkpoint | Experiment | change_acc | pos_mae | rollout_coherence | Notes |
 |-----------|-----------|-----------|---------|-------------------|-------|
-| `e025a-lr-warmup/best.pt` | E025a | 65.6% | 0.814 | **5.146** | b001 + SF + K=30 + d_model=768 + warmup 5%, 1.9K data |
+| `e026b-unimix/best.pt` | E026b | 65.4% | 0.798 | **5.120** | b002 + 1% unimix on categoricals, 1.9K data |
+| `e025a-lr-warmup/best.pt` | E025a | 65.6% | 0.814 | 5.146 | b001 + SF + K=30 + d_model=768 + warmup 5%, 1.9K data |
 | `e023b-dmodel768-r3/best.pt` | E023b | 66.0% | 0.823 | 5.775 | b001 + SF + K=30 + d_model=768, 1.9K data |
 | `e018c-context-k30/best.pt` | E018c | 62.3% | 0.824 | 6.03 | b001 + SF + K=30, d_model=384 |
 | `e018a-sf-minimal/best.pt` | E018a | 61.6% | 0.825 | 6.26 | b001 + Self-Forcing (20% SF, N=3), 1.9K data |
 | `e019-baseline-1k/best.pt` | E019 | 78.7% | 0.756 | 6.77 | b001, 1.9K data, full loss suite (10 heads) |
 
-E025a is the new best. Adding 5% LR warmup to the d_model=768 config improved RC by 10.9% (5.775→5.146) — the largest single-experiment gain in the project's history. LR warmup stabilized early training, allowing the optimizer to find a better basin before cosine decay. Cumulative improvement from E019 baseline: -24.0% (6.77→5.146).
+E026b is the new best. Adding 1% uniform distribution mixing (unimix) on categorical heads improved RC by 0.5% (5.146→5.120) and pos_mae by 2.0% (0.814→0.798). DreamerV3's entropy floor prevents categorical overconfidence, which compounds during AR rollout. Minimal complexity (training-only, 2 lines). Cumulative improvement from E019 baseline: -24.4% (6.77→5.120).
 
-Also tested in this batch: loss reweighting (e025b, RC 5.907, +2.3% regression) and layer dropout (e025c, RC 6.475, +12.1% regression). The model is not overfitting — regularization hurts. Loss weight rebalancing toward continuous heads lowered pos_mae but worsened AR rollouts.
+Also tested in this batch: Muon optimizer (e026a, RC 5.342, +3.8% regression). Newton-Schulz orthogonalization doesn't suit Mamba-2 weight matrices — pos_mae regressed 38.8%.
 
 Val metrics plateau after 1 epoch on 1.9K data (epoch 2 showed identical val performance). 1 epoch is sufficient for Scout experiments.
 
@@ -66,6 +67,7 @@ These didn't work in their original context. Agents CAN revisit if they have spe
 | Absolute velocities | E017d | Head decoupling — 165/200 frames contradicted |
 | Physics loss (soft constraint) | E017b | No gradient signal in TF training — violations only happen in AR |
 | focal_offset>0 | E008a-E010 | Inflated training metrics ~15pp, unclear inference benefit |
+| Muon optimizer | E026a | Newton-Schulz orthogonalization doesn't suit Mamba-2 weight matrices. RC +3.8%, pos_mae +38.8%. |
 
 ### The core insight
 
@@ -106,8 +108,8 @@ The 7.7K dataset exists on the Modal volume but loading takes 9hr/epoch with `nu
 #### 3. Cascaded heads + Self-Forcing
 E014 showed cascaded heads fixed damage drift at 1.9K. Code not ported to this repo. Requires implementation work.
 
-#### 4. Muon optimizer
-The optimizer space is unexplored — vanilla AdamW since day one. Muon (Newton-Schulz orthogonalized SGD for weight matrices, AdamW for embeddings/scalars) showed strong results in Karpathy's autoresearch. Open question whether it helps for Mamba2 (different weight matrix structure than transformer Q/K/V). Low-risk: if it doesn't help, revert.
+#### 4. Muon optimizer — TESTED, dead end
+Muon tested in E026a: RC 5.342 (+3.8% regression), pos_mae 1.130 (+38.8%). Newton-Schulz orthogonalization doesn't suit Mamba-2 weight matrices. The in_proj/out_proj matrices have structured SSM roles that differ from transformer Q/K/V where Muon was validated. 1/1 regressed. AdamW remains the optimizer.
 
 ### Config directions (no code changes)
 

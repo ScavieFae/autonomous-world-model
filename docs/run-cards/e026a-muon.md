@@ -1,12 +1,12 @@
 ---
 id: e026a
 created: 2026-03-21
-status: proposed
+status: discarded
 type: training-regime
 base_build: b002
 built_on: []
 source_paper: null
-rollout_coherence: null
+rollout_coherence: 5.342
 prior_best_rc: 5.146
 ---
 
@@ -53,4 +53,21 @@ Identical to b002: d_model=768, d_state=64, n_layers=4, headdim=64, 15,648,882 p
 
 ## Results
 
-*Pending — status: proposed*
+| Metric | b002 (baseline) | E026a (Muon) | Delta |
+|--------|----------------|-------------|-------|
+| **rollout_coherence** | **5.146** | **5.342** | **+3.8%** |
+| change_acc | 65.6% | 62.6% | -3.0pp |
+| pos_mae | 0.814 | 1.130 | +38.8% |
+
+wandb: https://wandb.ai/shinewave/melee-worldmodel/runs/kts8o0o2
+Cost: ~$5
+
+## Director Evaluation
+
+**Verdict: DISCARDED**
+
+RC 5.342 is a 3.8% regression from the b002 baseline (5.146). Both primary (RC) and secondary metrics regressed: pos_mae jumped 38.8% (0.814 to 1.130) and change_acc dropped 3.0pp.
+
+Muon's Newton-Schulz orthogonalization doesn't suit Mamba-2 weight matrices. The Mamba-2 in_proj/out_proj matrices have structured roles (expanding/contracting SSM state) that differ from transformer Q/K/V projections where Muon was validated. Orthogonalizing these gradients likely disrupted the learned state-space dynamics.
+
+The Muon LR (0.02) at 40x the AdamW LR (5e-4) may also be too aggressive, but the magnitude of the pos_mae regression (+38.8%) suggests a fundamental mismatch, not just a tuning issue. Muon optimizer is added to dead ends for Mamba-2 architectures (1/1 regressed).

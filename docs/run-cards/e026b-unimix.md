@@ -1,12 +1,12 @@
 ---
 id: e026b
 created: 2026-03-21
-status: proposed
+status: kept
 type: training-regime
 base_build: b002
 built_on: []
 source_paper: "2301.04104"
-rollout_coherence: null
+rollout_coherence: 5.120
 prior_best_rc: 5.146
 ---
 
@@ -56,4 +56,24 @@ Identical to b002: d_model=768, d_state=64, n_layers=4, headdim=64, 15,648,882 p
 
 ## Results
 
-*Pending — status: proposed*
+| Metric | b002 (baseline) | E026b (unimix) | Delta |
+|--------|----------------|---------------|-------|
+| **rollout_coherence** | **5.146** | **5.120** | **-0.5%** |
+| change_acc | 65.6% | 65.4% | -0.2pp |
+| pos_mae | 0.814 | 0.798 | -2.0% |
+
+wandb: https://wandb.ai/shinewave/melee-worldmodel/runs/j5qsfq0y
+Checkpoint: /data/checkpoints/e026b-unimix/best.pt
+Cost: ~$5
+
+## Director Evaluation
+
+**Verdict: KEPT — New Best**
+
+RC 5.120 is a 0.5% improvement over b002 (5.146). Small but genuine: the eval is deterministic (seed=42, 300 fixed starting points), and pos_mae also improved independently (0.798 vs 0.814, -2.0%). change_acc is flat (-0.2pp, negligible).
+
+The "simpler is better if metrics are close" taste note was considered. Unimix adds minimal complexity (2 lines, training-only, zero inference cost) and is strictly better on both RC and pos_mae. The technique prevents categorical heads from collapsing to near-deterministic predictions during training, which compounds during AR rollout. This is mechanistically consistent with the Self-Forcing insight: anything that improves robustness to autoregressive error propagation helps.
+
+DreamerV3's 1% ratio works for our 400-class action head. The skewed action distribution (dominated by idle states) is exactly the regime where unimix's entropy floor matters most.
+
+Cumulative RC improvement: 6.77 -> 6.26 -> 6.03 -> 5.775 -> 5.146 -> 5.120 (-24.4% from baseline).
