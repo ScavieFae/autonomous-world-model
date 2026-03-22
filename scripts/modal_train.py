@@ -154,11 +154,17 @@ def _train_impl(
     enc_cfg = EncodingConfig(**{k: v for k, v in enc_cfg_dict.items()
                                 if v is not None and hasattr(EncodingConfig, k)})
 
-    # Load pre-encoded data
+    # Load pre-encoded data (mmap=True for large datasets — keeps ~29GB off RAM)
     t0 = time.time()
     data_path = f"/data{encoded_file}"
     logging.info("Loading pre-encoded data from %s", data_path)
-    payload = torch.load(data_path, map_location="cpu", weights_only=False)
+    try:
+        payload = torch.load(data_path, map_location="cpu", weights_only=False, mmap=True)
+        logging.info("Loaded with mmap=True (memory-mapped, low RAM footprint)")
+    except TypeError:
+        # PyTorch < 2.1 doesn't support mmap kwarg
+        payload = torch.load(data_path, map_location="cpu", weights_only=False)
+        logging.info("Loaded without mmap (PyTorch < 2.1 fallback)")
     load_time = time.time() - t0
     logging.info("Data loaded in %.1fs", load_time)
 
@@ -174,23 +180,27 @@ def _train_impl(
             logging.warning("Using config from YAML, not from encoded file. Verify this is intentional.")
 
     # Reconstruct MeleeDataset from saved tensors
+    # With mmap=True, floats/ints are memory-mapped — only pages touched
+    # during get_batch() are loaded into RAM. ~29GB stays on disk.
     dataset = MeleeDataset.__new__(MeleeDataset)
     dataset.cfg = enc_cfg
     dataset.floats = payload["floats"]
     dataset.ints = payload["ints"]
-    dataset.game_offsets = payload["game_offsets"]
-    if isinstance(dataset.game_offsets, torch.Tensor):
-        dataset.game_offsets = dataset.game_offsets.numpy()
+    game_offsets = payload["game_offsets"]
+    if isinstance(game_offsets, torch.Tensor):
+        game_offsets = game_offsets.clone().numpy()  # clone materializes small mmap tensor
+    dataset.game_offsets = game_offsets
     dataset.num_games = len(dataset.game_offsets) - 1
     dataset.total_frames = dataset.game_offsets[-1]
     dataset.game_lengths = [
         int(dataset.game_offsets[i + 1] - dataset.game_offsets[i])
         for i in range(dataset.num_games)
     ]
-
-    # share_memory_() above enables num_workers>0. Diagnostic confirmed
-    # num_workers=4 works on T4 and L4 after share_memory_().
-    # Don't override — let trainer use its default (4 for CUDA).
+    logging.info(
+        "Dataset: %d games, %d frames, floats=%s ints=%s",
+        dataset.num_games, dataset.total_frames,
+        tuple(dataset.floats.shape), tuple(dataset.ints.shape),
+    )
 
     logging.info("Dataset: %d games, %d frames", dataset.num_games, dataset.total_frames)
 
@@ -390,17 +400,21 @@ def eval_checkpoint(
     model, cfg, context_len, arch = load_model_from_checkpoint(ckpt_path, "cuda")
     logging.info("Model: %s, context_len=%d", arch, context_len)
 
-    # Load data
+    # Load data (mmap for large datasets)
     data_path = f"/data{encoded_file}"
-    payload = torch.load(data_path, map_location="cpu", weights_only=False)
+    try:
+        payload = torch.load(data_path, map_location="cpu", weights_only=False, mmap=True)
+    except TypeError:
+        payload = torch.load(data_path, map_location="cpu", weights_only=False)
 
     dataset = MeleeDataset.__new__(MeleeDataset)
     dataset.cfg = cfg
     dataset.floats = payload["floats"]
     dataset.ints = payload["ints"]
-    dataset.game_offsets = payload["game_offsets"]
-    if isinstance(dataset.game_offsets, torch.Tensor):
-        dataset.game_offsets = dataset.game_offsets.numpy()
+    game_offsets = payload["game_offsets"]
+    if isinstance(game_offsets, torch.Tensor):
+        game_offsets = game_offsets.clone().numpy()
+    dataset.game_offsets = game_offsets
     dataset.num_games = len(dataset.game_offsets) - 1
     dataset.total_frames = dataset.game_offsets[-1]
     dataset.game_lengths = [
