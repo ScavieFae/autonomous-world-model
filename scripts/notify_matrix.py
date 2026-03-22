@@ -19,9 +19,15 @@ import urllib.error
 HOMESERVER = "http://100.93.8.111:8008"
 SERVER_NAME = "scaviefae.matrix"
 
-# Bot credentials — conductor bot
-BOT_USER = "conductor"
-BOT_PASSWORD = "conductor_bot"
+# Bot identities — each agent role posts as its own user
+BOTS = {
+    "conductor": {"user": "conductor", "password": "conductor_bot"},
+    "researcher": {"user": "researcher", "password": "researcher_bot"},
+    "worker": {"user": "worker", "password": "worker_bot"},
+}
+
+# Default bot for backwards compatibility
+DEFAULT_BOT = "conductor"
 
 # Room name → room ID mapping
 ROOMS = {
@@ -34,7 +40,7 @@ ROOMS = {
     "github-activity": "!YcELSmuaWiBUWpvBxr:scaviefae.matrix",
 }
 
-_token_cache = None
+_token_cache = {}  # bot_name → token
 
 
 def _request(url: str, data: dict | None = None, token: str | None = None) -> dict:
@@ -52,33 +58,34 @@ def _request(url: str, data: dict | None = None, token: str | None = None) -> di
         return {"error": e.read().decode(), "status": e.code}
 
 
-def _login() -> str:
-    global _token_cache
-    if _token_cache:
-        return _token_cache
+def _login(bot: str = DEFAULT_BOT) -> str:
+    if bot in _token_cache:
+        return _token_cache[bot]
+    creds = BOTS.get(bot, BOTS[DEFAULT_BOT])
     result = _request(
         f"{HOMESERVER}/_matrix/client/v3/login",
-        {"type": "m.login.password", "user": BOT_USER, "password": BOT_PASSWORD},
+        {"type": "m.login.password", "user": creds["user"], "password": creds["password"]},
     )
     if "access_token" not in result:
-        raise RuntimeError(f"Matrix login failed: {result}")
-    _token_cache = result["access_token"]
-    return _token_cache
+        raise RuntimeError(f"Matrix login failed for {bot}: {result}")
+    _token_cache[bot] = result["access_token"]
+    return _token_cache[bot]
 
 
-def send_message(room: str, body: str, html: str | None = None) -> dict:
-    """Send a message to a Matrix room.
+def send_message(room: str, body: str, html: str | None = None, bot: str = DEFAULT_BOT) -> dict:
+    """Send a message to a Matrix room as a specific bot identity.
 
     Args:
         room: Room name (e.g., "conductor-log") or full room ID.
         body: Plain text message body.
         html: Optional HTML formatted body.
+        bot: Bot identity — "conductor", "researcher", or "worker".
 
     Returns:
         {"event_id": "..."} on success, {"error": "..."} on failure.
     """
     room_id = ROOMS.get(room, room)
-    token = _login()
+    token = _login(bot)
     txn_id = str(int(time.time() * 1000))
 
     content = {"msgtype": "m.text", "body": body}
@@ -104,12 +111,13 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Post to Matrix room")
     parser.add_argument("message", help="Message text")
     parser.add_argument("--room", default="conductor-log", help="Room name")
+    parser.add_argument("--bot", default=DEFAULT_BOT, choices=BOTS.keys(), help="Bot identity")
     parser.add_argument("--html", default=None, help="HTML formatted body")
     args = parser.parse_args()
 
-    result = send_message(args.room, args.message, args.html)
+    result = send_message(args.room, args.message, args.html, bot=args.bot)
     if "event_id" in result:
-        print(f"Sent to #{args.room}: {result['event_id']}")
+        print(f"Sent to #{args.room} as {args.bot}: {result['event_id']}")
     else:
         print(f"Error: {result}", file=sys.stderr)
         sys.exit(1)
