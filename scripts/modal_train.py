@@ -301,6 +301,7 @@ def _train_impl(
         sf_unroll_length=sf_cfg.get("unroll_length", 3),
         sf_horizon_weights=sf_cfg.get("horizon_weights", False),
         sf_selective_bptt=sf_cfg.get("selective_bptt", False),
+        sf_curriculum=sf_cfg.get("curriculum"),
         use_amp=train_cfg.get("amp", False),
         warmup_pct=train_cfg.get("warmup_pct", 0.0),
         optimizer=train_cfg.get("optimizer", "adamw"),

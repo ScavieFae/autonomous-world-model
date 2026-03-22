@@ -56,6 +56,7 @@ class Trainer:
         sf_unroll_length: int = 3,
         sf_horizon_weights: bool = False,
         sf_selective_bptt: bool = False,
+        sf_curriculum: list[int] | None = None,
         use_amp: bool = False,
         warmup_pct: float = 0.0,
         optimizer: str = "adamw",
@@ -220,6 +221,9 @@ class Trainer:
         self._sf_unroll = sf_unroll_length
         self._sf_horizon_weights = sf_horizon_weights
         self._sf_selective_bptt = sf_selective_bptt
+        self._sf_curriculum = sf_curriculum  # e.g. [1, 2, 3] for progressive horizon
+        self._sf_global_step = 0  # tracks total batches for curriculum scheduling
+        self._sf_total_steps = 0  # set after knowing num_batches
         self._sf_valid_starts = None
         if sf_enabled:
             if dataset is None:
@@ -228,18 +232,26 @@ class Trainer:
             else:
                 sf_K = self.model.context_len
                 train_split_idx = max(1, int(dataset.num_games * 0.9))
+                # Use max unroll for valid starts (curriculum may grow N)
+                max_unroll = max(sf_curriculum) if sf_curriculum else sf_unroll_length
                 starts = []
                 for gi in range(train_split_idx):
                     gs = dataset.game_offsets[gi]
                     ge = dataset.game_offsets[gi + 1]
-                    for t in range(gs + sf_K, ge - sf_unroll_length):
+                    for t in range(gs + sf_K, ge - max_unroll):
                         starts.append(t)
                 self._sf_valid_starts = np.array(starts, dtype=np.int64)
-                logger.info(
-                    "Self-Forcing: %d valid starts, ratio=1:%d, unroll=%d, selective_bptt=%s",
-                    len(self._sf_valid_starts), sf_ratio, sf_unroll_length,
-                    sf_selective_bptt,
-                )
+                if sf_curriculum:
+                    logger.info(
+                        "Self-Forcing: %d valid starts, ratio=1:%d, curriculum=%s",
+                        len(self._sf_valid_starts), sf_ratio, sf_curriculum,
+                    )
+                else:
+                    logger.info(
+                        "Self-Forcing: %d valid starts, ratio=1:%d, unroll=%d, selective_bptt=%s",
+                        len(self._sf_valid_starts), sf_ratio, sf_unroll_length,
+                        sf_selective_bptt,
+                    )
 
         # Shape preflight
         self._verify_shapes(train_dataset)
@@ -362,6 +374,18 @@ class Trainer:
 
         return ctrl, float_tgt, int_tgt
 
+    def _current_sf_unroll(self) -> int:
+        """Get current SF unroll length, respecting curriculum schedule."""
+        if not self._sf_curriculum:
+            return self._sf_unroll
+        # Divide training into equal stages
+        if self._sf_total_steps <= 0:
+            return self._sf_curriculum[0]
+        progress = min(self._sf_global_step / self._sf_total_steps, 0.999)
+        stage = int(progress * len(self._sf_curriculum))
+        stage = min(stage, len(self._sf_curriculum) - 1)
+        return self._sf_curriculum[stage]
+
     def _self_forcing_step(self) -> tuple[float, "BatchMetrics"]:
         """One Self-Forcing step: unroll N AR steps, loss vs ground truth.
 
@@ -372,7 +396,7 @@ class Trainer:
         """
         dataset = self._rollout_dataset
         K = self.model.context_len
-        N = self._sf_unroll
+        N = self._current_sf_unroll()
         B = self.batch_size
 
         # Sample starting points from pre-computed valid starts
@@ -511,6 +535,7 @@ class Trainer:
             self._scaler.update()
             if self._step_scheduler_per_batch:
                 self.scheduler.step()
+            self._sf_global_step += 1
             epoch_metrics.update(batch_metrics)
 
             # Log VRAM peak after first batch
@@ -539,6 +564,8 @@ class Trainer:
                         log_dict["batch/sf_loss"] = batch_metrics.total_loss
                     else:
                         log_dict["batch/tf_loss"] = batch_metrics.total_loss
+                    if self._sf_curriculum:
+                        log_dict["batch/sf_unroll_N"] = self._current_sf_unroll()
                     wandb.log(log_dict)
 
         if sf_count > 0:
@@ -605,6 +632,15 @@ class Trainer:
             self.start_epoch + 1, self.num_epochs,
             len(self.train_loader.dataset), self.batch_size,
         )
+
+        # Set total steps for curriculum scheduling
+        if self._sf_curriculum:
+            batches_per_epoch = len(self.train_loader.dataset) // self.batch_size
+            self._sf_total_steps = batches_per_epoch * self.num_epochs
+            logger.info(
+                "SF curriculum: %s over %d total batches",
+                self._sf_curriculum, self._sf_total_steps,
+            )
 
         best_val_loss = float("inf")
 
