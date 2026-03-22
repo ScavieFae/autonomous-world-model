@@ -221,6 +221,7 @@ class FrameStackMamba2(nn.Module):
         n_layers: int = 2,
         headdim: int = 64,
         dropout: float = 0.1,
+        layer_dropout: float = 0.0,
         chunk_size: int | None = None,
     ):
         super().__init__()
@@ -268,6 +269,7 @@ class FrameStackMamba2(nn.Module):
         # --- Mamba-2 backbone ---
         self.frame_proj = nn.Linear(self.frame_dim, d_model)
         self.input_dropout = nn.Dropout(dropout)
+        self.layer_dropout = nn.Dropout(layer_dropout) if layer_dropout > 0.0 else nn.Identity()
 
         self.layers = nn.ModuleList([
             nn.ModuleDict({
@@ -346,7 +348,7 @@ class FrameStackMamba2(nn.Module):
         x = self.input_dropout(self.frame_proj(frame_enc))
 
         for layer in self.layers:
-            x = x + layer["mamba"](layer["norm"](x))
+            x = x + self.layer_dropout(layer["mamba"](layer["norm"](x)))
 
         h = self.final_norm(x[:, -1, :])
         h = h + self.ctrl_proj(next_ctrl)

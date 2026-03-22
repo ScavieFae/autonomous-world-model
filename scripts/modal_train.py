@@ -213,6 +213,7 @@ def _train_impl(
             n_layers=model_cfg.get("n_layers", 4),
             headdim=model_cfg.get("headdim", 64),
             dropout=model_cfg.get("dropout", 0.1),
+            layer_dropout=model_cfg.get("layer_dropout", 0.0),
             chunk_size=model_cfg.get("chunk_size"),
         )
     else:
@@ -290,6 +291,7 @@ def _train_impl(
         sf_horizon_weights=sf_cfg.get("horizon_weights", False),
         sf_selective_bptt=sf_cfg.get("selective_bptt", False),
         use_amp=train_cfg.get("amp", False),
+        warmup_pct=train_cfg.get("warmup_pct", 0.0),
         resume_from=f"/data{resume}" if resume else None,
     )
 

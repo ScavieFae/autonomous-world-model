@@ -11,7 +11,7 @@ import torch
 import torch.nn as nn
 from torch.amp import GradScaler, autocast
 from torch.optim import AdamW
-from torch.optim.lr_scheduler import CosineAnnealingLR
+from torch.optim.lr_scheduler import CosineAnnealingLR, LambdaLR
 from torch.utils.data import DataLoader, IterableDataset
 
 from data.dataset import MeleeFrameDataset
@@ -57,6 +57,7 @@ class Trainer:
         sf_horizon_weights: bool = False,
         sf_selective_bptt: bool = False,
         use_amp: bool = False,
+        warmup_pct: float = 0.0,
     ):
         if device is None:
             if torch.backends.mps.is_available():
@@ -129,7 +130,41 @@ class Trainer:
             )
 
         self.optimizer = AdamW(model.parameters(), lr=lr, weight_decay=weight_decay)
-        self.scheduler = CosineAnnealingLR(self.optimizer, T_max=num_epochs)
+
+        # LR schedule: optional linear warmup + cosine decay.
+        # warmup_pct > 0 enables warmup for that fraction of total steps.
+        self._warmup_pct = warmup_pct
+        if warmup_pct > 0.0:
+            # Estimate total steps for warmup calculation.
+            # For fast loader, total examples / batch_size; for DataLoader, len(loader).
+            if self._use_fast_loader:
+                steps_per_epoch = len(train_dataset) // batch_size
+            elif is_iterable:
+                # Can't know length of iterable dataset; fall back to epoch-based warmup
+                steps_per_epoch = 1000  # rough estimate
+            else:
+                steps_per_epoch = len(self.train_loader)
+            total_steps = steps_per_epoch * num_epochs
+            warmup_steps = int(warmup_pct * total_steps)
+
+            def lr_lambda(step: int) -> float:
+                if step < warmup_steps:
+                    return (step + 1) / max(1, warmup_steps)
+                # Cosine decay over remaining steps
+                import math
+                progress = (step - warmup_steps) / max(1, total_steps - warmup_steps)
+                return 0.5 * (1.0 + math.cos(math.pi * progress))
+
+            self.scheduler = LambdaLR(self.optimizer, lr_lambda)
+            self._step_scheduler_per_batch = True
+            logger.info(
+                "LR schedule: linear warmup %d steps (%.1f%%) + cosine decay (%d total steps)",
+                warmup_steps, warmup_pct * 100, total_steps,
+            )
+        else:
+            self.scheduler = CosineAnnealingLR(self.optimizer, T_max=num_epochs)
+            self._step_scheduler_per_batch = False
+
         self.metrics = MetricsTracker(cfg, loss_weights)
         self.history: list[dict] = []
 
@@ -450,6 +485,8 @@ class Trainer:
             torch.nn.utils.clip_grad_norm_(self.model.parameters(), max_norm=1.0)
             self._scaler.step(self.optimizer)
             self._scaler.update()
+            if self._step_scheduler_per_batch:
+                self.scheduler.step()
             epoch_metrics.update(batch_metrics)
 
             # Log VRAM peak after first batch
@@ -551,7 +588,8 @@ class Trainer:
             t0 = time.time()
             train_metrics = self._train_epoch()
             val_metrics = self._val_epoch()
-            self.scheduler.step()
+            if not self._step_scheduler_per_batch:
+                self.scheduler.step()
 
             # Rollout coherence eval
             rollout_metrics = {}
