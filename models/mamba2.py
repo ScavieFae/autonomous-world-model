@@ -223,10 +223,12 @@ class FrameStackMamba2(nn.Module):
         dropout: float = 0.1,
         layer_dropout: float = 0.0,
         chunk_size: int | None = None,
+        unimix_ratio: float = 0.0,
     ):
         super().__init__()
         self.cfg = cfg
         self.context_len = context_len
+        self.unimix_ratio = unimix_ratio
 
         # --- Embeddings ---
         self.action_embed = nn.Embedding(cfg.action_vocab, cfg.action_embed_dim)
@@ -301,6 +303,22 @@ class FrameStackMamba2(nn.Module):
         self.p0_last_attack_head = nn.Linear(d_model, cfg.last_attack_vocab)
         self.p1_last_attack_head = nn.Linear(d_model, cfg.last_attack_vocab)
 
+    def _apply_unimix(self, logits: torch.Tensor, ratio: float) -> torch.Tensor:
+        """Mix uniform distribution into categorical logits (DreamerV3 technique).
+
+        Prevents overconfident collapse by mixing a small fraction of uniform
+        distribution into the predicted probabilities, then converting back
+        to log-space for CE loss compatibility.
+
+        Only applied during training; at inference time logits pass through unchanged.
+        """
+        if ratio <= 0 or not self.training:
+            return logits
+        probs = torch.softmax(logits, dim=-1)
+        uniform = torch.ones_like(probs) / probs.shape[-1]
+        mixed = (1 - ratio) * probs + ratio * uniform
+        return torch.log(mixed + 1e-8)  # back to log-space for CE loss
+
     def _encode_frames(self, float_ctx, int_ctx):
         """Encode context frames into per-frame vectors."""
         c = self._int_cols
@@ -353,21 +371,22 @@ class FrameStackMamba2(nn.Module):
         h = self.final_norm(x[:, -1, :])
         h = h + self.ctrl_proj(next_ctrl)
 
+        um = self.unimix_ratio
         return {
             "continuous_delta": self.continuous_head(h),
             "binary_logits": self.binary_head(h),
             "velocity_delta": self.velocity_head(h),
             "dynamics_pred": self.dynamics_head(h),
-            "p0_action_logits": self.p0_action_head(h),
-            "p1_action_logits": self.p1_action_head(h),
-            "p0_jumps_logits": self.p0_jumps_head(h),
-            "p1_jumps_logits": self.p1_jumps_head(h),
-            "p0_l_cancel_logits": self.p0_l_cancel_head(h),
-            "p1_l_cancel_logits": self.p1_l_cancel_head(h),
-            "p0_hurtbox_logits": self.p0_hurtbox_head(h),
-            "p1_hurtbox_logits": self.p1_hurtbox_head(h),
-            "p0_ground_logits": self.p0_ground_head(h),
-            "p1_ground_logits": self.p1_ground_head(h),
-            "p0_last_attack_logits": self.p0_last_attack_head(h),
-            "p1_last_attack_logits": self.p1_last_attack_head(h),
+            "p0_action_logits": self._apply_unimix(self.p0_action_head(h), um),
+            "p1_action_logits": self._apply_unimix(self.p1_action_head(h), um),
+            "p0_jumps_logits": self._apply_unimix(self.p0_jumps_head(h), um),
+            "p1_jumps_logits": self._apply_unimix(self.p1_jumps_head(h), um),
+            "p0_l_cancel_logits": self._apply_unimix(self.p0_l_cancel_head(h), um),
+            "p1_l_cancel_logits": self._apply_unimix(self.p1_l_cancel_head(h), um),
+            "p0_hurtbox_logits": self._apply_unimix(self.p0_hurtbox_head(h), um),
+            "p1_hurtbox_logits": self._apply_unimix(self.p1_hurtbox_head(h), um),
+            "p0_ground_logits": self._apply_unimix(self.p0_ground_head(h), um),
+            "p1_ground_logits": self._apply_unimix(self.p1_ground_head(h), um),
+            "p0_last_attack_logits": self._apply_unimix(self.p0_last_attack_head(h), um),
+            "p1_last_attack_logits": self._apply_unimix(self.p1_last_attack_head(h), um),
         }

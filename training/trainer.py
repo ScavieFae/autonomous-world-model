@@ -58,6 +58,9 @@ class Trainer:
         sf_selective_bptt: bool = False,
         use_amp: bool = False,
         warmup_pct: float = 0.0,
+        optimizer: str = "adamw",
+        muon_lr: float = 0.02,
+        adamw_lr: float = 3e-4,
     ):
         if device is None:
             if torch.backends.mps.is_available():
@@ -129,7 +132,28 @@ class Trainer:
                 **loader_kwargs,
             )
 
-        self.optimizer = AdamW(model.parameters(), lr=lr, weight_decay=weight_decay)
+        if optimizer == "muon":
+            from training.muon import Muon
+            muon_params = []
+            adamw_params = []
+            for name, p in model.named_parameters():
+                if not p.requires_grad:
+                    continue
+                if p.ndim >= 2 and "embed" not in name:
+                    muon_params.append(p)
+                else:
+                    adamw_params.append(p)
+            logger.info(
+                "Muon optimizer: %d Muon params (2D+ weights), %d AdamW params (embed/bias/1D)",
+                len(muon_params), len(adamw_params),
+            )
+            self.optimizer = Muon(
+                muon_params, adamw_params,
+                lr=muon_lr, momentum=0.95,
+                adamw_lr=adamw_lr, adamw_betas=(0.9, 0.999), adamw_wd=weight_decay,
+            )
+        else:
+            self.optimizer = AdamW(model.parameters(), lr=lr, weight_decay=weight_decay)
 
         # LR schedule: optional linear warmup + cosine decay.
         # warmup_pct > 0 enables warmup for that fraction of total steps.
