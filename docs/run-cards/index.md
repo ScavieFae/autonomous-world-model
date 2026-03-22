@@ -2,8 +2,11 @@
 
 Individual experiment records. Each card documents one idea tested in isolation.
 
-*18 cards. Generated 2026-03-21 23:11 UTC*
+*21 cards. Generated 2026-03-22 03:52 UTC*
 
+- :x: [Run Card: e025c-layer-dropout](e025c-layer-dropout.md) — *discarded*
+- :x: [Run Card: e025b-loss-reweight](e025b-loss-reweight.md) — *discarded*
+- :white_check_mark: [Run Card: e025a-lr-warmup](e025a-lr-warmup.md) — *kept*
 - :x: [Run Card: e024a-full-bptt](e024a-full-bptt.md) — *discarded*
 - :x: [Run Card: e023d-nlayers8](e023d-nlayers8.md) — *discarded*
 - :x: [Run Card: e023c-dmodel512](e023c-dmodel512.md) — *discarded*

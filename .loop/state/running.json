@@ -4,7 +4,7 @@
     "max_concurrent": 3,
     "stale_timeout_hours": 4
   },
-  "prior_best_rc": 5.775,
+  "prior_best_rc": 5.146,
   "history": [
     {"id": "e018a-sf-minimal", "status": "kept", "rollout_coherence": 6.26, "prior_best_rc": 6.77, "cost": 3.90, "completed_at": "2026-03-15T18:04:00Z"},
     {"id": "e018b-sf-n5", "status": "discarded", "rollout_coherence": 6.45, "prior_best_rc": 6.26, "cost": 5.25, "completed_at": "2026-03-15T21:15:00Z"},
@@ -20,6 +20,9 @@
     {"id": "e023c-dmodel512", "status": "discarded", "rollout_coherence": 6.203, "prior_best_rc": 5.775, "cost": 6.50, "completed_at": "2026-03-20T20:50:00Z"},
     {"id": "e023d-nlayers8", "status": "discarded", "rollout_coherence": 7.108, "prior_best_rc": 5.775, "cost": 13.00, "completed_at": "2026-03-21T00:00:00Z"},
     {"id": "e024a-full-bptt", "status": "discarded", "rollout_coherence": 8.980, "prior_best_rc": 5.775, "cost": 8.60, "completed_at": "2026-03-21T22:30:00Z"},
-    {"id": "e023b-epoch2", "status": "discarded", "rollout_coherence": 5.775, "prior_best_rc": 5.775, "cost": 4.50, "completed_at": "2026-03-21T22:30:00Z"}
+    {"id": "e023b-epoch2", "status": "discarded", "rollout_coherence": 5.775, "prior_best_rc": 5.775, "cost": 4.50, "completed_at": "2026-03-21T22:30:00Z"},
+    {"id": "e025a-lr-warmup", "status": "kept", "rollout_coherence": 5.146, "prior_best_rc": 5.775, "cost": 5.00, "completed_at": "2026-03-22T04:00:00Z"},
+    {"id": "e025b-loss-reweight", "status": "discarded", "rollout_coherence": 5.907, "prior_best_rc": 5.775, "cost": 5.00, "completed_at": "2026-03-22T04:00:00Z"},
+    {"id": "e025c-layer-dropout", "status": "discarded", "rollout_coherence": 6.475, "prior_best_rc": 5.775, "cost": 5.00, "completed_at": "2026-03-22T04:00:00Z"}
   ]
 }

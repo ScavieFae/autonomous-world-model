@@ -1,12 +1,12 @@
 ---
 id: e025a
 created: 2026-03-21
-status: proposed
+status: kept
 type: training-regime
 base_build: b001
 built_on: [e023b]
 source_paper: null
-rollout_coherence: null
+rollout_coherence: 5.146
 prior_best_rc: 5.775
 ---
 
@@ -41,9 +41,33 @@ Identical to E023b: d_model=768, d_state=64, n_layers=4, headdim=64, 15,648,882 
 
 ## Cost
 
-~$7-9 Scout tier (A100 40GB). AMP may reduce step time vs E023b.
+~$5 (A100 40GB with AMP, ~3hr).
 
 ## Confounds
 
 - Only testing 5% warmup. If null, doesn't rule out longer warmup (10%, 20%).
 - Interaction with Self-Forcing: SF steps happen from the start. Warmup affects LR during early SF batches too.
+
+## Results
+
+| Metric | E023b (baseline) | E025a (warmup) | Delta |
+|--------|-----------------|----------------|-------|
+| **rollout_coherence** | **5.775** | **5.146** | **-10.9%** |
+| change_acc | 66.0% | 65.6% | -0.4pp |
+| pos_mae | 0.823 | 0.814 | -1.1% |
+| loss | — | 0.426 | — |
+
+wandb: https://wandb.ai/shinewave/melee-worldmodel/runs/obu0o7lf
+Checkpoint: /data/checkpoints/e025a-lr-warmup/best.pt
+
+## Director Evaluation
+
+**Verdict: KEPT — New Best**
+
+RC 5.146 is a 10.9% improvement over E023b (5.775) — the largest single-experiment gain since Self-Forcing (7.5% in e018a). This is now the largest single-experiment improvement in the project's history.
+
+LR warmup stabilized early training at d_model=768. The 5% warmup period allowed the optimizer to find a better basin before cosine decay began. change_acc is essentially flat (-0.4pp), meaning the RC gain comes entirely from better position/dynamics prediction rather than action classification changes. pos_mae also improved slightly (0.823 to 0.814).
+
+Cumulative RC improvement: 6.77 -> 6.26 -> 6.03 -> 5.775 -> 5.146 (-24.0% from baseline).
+
+**Next:** warmup_pct is a new canonical hyperparameter. Consider testing 0.10 warmup for further gains.

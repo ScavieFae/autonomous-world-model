@@ -1,12 +1,12 @@
 ---
 id: e025b
 created: 2026-03-21
-status: proposed
+status: discarded
 type: hyperparameter
 base_build: b001
 built_on: [e023b]
 source_paper: null
-rollout_coherence: null
+rollout_coherence: 5.907
 prior_best_rc: 5.775
 ---
 
@@ -57,9 +57,28 @@ Identical to E023b: d_model=768, d_state=64, n_layers=4, headdim=64, 15,648,882 
 
 ## Cost
 
-~$7-9 Scout tier (A100 40GB). AMP may reduce step time vs E023b.
+~$5 (A100 40GB with AMP).
 
 ## Confounds
 
 - Changing two weights simultaneously (continuous up, action down). If RC improves, a follow-up could isolate which change mattered.
 - Action accuracy may drop, which could hurt RC through action-dependent position dynamics. Watch for action_acc regression below 94%.
+
+## Results
+
+| Metric | E023b (baseline) | E025b (reweight) | Delta |
+|--------|-----------------|------------------|-------|
+| **rollout_coherence** | **5.775** | **5.907** | **+2.3%** |
+| change_acc | 66.0% | 65.3% | -0.7pp |
+| pos_mae | 0.823 | 0.764 | -7.2% |
+| loss | — | 0.227 | — |
+
+wandb: https://wandb.ai/shinewave/melee-worldmodel/runs/3pmpx26d
+
+## Director Evaluation
+
+**Verdict: DISCARDED**
+
+RC 5.907 is a 2.3% regression. Despite a notable improvement in pos_mae (0.823 to 0.764, -7.2%), rollout coherence worsened. The lower loss (0.227 vs typical ~0.4) suggests the model optimized for teacher-forced position accuracy at the expense of autoregressive stability.
+
+Halving action weight degraded change_acc (-0.7pp), and the action head may need its full gradient budget to maintain the action-position coupling that matters for AR rollouts. The hypothesis that action was near saturation and wasting gradient was incorrect — the gradient signal to the action head contributes to backbone representations that benefit all heads.

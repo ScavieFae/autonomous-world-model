@@ -1,12 +1,12 @@
 ---
 id: e025c
 created: 2026-03-21
-status: proposed
+status: discarded
 type: training-regime
 base_build: b001
 built_on: [e023b]
 source_paper: null
-rollout_coherence: null
+rollout_coherence: 6.475
 prior_best_rc: 5.775
 ---
 
@@ -57,10 +57,28 @@ Based on E023b with one addition:
 
 ## Cost
 
-~$7-9 Scout tier (A100 40GB). Dropout adds negligible compute.
+~$5 (A100 40GB with AMP).
 
 ## Confounds
 
 - 0.1 is a single data point. If null, doesn't rule out different rates (0.05, 0.2).
 - Interaction with Self-Forcing: layer dropout during SF unrolling may smooth error propagation, or may add noise that destabilizes SF gradients.
 - E023b showed no overfitting signal (val loss stable). If the model isn't overfitting, regularization may hurt by reducing effective capacity.
+
+## Results
+
+| Metric | E023b (baseline) | E025c (layer dropout) | Delta |
+|--------|-----------------|----------------------|-------|
+| **rollout_coherence** | **5.775** | **6.475** | **+12.1%** |
+
+wandb: https://wandb.ai/shinewave/melee-worldmodel/runs/wlcm7zes
+
+## Director Evaluation
+
+**Verdict: DISCARDED**
+
+RC 6.475 is a 12.1% regression — a severe degradation. Layer dropout 0.1 at every Mamba block significantly hurt autoregressive quality.
+
+This confirms the confound noted in the proposal: E023b showed no overfitting signal, and adding regularization to a model that isn't overfitting reduces effective capacity. Additionally, dropout during Self-Forcing unrolling likely destabilized SF gradients by injecting noise into the error propagation path. The model has only 4 layers, so dropping 10% of each layer's output is a substantial capacity reduction per forward pass.
+
+Layer dropout at this rate is ruled out. Lower rates (0.01-0.05) remain untested but are deprioritized given the magnitude of the regression.

@@ -1,16 +1,13 @@
 {
   "current_best": {
-    "experiment": "e023b",
-    "checkpoint": "e023b-dmodel768-r3/best.pt",
-    "config": "experiments/e023b-dmodel768.yaml",
-    "rollout_coherence": 5.775,
+    "experiment": "e025a",
+    "checkpoint": "e025a-lr-warmup/best.pt",
+    "config": "experiments/e025a-lr-warmup.yaml",
+    "rollout_coherence": 5.146,
     "metrics": {
-      "change_acc": 0.6599,
-      "pos_mae": 0.8229,
-      "p0_action_acc": 0.9578,
-      "sf_loss": 0.6182,
-      "h10_pos_mae": 5.4257,
-      "h10_action_acc": 0.7733
+      "change_acc": 0.656,
+      "pos_mae": 0.814,
+      "loss": 0.426
     },
     "model": {
       "arch": "mamba2",
@@ -25,15 +22,17 @@
       "sf_unroll": 3,
       "context_len": 30,
       "batch_size": 512,
-      "lr": 0.0005
+      "lr": 0.0005,
+      "warmup_pct": 0.05
     },
-    "wandb": "https://wandb.ai/shinewave/melee-worldmodel/runs/9xacat7s",
-    "kept_at": "2026-03-20"
+    "wandb": "https://wandb.ai/shinewave/melee-worldmodel/runs/obu0o7lf",
+    "kept_at": "2026-03-22"
   },
   "history": [
     {"experiment": "e019", "rc": 6.77, "kept_at": "2026-03-14"},
     {"experiment": "e018a", "rc": 6.26, "kept_at": "2026-03-15"},
     {"experiment": "e018c", "rc": 6.03, "kept_at": "2026-03-16"},
-    {"experiment": "e023b", "rc": 5.775, "kept_at": "2026-03-20"}
+    {"experiment": "e023b", "rc": 5.775, "kept_at": "2026-03-20"},
+    {"experiment": "e025a", "rc": 5.146, "kept_at": "2026-03-22"}
   ]
 }

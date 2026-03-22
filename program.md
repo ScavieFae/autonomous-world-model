@@ -10,12 +10,15 @@ A learned world model that runs onchain as an autonomous world. Trained on Super
 
 | Checkpoint | Experiment | change_acc | pos_mae | rollout_coherence | Notes |
 |-----------|-----------|-----------|---------|-------------------|-------|
-| `e023b-dmodel768-r3/best.pt` | E023b | 66.0% | 0.823 | **5.775** | b001 + SF + K=30 + d_model=768, 1.9K data |
+| `e025a-lr-warmup/best.pt` | E025a | 65.6% | 0.814 | **5.146** | b001 + SF + K=30 + d_model=768 + warmup 5%, 1.9K data |
+| `e023b-dmodel768-r3/best.pt` | E023b | 66.0% | 0.823 | 5.775 | b001 + SF + K=30 + d_model=768, 1.9K data |
 | `e018c-context-k30/best.pt` | E018c | 62.3% | 0.824 | 6.03 | b001 + SF + K=30, d_model=384 |
 | `e018a-sf-minimal/best.pt` | E018a | 61.6% | 0.825 | 6.26 | b001 + Self-Forcing (20% SF, N=3), 1.9K data |
 | `e019-baseline-1k/best.pt` | E019 | 78.7% | 0.756 | 6.77 | b001, 1.9K data, full loss suite (10 heads) |
 
-E023b is the new best. Doubling d_model (384→768) improved RC by 4.2% (6.03→5.775) — the first experiment to improve BOTH RC and change_acc (+3.7pp). Width axis is monotonic: d_model 192 (6.065) < 384 (6.03) < 768 (5.775). The model was capacity-constrained. Cumulative improvement from E019 baseline: -14.7% (6.77→5.775).
+E025a is the new best. Adding 5% LR warmup to the d_model=768 config improved RC by 10.9% (5.775→5.146) — the largest single-experiment gain in the project's history. LR warmup stabilized early training, allowing the optimizer to find a better basin before cosine decay. Cumulative improvement from E019 baseline: -24.0% (6.77→5.146).
+
+Also tested in this batch: loss reweighting (e025b, RC 5.907, +2.3% regression) and layer dropout (e025c, RC 6.475, +12.1% regression). The model is not overfitting — regularization hurts. Loss weight rebalancing toward continuous heads lowered pos_mae but worsened AR rollouts.
 
 Val metrics plateau after 1 epoch on 1.9K data (epoch 2 showed identical val performance). 1 epoch is sufficient for Scout experiments.
 
