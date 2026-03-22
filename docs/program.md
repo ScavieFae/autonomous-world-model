@@ -10,7 +10,8 @@ A learned world model that runs onchain as an autonomous world. Trained on Super
 
 | Checkpoint | Experiment | change_acc | pos_mae | rollout_coherence | Notes |
 |-----------|-----------|-----------|---------|-------------------|-------|
-| `e026c-sf-curriculum/best.pt` | E026c | 80.2% | 0.642 | **4.965** | b002 + SF curriculum N=1->2->3, 2 epochs, 1.9K data |
+| `e027c-lossreweight-warmstart/best.pt` | E027c | 78.9% | 0.650 | **4.939** | e025b warm-start + standard weights epoch 2, regime switching |
+| `e026c-sf-curriculum/best.pt` | E026c | 80.2% | 0.642 | 4.965 | b002 + SF curriculum N=1->2->3, 2 epochs, 1.9K data |
 | `e026b-unimix/best.pt` | E026b | 65.4% | 0.798 | 5.120 | b002 + 1% unimix on categoricals, 1.9K data |
 | `e025a-lr-warmup/best.pt` | E025a | 65.6% | 0.814 | 5.146 | b001 + SF + K=30 + d_model=768 + warmup 5%, 1.9K data |
 | `e023b-dmodel768-r3/best.pt` | E023b | 66.0% | 0.823 | 5.775 | b001 + SF + K=30 + d_model=768, 1.9K data |
@@ -18,11 +19,11 @@ A learned world model that runs onchain as an autonomous world. Trained on Super
 | `e018a-sf-minimal/best.pt` | E018a | 61.6% | 0.825 | 6.26 | b001 + Self-Forcing (20% SF, N=3), 1.9K data |
 | `e019-baseline-1k/best.pt` | E019 | 78.7% | 0.756 | 6.77 | b001, 1.9K data, full loss suite (10 heads) |
 
-E026c is the new best. Progressive SF curriculum (N=1->2->3 over 2 epochs) broke below RC 5.0 for the first time: 4.965 (-3.0% vs prior best 5.120). The curriculum made epoch 2 productive unlike e023b-epoch2 (RC flat) — each stage introduces qualitatively new training signal. change_acc jumped +14.8pp (65.4%->80.2%), the largest single-experiment gain on that metric. pos_mae improved 19.5% (0.798->0.642). Cumulative improvement from E019 baseline: -26.7% (6.77->4.965).
+E027c is the new best. Multi-epoch regime switching — position-focused loss weights (e025b) for epoch 1, standard weights for epoch 2 — achieved RC 4.939 (-0.5% vs prior best 4.965). Small but real (deterministic eval, seed=42). This validates the regime switching pattern alongside e026c's curriculum: epoch 2 is productive when it introduces a qualitatively different training objective.
 
-The curriculum hypothesis is supported: E018b's N=5 failure was likely "the model wasn't ready" rather than "N=5 is fundamentally too long." This opens N=4/5 via longer curricula (e.g., [1,2,3,4,5]).
+E027b confirmed that SF curriculum requires the full progressive ramp: jumping from e023b to N=4/5 without N=1/2/3 foundation regressed to RC 5.225 (+5.2%). The path to longer SF horizons is extending e026c's curriculum, not cold-starting from pre-SF checkpoints.
 
-Val metrics plateau after 1 epoch on 1.9K data with fixed SF — but curriculum breaks this pattern because each stage is qualitatively different training. 2 epochs are justified when the curriculum spans them.
+Cumulative improvement from E019 baseline: -27.0% (6.77->4.939).
 
 ## The Eval
 
@@ -36,16 +37,30 @@ Val metrics plateau after 1 epoch on 1.9K data with fixed SF — but curriculum 
 
 ## What We Know
 
-### Proven improvements (compound, keep in all experiments)
+### Proven improvements — canonized in base build b002
+
+All of these are in b002 (`docs/base-builds/b002.yaml`). Every experiment after E026b builds on b002 unless explicitly stated.
 
 | Technique | Source | Effect | Status |
 |-----------|--------|--------|--------|
-| action_change_weight=5.0 | E010b | +9.9pp change_acc | In all configs since E010d |
-| ctrl_threshold_features | E010c | +5.9pp change_acc | In all configs since E010d |
-| multi_position=true | E008c | 10x training signal | In all configs since E008c |
-| FD-only + top-5 characters | E012 | Cleaner physics, less noise | Current data filter |
-| Full loss suite (10 heads) | E019 | Better rollout coherence (6.77 vs 6.84) despite -12pp change_acc | Velocity/dynamics supervision improves AR quality |
-| Self-Forcing (20% SF, N=3) | E018a | -7.5% rollout coherence (6.77→6.26), -17pp change_acc | Largest single-experiment gain. Trains on own AR errors. |
+| action_change_weight=5.0 | E010b | +9.9pp change_acc | b001 (original) |
+| ctrl_threshold_features | E010c | +5.9pp change_acc | b001 |
+| multi_position=true | E008c | 10x training signal | b001 |
+| FD-only + top-5 characters | E012 | Cleaner physics, less noise | b001 |
+| Full loss suite (10 heads) | E019 | RC 6.77 vs 6.84 despite -12pp change_acc | b001 |
+| Self-Forcing (20% SF, N=3) | E018a | -7.5% RC (6.77→6.26) | b002 (new) |
+| Context K=30 | E018c | -3.7% RC (6.26→6.03) | b002 |
+| d_model=768 (15.8M params) | E023b | -4.2% RC (6.03→5.775), +3.7pp change_acc | b002 |
+| LR warmup 5% | E025a | -10.9% RC (5.775→5.146) | b002 |
+| AMP (float16 autocast) | E023b-epoch2 | ~1.3x speedup, zero quality loss | b002 (infra) |
+
+### Proven improvements — on top of b002 (not yet in a base build)
+
+| Technique | Source | Effect | Status |
+|-----------|--------|--------|--------|
+| 1% Unimix on categoricals | E026b | -0.5% RC (5.146→5.120), prevents overconfident collapse | Kept, small but real |
+| SF curriculum N=1→2→3 (2 epochs) | E026c | -3.0% RC (5.120→4.965), +14.8pp change_acc | Kept, largest change_acc gain ever |
+| Multi-epoch regime switching (loss reweight→standard) | E027c | -0.5% RC (4.965→4.939), position-focused epoch 1 builds physics foundation | Kept, validates regime switching pattern |
 
 ### Promising but unfinished
 
@@ -94,17 +109,22 @@ E018a confirmed this empirically: Self-Forcing improved RC by 7.5% while regress
 
 ### Engineering directions (require code changes)
 
-#### 1. Full backpropagation through Self-Forcing steps
-Currently gradients are truncated (detached) between the 3 Self-Forcing steps. This limits what the model can learn about multi-step error recovery. Full BPTT would let gradients flow through `reconstruct_frame()`, potentially enabling N=5+ and better error correction.
+#### 1. Full backpropagation through Self-Forcing steps — TESTED, needs different approach
+E024a tested full BPTT via soft embeddings (softmax @ embed.weight): RC 8.980 (+55.5% catastrophic regression). Train/eval mismatch — model optimized for soft-embed path but eval uses hard argmax. The idea is sound but the implementation needs to avoid this mismatch: temperature annealing (start soft, anneal to hard) or straight-through estimator (hard forward, approximate backward). Revisit with curriculum approach: full BPTT at N=1 first, grow from there.
 
-**Challenge:** `reconstruct_frame()` uses argmax for categorical predictions (action state, jumps), which isn't differentiable. Options: Gumbel-softmax relaxation, straight-through estimator, or gradient flow only through continuous heads.
+#### 2. Data scaling to 7.7K games — UNBLOCKED
+Data loader fixed via `mmap=True` on `torch.load()`. 53GB encoded file loads in 0.0s, VRAM peak 8.19GB. Ready to run. Cost: ~$31/epoch on A100 with AMP. The 7.7K dataset is `encoded-v3-ranked-fd-top5.pt` (FD-only, top-5 characters — same distribution as 1.9K, just 4x more games).
 
-**Expected cost:** ~$10-15 per experiment (need gradient checkpointing for memory).
+#### 3. Constraint violation penalties during SF (ref: issue #18)
+E015 predicted that constraint penalties would work *after* scheduled sampling is in place (violations only occur during AR, not TF). SF is now in place. The plan:
 
-#### 2. Data scaling to 7.7K games
-The 7.7K dataset exists on the Modal volume but loading takes 9hr/epoch with `num_workers=0` (fork OOM with `num_workers=4`, `share_memory_()` fails on Modal). E016 showed dramatic TF metric improvement at 7.7K — unknown if AR quality scales similarly.
+**Phase 1 — Instrument.** Add config-driven constraint spec (`configs/constraints.yaml`) and evaluator that checks SF reconstructed frames and rollout eval frames for violations (negative percent, impossible jumps, stocks increasing, position outside blast zones). Log per-constraint violation rates to wandb, broken down by AR horizon step. Ship with the next training run for free data collection.
 
-**Blocker:** Data loader infrastructure. Fix before running experiments.
+**Phase 2 — Penalize (only if violations >5%).** Add `λ * violation_penalty` to SF loss using the same constraint spec. Differentiable for continuous constraints (relu relaxation). Discrete constraints (jumps, action transitions) may already be addressed by unimix (E026b).
+
+**Phase 3 — Target.** Use violation data to identify which game situations produce the most errors. Hard example mining: oversample high-violation starting points during SF.
+
+**Key uncertainty:** Violations may already be rare at RC 4.965. Measure first.
 
 #### 3. Cascaded heads + Self-Forcing
 E014 showed cascaded heads fixed damage drift at 1.9K. Code not ported to this repo. Requires implementation work.
@@ -179,7 +199,7 @@ Agents should actively search for techniques from the world model, video predict
 - **Simpler is better if metrics are close.** A one-line training change that gets 90% of the gain beats a complex architecture change.
 - **State observations with hit rates, not editorials.** "WD 0.001 improved in 3/3 experiments" not "weight decay is important."
 - **One idea per experiment.** Don't combine untested changes. If Self-Forcing + longer context both help, we want to know which helped how much.
-- **Kill fast.** If an experiment isn't showing signal by epoch 1, kill it. Don't throw good compute after bad.
+- **Kill fast for single-regime experiments.** If a single-regime experiment isn't showing signal by epoch 1, kill it. But multi-phase experiments (curriculum, regime switching) should be evaluated after all phases complete — E026c's epoch 1 RC was 6.262 (would have been killed) but epoch 2 hit 4.965 (new best). See issue #17.
 - **Double or half, not +1.** When exploring a parameter, make big moves to see directional shift. We're triangulating, not hill-climbing. Going from 4 layers to 8 is better than 4 to 5.
 
 ## The Eval Protocol

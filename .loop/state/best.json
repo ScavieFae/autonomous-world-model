@@ -1,12 +1,12 @@
 {
   "current_best": {
-    "experiment": "e026c",
-    "checkpoint": "e026c-sf-curriculum/best.pt",
-    "config": "experiments/e026c-sf-curriculum.yaml",
-    "rollout_coherence": 4.965,
+    "experiment": "e027c",
+    "checkpoint": "e027c-lossreweight-warmstart/best.pt",
+    "config": null,
+    "rollout_coherence": 4.939,
     "metrics": {
-      "change_acc": 0.802,
-      "pos_mae": 0.642,
+      "change_acc": 0.789,
+      "pos_mae": 0.650,
       "loss": null
     },
     "model": {
@@ -24,11 +24,10 @@
       "batch_size": 512,
       "lr": 0.0005,
       "warmup_pct": 0.05,
-      "unimix_ratio": 0.01,
-      "curriculum": [1, 2, 3],
+      "regime_switch": "e025b_weights_then_standard",
       "num_epochs": 2
     },
-    "wandb": "https://wandb.ai/shinewave/melee-worldmodel/runs/04b1e5ft",
+    "wandb": "https://wandb.ai/shinewave/melee-worldmodel/runs/0p9495nw",
     "kept_at": "2026-03-22"
   },
   "history": [
@@ -38,6 +37,7 @@
     {"experiment": "e023b", "rc": 5.775, "kept_at": "2026-03-20"},
     {"experiment": "e025a", "rc": 5.146, "kept_at": "2026-03-22"},
     {"experiment": "e026b", "rc": 5.120, "kept_at": "2026-03-22"},
-    {"experiment": "e026c", "rc": 4.965, "kept_at": "2026-03-22"}
+    {"experiment": "e026c", "rc": 4.965, "kept_at": "2026-03-22"},
+    {"experiment": "e027c", "rc": 4.939, "kept_at": "2026-03-22"}
   ]
 }

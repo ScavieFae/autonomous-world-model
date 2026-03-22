@@ -2,8 +2,10 @@
 
 Individual experiment records. Each card documents one idea tested in isolation.
 
-*24 cards. Generated 2026-03-22 12:11 UTC*
+*26 cards. Generated 2026-03-22 19:01 UTC*
 
+- :white_check_mark: [Run Card: e027c-lossreweight-warmstart](e027c-lossreweight-warmstart.md) — *kept*
+- :x: [Run Card: e027b-e023b-regime-switch](e027b-e023b-regime-switch.md) — *discarded*
 - :white_check_mark: [Run Card: e026c-sf-curriculum](e026c-sf-curriculum.md) — *kept*
 - :white_check_mark: [Run Card: e026b-unimix](e026b-unimix.md) — *kept*
 - :x: [Run Card: e026a-muon](e026a-muon.md) — *discarded*
