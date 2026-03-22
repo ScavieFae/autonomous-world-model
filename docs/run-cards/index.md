@@ -2,7 +2,7 @@
 
 Individual experiment records. Each card documents one idea tested in isolation.
 
-*21 cards. Generated 2026-03-22 03:52 UTC*
+*21 cards. Generated 2026-03-22 04:41 UTC*
 
 - :x: [Run Card: e025c-layer-dropout](e025c-layer-dropout.md) — *discarded*
 - :x: [Run Card: e025b-loss-reweight](e025b-loss-reweight.md) — *discarded*

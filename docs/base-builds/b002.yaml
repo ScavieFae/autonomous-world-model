@@ -1,0 +1,56 @@
+# Base Build b002: Self-Forcing + Scaled Architecture
+#
+# Canonizes the full kept chain from E018a through E025a.
+# Every experiment after this builds on b002 unless explicitly stated.
+#
+# What changed since b001:
+#   - Self-Forcing training (E018a): 20% SF, N=3 unroll. -7.5% RC.
+#   - Extended context (E018c): K=30 (500ms). -3.7% RC.
+#   - Width scaling (E023b): d_model=768, 15.8M params. -4.2% RC.
+#   - LR warmup (E025a): 5% linear warmup before cosine. -10.9% RC.
+#   - AMP validated (E023b-epoch2): float16 autocast safe, ~1.3x speedup.
+#
+# Cumulative RC improvement over E019 baseline: 6.77 → 5.146 (-24.0%)
+#
+# What was tested and NOT included (dead ends at this scale):
+#   - Depth scaling (E023d): n_layers=8 regressed 23.1%. Width >> depth.
+#   - Full BPTT (E024a): soft embeddings caused train/eval mismatch. RC 8.98.
+#   - Epoch 2 (E023b-epoch2): RC flat despite TF metric gains. 1 epoch sufficient.
+#   - Layer dropout (E025c): extra regularization hurt at 1.9K data. +12.1%.
+#   - Loss reweighting (E025b): continuous=2/action=1 regressed. Current weights OK.
+#   - SF ratio 10% (E020a), 33% (E020b): 20% is optimal. Axis closed.
+#   - SF N=5 (E018b): truncated BPTT saturates at N=3.
+#   - Ascending SF weights (E018d): amplified gradient noise. Regressed.
+#   - Selective BPTT (E021b): detaching categoricals destabilized SF. -13.9%.
+#   - BS=256 (E022a): Karpathy finding didn't replicate. Flat.
+#   - d_model=192 (E023a), d_model=512 (E023c): underfitting / non-monotonic.
+
+id: b002
+created: 2026-03-22
+supersedes: b001
+experiments: [e008c, e010b, e010c, e010d, e012, e018a, e018c, e023b, e025a]
+description: Self-Forcing + scaled architecture — full kept chain through E025a
+
+# Model architecture (locked):
+#   Mamba-2, d_model=768, d_state=64, n_layers=4, headdim=64
+#   chunk_size=15, dropout=0.1 (input only), 15.8M params
+#
+# Data contract (unchanged from b001):
+#   FD (stage=32), top-5 chars [1,2,7,18,22], v3 encoding
+#   state_flags=true, hitstun=true, ctrl_threshold_features=true
+#   state_age_as_embed=true, multi_position=true
+#   focal_offset=0, projectiles=false
+#
+# Training contract:
+#   lr=5e-4, wd=1e-5, batch_size=512, 1 epoch on 1.9K data
+#   warmup_pct=0.05 (5% linear warmup before cosine)
+#   Self-Forcing: enabled, ratio=4 (20%), unroll_length=3
+#   context_len=30, AMP=true
+#
+# Loss weights:
+#   continuous=1.0, velocity=0.5, dynamics=0.5, binary=1.0
+#   action=2.0, jumps=0.5
+#   l_cancel=0.3, hurtbox=0.3, ground=0.3, last_attack=0.3
+#
+# Checkpoint: e025a-lr-warmup/best.pt
+# RC: 5.146

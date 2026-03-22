@@ -2,7 +2,7 @@
 
 *21 experiments — 4 kept, 2 running, 0 proposed, 14 discarded.*
 
-*Generated 2026-03-22 03:52 UTC*
+*Generated 2026-03-22 04:41 UTC*
 
 **Best rollout coherence:** 5.146 ([e025a](../run-cards/e025a-lr-warmup.md))
 
