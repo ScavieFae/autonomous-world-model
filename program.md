@@ -94,17 +94,22 @@ E018a confirmed this empirically: Self-Forcing improved RC by 7.5% while regress
 
 ### Engineering directions (require code changes)
 
-#### 1. Full backpropagation through Self-Forcing steps
-Currently gradients are truncated (detached) between the 3 Self-Forcing steps. This limits what the model can learn about multi-step error recovery. Full BPTT would let gradients flow through `reconstruct_frame()`, potentially enabling N=5+ and better error correction.
+#### 1. Full backpropagation through Self-Forcing steps — TESTED, needs different approach
+E024a tested full BPTT via soft embeddings (softmax @ embed.weight): RC 8.980 (+55.5% catastrophic regression). Train/eval mismatch — model optimized for soft-embed path but eval uses hard argmax. The idea is sound but the implementation needs to avoid this mismatch: temperature annealing (start soft, anneal to hard) or straight-through estimator (hard forward, approximate backward). Revisit with curriculum approach: full BPTT at N=1 first, grow from there.
 
-**Challenge:** `reconstruct_frame()` uses argmax for categorical predictions (action state, jumps), which isn't differentiable. Options: Gumbel-softmax relaxation, straight-through estimator, or gradient flow only through continuous heads.
+#### 2. Data scaling to 7.7K games — UNBLOCKED
+Data loader fixed via `mmap=True` on `torch.load()`. 53GB encoded file loads in 0.0s, VRAM peak 8.19GB. Ready to run. Cost: ~$31/epoch on A100 with AMP. The 7.7K dataset is `encoded-v3-ranked-fd-top5.pt` (FD-only, top-5 characters — same distribution as 1.9K, just 4x more games).
 
-**Expected cost:** ~$10-15 per experiment (need gradient checkpointing for memory).
+#### 3. Constraint violation penalties during SF (ref: issue #18)
+E015 predicted that constraint penalties would work *after* scheduled sampling is in place (violations only occur during AR, not TF). SF is now in place. The plan:
 
-#### 2. Data scaling to 7.7K games
-The 7.7K dataset exists on the Modal volume but loading takes 9hr/epoch with `num_workers=0` (fork OOM with `num_workers=4`, `share_memory_()` fails on Modal). E016 showed dramatic TF metric improvement at 7.7K — unknown if AR quality scales similarly.
+**Phase 1 — Instrument.** Add config-driven constraint spec (`configs/constraints.yaml`) and evaluator that checks SF reconstructed frames and rollout eval frames for violations (negative percent, impossible jumps, stocks increasing, position outside blast zones). Log per-constraint violation rates to wandb, broken down by AR horizon step. Ship with the next training run for free data collection.
 
-**Blocker:** Data loader infrastructure. Fix before running experiments.
+**Phase 2 — Penalize (only if violations >5%).** Add `λ * violation_penalty` to SF loss using the same constraint spec. Differentiable for continuous constraints (relu relaxation). Discrete constraints (jumps, action transitions) may already be addressed by unimix (E026b).
+
+**Phase 3 — Target.** Use violation data to identify which game situations produce the most errors. Hard example mining: oversample high-violation starting points during SF.
+
+**Key uncertainty:** Violations may already be rare at RC 4.965. Measure first.
 
 #### 3. Cascaded heads + Self-Forcing
 E014 showed cascaded heads fixed damage drift at 1.9K. Code not ported to this repo. Requires implementation work.
@@ -179,7 +184,7 @@ Agents should actively search for techniques from the world model, video predict
 - **Simpler is better if metrics are close.** A one-line training change that gets 90% of the gain beats a complex architecture change.
 - **State observations with hit rates, not editorials.** "WD 0.001 improved in 3/3 experiments" not "weight decay is important."
 - **One idea per experiment.** Don't combine untested changes. If Self-Forcing + longer context both help, we want to know which helped how much.
-- **Kill fast.** If an experiment isn't showing signal by epoch 1, kill it. Don't throw good compute after bad.
+- **Kill fast for single-regime experiments.** If a single-regime experiment isn't showing signal by epoch 1, kill it. But multi-phase experiments (curriculum, regime switching) should be evaluated after all phases complete — E026c's epoch 1 RC was 6.262 (would have been killed) but epoch 2 hit 4.965 (new best). See issue #17.
 - **Double or half, not +1.** When exploring a parameter, make big moves to see directional shift. We're triangulating, not hill-climbing. Going from 4 layers to 8 is better than 4 to 5.
 
 ## The Eval Protocol
