@@ -1,8 +1,8 @@
 # Experiment Index
 
-*21 experiments — 4 kept, 2 running, 0 proposed, 14 discarded.*
+*24 experiments — 4 kept, 2 running, 3 proposed, 14 discarded.*
 
-*Generated 2026-03-22 04:41 UTC*
+*Generated 2026-03-22 04:52 UTC*
 
 **Best rollout coherence:** 5.146 ([e025a](../run-cards/e025a-lr-warmup.md))
 
@@ -11,6 +11,7 @@
 ```mermaid
 flowchart TD
     b001["b001"]
+    b002["b002"]
     e018a_self_forcing(["e018a\nRC 6.26"])
     e018b_rollout_coherence_eval("e018b")
     e018b_self_forcing_n5["e018b\nRC 6.45"]
@@ -32,6 +33,9 @@ flowchart TD
     e025a_lr_warmup(["e025a\nRC 5.146"])
     e025b_loss_reweight["e025b\nRC 5.907"]
     e025c_layer_dropout["e025c\nRC 6.475"]
+    e026a_muon("e026a")
+    e026b_unimix("e026b")
+    e026c_sf_curriculum("e026c")
     e019_baseline --> e018a_self_forcing
     e017a --> e018b_rollout_coherence_eval
     e018a_self_forcing --> e018b_self_forcing_n5
@@ -53,6 +57,9 @@ flowchart TD
     e023b_dmodel768 --> e025a_lr_warmup
     e023b_dmodel768 --> e025b_loss_reweight
     e023b_dmodel768 --> e025c_layer_dropout
+    b002 --> e026a_muon
+    b002 --> e026b_unimix
+    b002 --> e026c_sf_curriculum
     style e018a_self_forcing fill:#2e7d32,color:#fff
     style e018b_rollout_coherence_eval fill:#1565c0,color:#fff
     style e018b_self_forcing_n5 fill:#616161,color:#fff
@@ -74,7 +81,11 @@ flowchart TD
     style e025a_lr_warmup fill:#2e7d32,color:#fff
     style e025b_loss_reweight fill:#616161,color:#fff
     style e025c_layer_dropout fill:#616161,color:#fff
+    style e026a_muon fill:#f9a825,color:#000
+    style e026b_unimix fill:#f9a825,color:#000
+    style e026c_sf_curriculum fill:#f9a825,color:#000
     style b001 fill:#4a148c,color:#fff
+    style b002 fill:#4a148c,color:#fff
 ```
 
 ## Rollout Coherence
@@ -117,6 +128,14 @@ flowchart TD
 | [e018c](../run-cards/e018c-rolling-context-window.md) | architectural | b001 | 6.03 | e018a | [2505.20171](https://arxiv.org/abs/2505.20171) |
 | [e023b](../run-cards/e023b-dmodel768.md) | architectural | b001 | 5.775 | e018c | — |
 | [e025a](../run-cards/e025a-lr-warmup.md) | training-regime | b001 | 5.146 | e023b | — |
+
+## Proposed
+
+| ID | Type | Base | RC | Built On | Paper |
+|-----|------|------|----|----------|-------|
+| [e026a](../run-cards/e026a-muon.md) | training-regime | b002 | — | — | — |
+| [e026b](../run-cards/e026b-unimix.md) | training-regime | b002 | — | — | [2301.04104](https://arxiv.org/abs/2301.04104) |
+| [e026c](../run-cards/e026c-sf-curriculum.md) | training-regime | b002 | — | — | — |
 
 ## Discarded
 
