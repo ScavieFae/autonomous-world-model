@@ -10,18 +10,19 @@ A learned world model that runs onchain as an autonomous world. Trained on Super
 
 | Checkpoint | Experiment | change_acc | pos_mae | rollout_coherence | Notes |
 |-----------|-----------|-----------|---------|-------------------|-------|
-| `e026b-unimix/best.pt` | E026b | 65.4% | 0.798 | **5.120** | b002 + 1% unimix on categoricals, 1.9K data |
+| `e026c-sf-curriculum/best.pt` | E026c | 80.2% | 0.642 | **4.965** | b002 + SF curriculum N=1->2->3, 2 epochs, 1.9K data |
+| `e026b-unimix/best.pt` | E026b | 65.4% | 0.798 | 5.120 | b002 + 1% unimix on categoricals, 1.9K data |
 | `e025a-lr-warmup/best.pt` | E025a | 65.6% | 0.814 | 5.146 | b001 + SF + K=30 + d_model=768 + warmup 5%, 1.9K data |
 | `e023b-dmodel768-r3/best.pt` | E023b | 66.0% | 0.823 | 5.775 | b001 + SF + K=30 + d_model=768, 1.9K data |
 | `e018c-context-k30/best.pt` | E018c | 62.3% | 0.824 | 6.03 | b001 + SF + K=30, d_model=384 |
 | `e018a-sf-minimal/best.pt` | E018a | 61.6% | 0.825 | 6.26 | b001 + Self-Forcing (20% SF, N=3), 1.9K data |
 | `e019-baseline-1k/best.pt` | E019 | 78.7% | 0.756 | 6.77 | b001, 1.9K data, full loss suite (10 heads) |
 
-E026b is the new best. Adding 1% uniform distribution mixing (unimix) on categorical heads improved RC by 0.5% (5.146→5.120) and pos_mae by 2.0% (0.814→0.798). DreamerV3's entropy floor prevents categorical overconfidence, which compounds during AR rollout. Minimal complexity (training-only, 2 lines). Cumulative improvement from E019 baseline: -24.4% (6.77→5.120).
+E026c is the new best. Progressive SF curriculum (N=1->2->3 over 2 epochs) broke below RC 5.0 for the first time: 4.965 (-3.0% vs prior best 5.120). The curriculum made epoch 2 productive unlike e023b-epoch2 (RC flat) — each stage introduces qualitatively new training signal. change_acc jumped +14.8pp (65.4%->80.2%), the largest single-experiment gain on that metric. pos_mae improved 19.5% (0.798->0.642). Cumulative improvement from E019 baseline: -26.7% (6.77->4.965).
 
-Also tested in this batch: Muon optimizer (e026a, RC 5.342, +3.8% regression). Newton-Schulz orthogonalization doesn't suit Mamba-2 weight matrices — pos_mae regressed 38.8%.
+The curriculum hypothesis is supported: E018b's N=5 failure was likely "the model wasn't ready" rather than "N=5 is fundamentally too long." This opens N=4/5 via longer curricula (e.g., [1,2,3,4,5]).
 
-Val metrics plateau after 1 epoch on 1.9K data (epoch 2 showed identical val performance). 1 epoch is sufficient for Scout experiments.
+Val metrics plateau after 1 epoch on 1.9K data with fixed SF — but curriculum breaks this pattern because each stage is qualitatively different training. 2 epochs are justified when the curriculum spans them.
 
 ## The Eval
 

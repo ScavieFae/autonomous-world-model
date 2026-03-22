@@ -2,9 +2,9 @@
 
 Individual experiment records. Each card documents one idea tested in isolation.
 
-*24 cards. Generated 2026-03-22 09:12 UTC*
+*24 cards. Generated 2026-03-22 12:11 UTC*
 
-- :bulb: [Run Card: e026c-sf-curriculum](e026c-sf-curriculum.md) — *proposed*
+- :white_check_mark: [Run Card: e026c-sf-curriculum](e026c-sf-curriculum.md) — *kept*
 - :white_check_mark: [Run Card: e026b-unimix](e026b-unimix.md) — *kept*
 - :x: [Run Card: e026a-muon](e026a-muon.md) — *discarded*
 - :x: [Run Card: e025c-layer-dropout](e025c-layer-dropout.md) — *discarded*

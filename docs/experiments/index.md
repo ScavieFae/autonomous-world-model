@@ -1,10 +1,10 @@
 # Experiment Index
 
-*24 experiments — 5 kept, 2 running, 1 proposed, 15 discarded.*
+*24 experiments — 6 kept, 2 running, 0 proposed, 15 discarded.*
 
-*Generated 2026-03-22 09:12 UTC*
+*Generated 2026-03-22 12:11 UTC*
 
-**Best rollout coherence:** 5.120 ([e026b](../run-cards/e026b-unimix.md))
+**Best rollout coherence:** 4.965 ([e026c](../run-cards/e026c-sf-curriculum.md))
 
 ## Experiment Tree
 
@@ -35,7 +35,7 @@ flowchart TD
     e025c_layer_dropout["e025c\nRC 6.475"]
     e026a_muon["e026a\nRC 5.342"]
     e026b_unimix(["e026b\nRC 5.120"])
-    e026c_sf_curriculum("e026c")
+    e026c_sf_curriculum(["e026c\nRC 4.965"])
     e019_baseline --> e018a_self_forcing
     e017a --> e018b_rollout_coherence_eval
     e018a_self_forcing --> e018b_self_forcing_n5
@@ -83,7 +83,7 @@ flowchart TD
     style e025c_layer_dropout fill:#616161,color:#fff
     style e026a_muon fill:#616161,color:#fff
     style e026b_unimix fill:#2e7d32,color:#fff
-    style e026c_sf_curriculum fill:#f9a825,color:#000
+    style e026c_sf_curriculum fill:#2e7d32,color:#fff
     style b001 fill:#4a148c,color:#fff
     style b002 fill:#4a148c,color:#fff
 ```
@@ -94,26 +94,27 @@ flowchart TD
 
 | Rank | Experiment | RC | Status | Delta vs Best |
 |------|-----------|-----|--------|---------------|
-| 1 | [e026b](../run-cards/e026b-unimix.md) | 5.12 | :white_check_mark: kept | **best** |
-| 2 | [e025a](../run-cards/e025a-lr-warmup.md) | 5.146 | :white_check_mark: kept | +0.03 |
-| 3 | [e026a](../run-cards/e026a-muon.md) | 5.342 | :x: discarded | +0.22 |
-| 4 | [e023b](../run-cards/e023b-dmodel768.md) | 5.775 | :white_check_mark: kept | +0.66 |
-| 5 | [e023b-epoch2](../run-cards/e023b-epoch2.md) | 5.775 | :x: discarded | +0.66 |
-| 6 | [e025b](../run-cards/e025b-loss-reweight.md) | 5.907 | :x: discarded | +0.79 |
-| 7 | [e019a](../run-cards/e019a-context-k50.md) | 5.97 | :x: discarded | +0.85 |
-| 8 | [e022a](../run-cards/e022a-bs256.md) | 6.026 | :x: discarded | +0.91 |
-| 9 | [e018c](../run-cards/e018c-rolling-context-window.md) | 6.03 | :white_check_mark: kept | +0.91 |
-| 10 | [e023a](../run-cards/e023a-dmodel192.md) | 6.065 | :x: discarded | +0.95 |
-| 11 | [e023c](../run-cards/e023c-dmodel512.md) | 6.203 | :x: discarded | +1.08 |
-| 12 | [e018a](../run-cards/e018a-self-forcing.md) | 6.26 | :white_check_mark: kept | +1.14 |
-| 13 | [e020b](../run-cards/e020b-sf-ratio-30.md) | 6.289 | :x: discarded | +1.17 |
-| 14 | [e018b](../run-cards/e018b-self-forcing-n5.md) | 6.45 | :x: discarded | +1.33 |
-| 15 | [e025c](../run-cards/e025c-layer-dropout.md) | 6.475 | :x: discarded | +1.35 |
-| 16 | [e020a](../run-cards/e020a-sf-ratio-10.md) | 6.62 | :x: discarded | +1.50 |
-| 17 | [e018d](../run-cards/e018d-horizon-weighted-loss.md) | 6.81 | :x: discarded | +1.69 |
-| 18 | [e021b](../run-cards/e021b-selective-bptt.md) | 6.87 | :x: discarded | +1.75 |
-| 19 | [e023d](../run-cards/e023d-nlayers8.md) | 7.108 | :x: discarded | +1.99 |
-| 20 | [e024a](../run-cards/e024a-full-bptt.md) | 8.98 | :x: discarded | +3.86 |
+| 1 | [e026c](../run-cards/e026c-sf-curriculum.md) | 4.965 | :white_check_mark: kept | **best** |
+| 2 | [e026b](../run-cards/e026b-unimix.md) | 5.12 | :white_check_mark: kept | +0.16 |
+| 3 | [e025a](../run-cards/e025a-lr-warmup.md) | 5.146 | :white_check_mark: kept | +0.18 |
+| 4 | [e026a](../run-cards/e026a-muon.md) | 5.342 | :x: discarded | +0.38 |
+| 5 | [e023b](../run-cards/e023b-dmodel768.md) | 5.775 | :white_check_mark: kept | +0.81 |
+| 6 | [e023b-epoch2](../run-cards/e023b-epoch2.md) | 5.775 | :x: discarded | +0.81 |
+| 7 | [e025b](../run-cards/e025b-loss-reweight.md) | 5.907 | :x: discarded | +0.94 |
+| 8 | [e019a](../run-cards/e019a-context-k50.md) | 5.97 | :x: discarded | +1.00 |
+| 9 | [e022a](../run-cards/e022a-bs256.md) | 6.026 | :x: discarded | +1.06 |
+| 10 | [e018c](../run-cards/e018c-rolling-context-window.md) | 6.03 | :white_check_mark: kept | +1.07 |
+| 11 | [e023a](../run-cards/e023a-dmodel192.md) | 6.065 | :x: discarded | +1.10 |
+| 12 | [e023c](../run-cards/e023c-dmodel512.md) | 6.203 | :x: discarded | +1.24 |
+| 13 | [e018a](../run-cards/e018a-self-forcing.md) | 6.26 | :white_check_mark: kept | +1.29 |
+| 14 | [e020b](../run-cards/e020b-sf-ratio-30.md) | 6.289 | :x: discarded | +1.32 |
+| 15 | [e018b](../run-cards/e018b-self-forcing-n5.md) | 6.45 | :x: discarded | +1.49 |
+| 16 | [e025c](../run-cards/e025c-layer-dropout.md) | 6.475 | :x: discarded | +1.51 |
+| 17 | [e020a](../run-cards/e020a-sf-ratio-10.md) | 6.62 | :x: discarded | +1.66 |
+| 18 | [e018d](../run-cards/e018d-horizon-weighted-loss.md) | 6.81 | :x: discarded | +1.84 |
+| 19 | [e021b](../run-cards/e021b-selective-bptt.md) | 6.87 | :x: discarded | +1.91 |
+| 20 | [e023d](../run-cards/e023d-nlayers8.md) | 7.108 | :x: discarded | +2.14 |
+| 21 | [e024a](../run-cards/e024a-full-bptt.md) | 8.98 | :x: discarded | +4.02 |
 
 ## Running
 
@@ -131,12 +132,7 @@ flowchart TD
 | [e023b](../run-cards/e023b-dmodel768.md) | architectural | b001 | 5.775 | e018c | — |
 | [e025a](../run-cards/e025a-lr-warmup.md) | training-regime | b001 | 5.146 | e023b | — |
 | [e026b](../run-cards/e026b-unimix.md) | training-regime | b002 | 5.120 | — | [2301.04104](https://arxiv.org/abs/2301.04104) |
-
-## Proposed
-
-| ID | Type | Base | RC | Built On | Paper |
-|-----|------|------|----|----------|-------|
-| [e026c](../run-cards/e026c-sf-curriculum.md) | training-regime | b002 | — | — | — |
+| [e026c](../run-cards/e026c-sf-curriculum.md) | training-regime | b002 | 4.965 | — | — |
 
 ## Discarded
 

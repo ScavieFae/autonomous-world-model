@@ -1,13 +1,13 @@
 ---
 id: e026c
 created: 2026-03-22
-status: proposed
+status: kept
 type: training-regime
 base_build: b002
 built_on: []
 source_paper: null
-rollout_coherence: null
-prior_best_rc: 5.146
+rollout_coherence: 4.965
+prior_best_rc: 5.120
 ---
 
 # Run Card: e026c-sf-curriculum
@@ -25,7 +25,7 @@ This also directly tests whether E018b's N=5 failure was due to "the model wasn'
 | E018a | Jump to N=3 | 6.26 | First SF, -7.5% |
 | E018b | Jump to N=5 | 6.45 | Regressed — too much too fast? |
 | E025a | Jump to N=3 + warmup | 5.146 | Current best |
-| **E026c** | **Curriculum N=1→2→3** | **?** | **This experiment** |
+| **E026c** | **Curriculum N=1→2→3** | **4.965** | **KEPT — new best, -3.0%** |
 
 ## What Changes
 
@@ -50,3 +50,28 @@ Training divided into 3 equal stages over ~61K total batches:
 - **2 epochs vs 1:** E023b-epoch2 showed RC flat at epoch 2. But here epoch 2 is qualitatively different (N=3 stage, not replay of same training).
 - **Stage duration:** Equal thirds is a guess. Maybe N=3 should get more time (e.g., [1, 2, 3, 3] for 4 stages with N=3 getting 50%).
 - **LR schedule interaction:** Cosine with warmup spans all 2 epochs. N=3 stage trains at low LR (end of cosine). This may help (gentle fine-tuning) or hurt (insufficient learning rate for new regime).
+
+## Results
+
+**KEPT — new best. RC 4.965 (-3.0% vs prior best 5.120). First result below 5.0.**
+
+| Metric | E026c | E026b (prior best) | Delta |
+|---|---|---|---|
+| rollout_coherence | **4.965** | 5.120 | -3.0% |
+| change_acc | 80.2% | 65.4% | +14.8pp |
+| pos_mae | 0.642 | 0.798 | -19.5% |
+
+- **wandb:** 04b1e5ft
+- **Cost:** ~$10 (A100 with AMP, 2 epochs)
+- **Epochs:** 2 total (both completed)
+- **Checkpoint:** e026c-sf-curriculum/best.pt
+
+### Analysis
+
+The curriculum (N=1->2->3 over training) made epoch 2 productive unlike e023b-epoch2 (RC flat). The model learns easy single-step error correction first, then progresses to harder multi-step. This breaks the "val metrics plateau after 1 epoch" pattern because each curriculum stage introduces qualitatively new training signal.
+
+change_acc jumped +14.8pp (65.4% -> 80.2%), the largest single-experiment gain on that metric. The curriculum appears to teach the model to predict action transitions more accurately under its own errors, not just under teacher-forced context.
+
+Curriculum hypothesis supported: E018b's N=5 failure was likely "the model wasn't ready" rather than "N=5 is fundamentally too long." This opens N=4/5 via longer curricula (e.g., [1,2,3,4,5]).
+
+Cumulative RC improvement from E019 baseline: -26.7% (6.77 -> 4.965).
