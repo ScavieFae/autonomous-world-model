@@ -36,16 +36,29 @@ Val metrics plateau after 1 epoch on 1.9K data with fixed SF — but curriculum 
 
 ## What We Know
 
-### Proven improvements (compound, keep in all experiments)
+### Proven improvements — canonized in base build b002
+
+All of these are in b002 (`docs/base-builds/b002.yaml`). Every experiment after E026b builds on b002 unless explicitly stated.
 
 | Technique | Source | Effect | Status |
 |-----------|--------|--------|--------|
-| action_change_weight=5.0 | E010b | +9.9pp change_acc | In all configs since E010d |
-| ctrl_threshold_features | E010c | +5.9pp change_acc | In all configs since E010d |
-| multi_position=true | E008c | 10x training signal | In all configs since E008c |
-| FD-only + top-5 characters | E012 | Cleaner physics, less noise | Current data filter |
-| Full loss suite (10 heads) | E019 | Better rollout coherence (6.77 vs 6.84) despite -12pp change_acc | Velocity/dynamics supervision improves AR quality |
-| Self-Forcing (20% SF, N=3) | E018a | -7.5% rollout coherence (6.77→6.26), -17pp change_acc | Largest single-experiment gain. Trains on own AR errors. |
+| action_change_weight=5.0 | E010b | +9.9pp change_acc | b001 (original) |
+| ctrl_threshold_features | E010c | +5.9pp change_acc | b001 |
+| multi_position=true | E008c | 10x training signal | b001 |
+| FD-only + top-5 characters | E012 | Cleaner physics, less noise | b001 |
+| Full loss suite (10 heads) | E019 | RC 6.77 vs 6.84 despite -12pp change_acc | b001 |
+| Self-Forcing (20% SF, N=3) | E018a | -7.5% RC (6.77→6.26) | b002 (new) |
+| Context K=30 | E018c | -3.7% RC (6.26→6.03) | b002 |
+| d_model=768 (15.8M params) | E023b | -4.2% RC (6.03→5.775), +3.7pp change_acc | b002 |
+| LR warmup 5% | E025a | -10.9% RC (5.775→5.146) | b002 |
+| AMP (float16 autocast) | E023b-epoch2 | ~1.3x speedup, zero quality loss | b002 (infra) |
+
+### Proven improvements — on top of b002 (not yet in a base build)
+
+| Technique | Source | Effect | Status |
+|-----------|--------|--------|--------|
+| 1% Unimix on categoricals | E026b | -0.5% RC (5.146→5.120), prevents overconfident collapse | Kept, small but real |
+| SF curriculum N=1→2→3 (2 epochs) | E026c | -3.0% RC (5.120→4.965), +14.8pp change_acc | Kept, largest change_acc gain ever |
 
 ### Promising but unfinished
 
