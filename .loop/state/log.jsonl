@@ -169,3 +169,10 @@
 {"ts":"2026-03-21T21:07:00Z","event":"heartbeat","in_flight":["e024a-full-bptt","e023b-epoch2"],"status":"both running","slots":"2/3","daily_spent":0}
 {"ts":"2026-03-21T22:30:00Z","event":"eval_complete","id":"e024a-full-bptt","status":"discarded","rc":8.980,"prior_best_rc":5.775,"cost":8.60}
 {"ts":"2026-03-21T22:30:00Z","event":"eval_complete","id":"e023b-epoch2","status":"discarded","rc":5.775,"prior_best_rc":5.775,"cost":4.50,"note":"RC flat, TF metrics improved massively. AMP validated."}
+{"ts":"2026-03-21T23:15:00Z","event":"hypothesis_rejected","id":"e025a-context-noise","reason":"Confound with SF — unfalsifiable. Resubmit as TF-only isolation first.","attempt":1}
+{"ts":"2026-03-21T23:30:00Z","event":"hypothesis_rejected","id":"e026a-descending-sf-weights","reason":"SF step reweighting axis closed by E018d. Flipping sign doesn't address truncated BPTT core limitation.","attempt":2}
+{"ts":"2026-03-21T23:30:00Z","event":"heartbeat_complete","note":"2/2 hypotheses rejected. No new experiments launched. Slots: 0/3 used, $16.90 budget remaining."}
+{"ts":"2026-03-22T01:30:00Z","event":"heartbeat","in_flight":["e025a-lr-warmup","e025b-loss-reweight","e025c-layer-dropout"],"status":"all 3 running","slots":"3/3","daily_spent":13.10,"note":"7.7K mmap fix validated — smoke test loaded 53GB in 0.0s, VRAM 8.19GB"}
+{"ts":"2026-03-22T02:10:00Z","event":"heartbeat","in_flight":["e025a-lr-warmup","e025b-loss-reweight","e025c-layer-dropout"],"status":"all 3 running (~2.5hr in)","slots":"3/3"}
+{"ts":"2026-03-22T03:10:00Z","event":"heartbeat","in_flight":["e025a-lr-warmup","e025b-loss-reweight","e025c-layer-dropout"],"status":"all 3 running (~3.5hr in, nearing completion)","slots":"3/3"}
+{"ts":"2026-03-22T04:30:00Z","event":"heartbeat","in_flight":[],"status":"budget exhausted ($28.10/$30.00 daily). No new cycles.","slots":"0/3","daily_spent":28.10}
