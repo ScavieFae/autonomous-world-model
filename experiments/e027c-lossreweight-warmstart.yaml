@@ -1,0 +1,65 @@
+# E027c: Resume e025b (loss-reweight) + standard weights epoch 2
+# Resumes from e025b best.pt (trained with continuous=2.0, action=1.0)
+# Epoch 2 uses standard weights (continuous=1.0, action=2.0)
+#
+# e025b improved pos_mae (0.764 vs 0.814) but RC regressed (5.907).
+# Hypothesis: the position-focused training built a better physics
+# foundation that converts to AR quality under standard weights.
+
+data:
+  dataset_dir: null
+  max_games: null
+  stage_filter: 32
+  character_filter: [1, 2, 7, 18, 22]
+
+encoding:
+  state_age_as_embed: true
+  state_age_embed_vocab: 150
+  state_age_embed_dim: 8
+  state_flags: true
+  hitstun: true
+  ctrl_threshold_features: true
+  multi_position: true
+  focal_offset: 0
+  projectiles: false
+  press_events: false
+  lookahead: 0
+
+model:
+  arch: mamba2
+  context_len: 30
+  d_model: 768
+  d_state: 64
+  n_layers: 4
+  headdim: 64
+  dropout: 0.1
+  chunk_size: 15
+
+training:
+  lr: 0.0005
+  weight_decay: 0.00001
+  batch_size: 512
+  num_epochs: 2
+  train_split: 0.9
+  log_interval: 100
+  warmup_pct: 0.05
+  amp: true
+
+self_forcing:
+  enabled: true
+  ratio: 4
+  unroll_length: 3
+
+loss_weights:
+  continuous: 1.0
+  velocity: 0.5
+  dynamics: 0.5
+  binary: 1.0
+  action: 2.0
+  jumps: 0.5
+  l_cancel: 0.3
+  hurtbox: 0.3
+  ground: 0.3
+  last_attack: 0.3
+
+save_dir: checkpoints/e027c-lossreweight-warmstart

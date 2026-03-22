@@ -1,6 +1,9 @@
 {
   "experiments": {
-    "in_flight": [],
+    "in_flight": [
+      {"id": "e027b-e023b-regime-switch", "wandb_run_id": "6jps8j6w", "pr_number": null, "branch": "main", "started_at": "2026-03-22T15:05:00Z", "estimated_cost": 5.0, "note": "A100, AMP, resume e023b + curriculum [4,5]"},
+      {"id": "e027c-lossreweight-warmstart", "wandb_run_id": "0p9495nw", "pr_number": null, "branch": "main", "started_at": "2026-03-22T15:06:00Z", "estimated_cost": 5.0, "note": "A100, AMP, resume e025b + standard weights"}
+    ],
     "max_concurrent": 3,
     "stale_timeout_hours": 4
   },
