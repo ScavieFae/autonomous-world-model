@@ -1,0 +1,72 @@
+# E028a: Combination test — unimix + curriculum
+# Validates that both kept improvements compound on 1.9K before 7.7K run.
+#
+# Combines:
+#   - 1% unimix on categoricals (E026b, -0.5% RC)
+#   - SF curriculum N=1→2→3 over 2 epochs (E026c, -3.0% RC)
+#   - All b002 improvements (warmup, AMP, d_model=768, SF, K=30)
+#
+# 2 epochs, curriculum [1, 2, 3] — same structure as E026c but with unimix.
+# If RC < 4.965 (e026c without unimix): they compound. Use this recipe for 7.7K.
+# If RC ≈ 4.965: unimix doesn't add to curriculum. Use curriculum-only for 7.7K.
+# If RC > 4.965: interference. Debug before scaling.
+
+data:
+  dataset_dir: null
+  max_games: null
+  stage_filter: 32
+  character_filter: [1, 2, 7, 18, 22]
+
+encoding:
+  state_age_as_embed: true
+  state_age_embed_vocab: 150
+  state_age_embed_dim: 8
+  state_flags: true
+  hitstun: true
+  ctrl_threshold_features: true
+  multi_position: true
+  focal_offset: 0
+  projectiles: false
+  press_events: false
+  lookahead: 0
+
+model:
+  arch: mamba2
+  context_len: 30
+  d_model: 768
+  d_state: 64
+  n_layers: 4
+  headdim: 64
+  dropout: 0.1
+  chunk_size: 15
+  unimix_ratio: 0.01
+
+training:
+  lr: 0.0005
+  weight_decay: 0.00001
+  batch_size: 512
+  num_epochs: 2
+  train_split: 0.9
+  log_interval: 100
+  warmup_pct: 0.05
+  amp: true
+
+self_forcing:
+  enabled: true
+  ratio: 4
+  unroll_length: 3
+  curriculum: [1, 2, 3]
+
+loss_weights:
+  continuous: 1.0
+  velocity: 0.5
+  dynamics: 0.5
+  binary: 1.0
+  action: 2.0
+  jumps: 0.5
+  l_cancel: 0.3
+  hurtbox: 0.3
+  ground: 0.3
+  last_attack: 0.3
+
+save_dir: checkpoints/e028a-full-stack

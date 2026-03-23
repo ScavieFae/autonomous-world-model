@@ -1,6 +1,8 @@
 {
   "experiments": {
-    "in_flight": [],
+    "in_flight": [
+      {"id": "e028a-full-stack", "modal_app_id": "ap-e3NQqtFRCXuticAcPpLQa6", "wandb_run_id": "yqcjtzey", "pr_number": null, "branch": "main", "started_at": "2026-03-23T04:43:00Z", "estimated_cost": 10.0, "note": "A100, AMP, 2 epochs, unimix + curriculum [1,2,3] — combination test before 7.7K"}
+    ],
     "max_concurrent": 3,
     "stale_timeout_hours": 4
   },
