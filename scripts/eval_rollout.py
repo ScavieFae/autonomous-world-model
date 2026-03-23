@@ -39,6 +39,7 @@ from data.parse import load_games_from_dir
 from models.checkpoint import load_model_from_checkpoint
 from models.encoding import EncodingConfig
 from scripts.ar_utils import build_ctrl_batch, reconstruct_frame
+from training.constraints import ConstraintChecker
 
 logger = logging.getLogger(__name__)
 
@@ -109,6 +110,9 @@ def evaluate_rollout_coherence(
     fp = cfg.float_per_player
     ipp = cfg.int_per_player
 
+    # Constraint checker for violation detection
+    constraint_checker = ConstraintChecker(cfg)
+
     # Pre-build batched context windows: (N, K, F) and (N, K, I)
     batch_floats = torch.stack([
         dataset.floats[t - context_len:t] for t in starting_points
@@ -122,6 +126,7 @@ def evaluate_rollout_coherence(
     vel_maes = [[] for _ in range(horizon)]
     action_accs = [[] for _ in range(horizon)]
     percent_maes = [[] for _ in range(horizon)]
+    horizon_violations: list[dict[str, float]] = [{} for _ in range(horizon)]
 
     starts_t = torch.from_numpy(starting_points)
 
@@ -146,6 +151,11 @@ def evaluate_rollout_coherence(
         ctrl_cpu = ctrl.cpu()
         next_float, next_int = reconstruct_frame(
             preds_cpu, prev_float, prev_int, ctrl_cpu, cfg,
+        )
+
+        # Check constraint violations on reconstructed frame
+        horizon_violations[k] = constraint_checker.check_batch_and_log(
+            next_float, prev_float, cfg,
         )
 
         # Ground truth for this horizon step
@@ -188,20 +198,35 @@ def evaluate_rollout_coherence(
     # --- Aggregate ---
     per_horizon = {}
     for k in range(horizon):
-        per_horizon[k + 1] = {
+        entry = {
             "pos_mae": float(np.mean(pos_maes[k])),
             "vel_mae": float(np.mean(vel_maes[k])),
             "action_acc": float(np.mean(action_accs[k])),
             "percent_mae": float(np.mean(percent_maes[k])),
         }
+        # Add violation data for this horizon
+        if horizon_violations[k]:
+            entry["violation_rate"] = horizon_violations[k].get("total", 0.0)
+            entry["violations"] = {
+                name: rate for name, rate in horizon_violations[k].items()
+                if name != "total"
+            }
+        per_horizon[k + 1] = entry
 
     # Summary: mean pos_mae across all horizons
     all_pos_maes = [per_horizon[k + 1]["pos_mae"] for k in range(horizon)]
     summary_pos_mae = float(np.mean(all_pos_maes))
 
+    # Summary violation rate: mean across all horizons
+    all_violation_rates = [
+        per_horizon[k + 1].get("violation_rate", 0.0) for k in range(horizon)
+    ]
+    summary_violation_rate = float(np.mean(all_violation_rates))
+
     return {
         "per_horizon": per_horizon,
         "summary_pos_mae": summary_pos_mae,
+        "violation_rate": summary_violation_rate,
     }
 
 
@@ -331,6 +356,7 @@ def main():
     print(format_table(results, args.horizon))
     print()
     print(f"  ** summary_pos_mae = {results['summary_pos_mae']:.4f} **")
+    print(f"  ** violation_rate  = {results.get('violation_rate', 0.0):.4f} **")
     print()
 
     # JSON output
@@ -344,6 +370,7 @@ def main():
             "seed": args.seed,
             "eval_time_s": round(eval_time, 2),
             "summary_pos_mae": results["summary_pos_mae"],
+            "violation_rate": results.get("violation_rate", 0.0),
             "per_horizon": {
                 str(k): v for k, v in results["per_horizon"].items()
             },

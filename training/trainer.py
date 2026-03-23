@@ -17,6 +17,7 @@ from torch.utils.data import DataLoader, IterableDataset
 from data.dataset import MeleeFrameDataset
 from models.encoding import EncodingConfig
 from scripts.ar_utils import build_ctrl_batch, reconstruct_frame
+from training.constraints import ConstraintChecker
 from training.metrics import BatchMetrics, EpochMetrics, LossWeights, MetricsTracker
 
 try:
@@ -253,6 +254,9 @@ class Trainer:
                         sf_selective_bptt,
                     )
 
+        # Constraint violation checker (measurement only, no penalties)
+        self._constraint_checker = ConstraintChecker(cfg) if sf_enabled else None
+
         # Shape preflight
         self._verify_shapes(train_dataset)
 
@@ -386,13 +390,13 @@ class Trainer:
         stage = min(stage, len(self._sf_curriculum) - 1)
         return self._sf_curriculum[stage]
 
-    def _self_forcing_step(self) -> tuple[float, "BatchMetrics"]:
+    def _self_forcing_step(self) -> tuple[float, "BatchMetrics", dict[str, float]]:
         """One Self-Forcing step: unroll N AR steps, loss vs ground truth.
 
         Pre-builds all data on CPU, transfers once to GPU, runs all steps
         on GPU. Reconstruction stays on CPU (uses argmax which is cheap).
 
-        Returns (averaged_loss_scalar, last_step_metrics).
+        Returns (averaged_loss_scalar, last_step_metrics, violation_rates).
         """
         dataset = self._rollout_dataset
         K = self.model.context_len
@@ -431,6 +435,9 @@ class Trainer:
         total_sf_loss = 0.0
         last_metrics = None
 
+        # Constraint violation accumulator across all N unroll steps
+        violation_accum: dict[str, float] = {}
+
         for step in range(N):
             ctx_f = batch_floats[:, -K:, :].to(self.device)
             ctx_i = batch_ints[:, -K:, :].to(self.device)
@@ -458,10 +465,20 @@ class Trainer:
             # Reconstruct next frame — on CPU (argmax is cheap, keeps GPU free)
             with torch.no_grad():
                 preds_cpu = {k: v.cpu() for k, v in preds.items()}
+                prev_float = batch_floats[:, -1, :]
                 next_float, next_int = reconstruct_frame(
-                    preds_cpu, batch_floats[:, -1, :],
+                    preds_cpu, prev_float,
                     batch_ints[:, -1, :], all_ctrls[step], self.cfg,
                 )
+
+            # Check constraint violations on reconstructed frame
+            if self._constraint_checker is not None:
+                step_rates = self._constraint_checker.check_batch_and_log(
+                    next_float, prev_float, self.cfg,
+                )
+                for name, rate in step_rates.items():
+                    violation_accum[name] = violation_accum.get(name, 0.0) + rate
+
             batch_floats = torch.cat(
                 [batch_floats, next_float.unsqueeze(1)], dim=1,
             )
@@ -469,10 +486,16 @@ class Trainer:
                 [batch_ints, next_int.unsqueeze(1)], dim=1,
             )
 
+        # Average violation rates across N unroll steps
+        if N > 0 and violation_accum:
+            violation_rates = {name: total / N for name, total in violation_accum.items()}
+        else:
+            violation_rates = {}
+
         # Gradients already accumulated via per-step backward().
         # Return None for loss (caller should NOT call backward again).
         avg_loss = total_sf_loss / N
-        return avg_loss, last_metrics
+        return avg_loss, last_metrics, violation_rates
 
     def _fast_batch_iter(self):
         """Yield batches using vectorized get_batch instead of DataLoader.
@@ -502,6 +525,7 @@ class Trainer:
         log_interval = self._compute_log_interval(num_batches)
 
         sf_count = 0
+        sf_violation_accum: dict[str, float] = {}  # accumulated violation rates across SF batches
         for batch_idx, (float_ctx, int_ctx, next_ctrl, float_tgt, int_tgt) in enumerate(batch_iter):
             self.optimizer.zero_grad()
 
@@ -514,8 +538,10 @@ class Trainer:
             if is_sf:
                 # SF does per-step backward internally (saves GPU memory).
                 # Returns scalar loss, not tensor — don't call backward.
-                loss_val, batch_metrics = self._self_forcing_step()
+                loss_val, batch_metrics, sf_violations = self._self_forcing_step()
                 sf_count += 1
+                for name, rate in sf_violations.items():
+                    sf_violation_accum[name] = sf_violation_accum.get(name, 0.0) + rate
             else:
                 float_ctx = float_ctx.to(self.device)
                 int_ctx = int_ctx.to(self.device)
@@ -570,6 +596,24 @@ class Trainer:
 
         if sf_count > 0:
             logger.info("  Self-Forcing: %d SF batches this epoch", sf_count)
+            # Log averaged constraint violation rates for the epoch
+            if sf_violation_accum:
+                avg_violations = {
+                    name: total / sf_count for name, total in sf_violation_accum.items()
+                }
+                viol_str = " ".join(
+                    f"{n}={v:.4f}" for n, v in sorted(avg_violations.items()) if n != "total"
+                )
+                logger.info(
+                    "  SF violations: rate=%.4f (%s)",
+                    avg_violations.get("total", 0.0), viol_str,
+                )
+                if wandb and wandb.run:
+                    wandb_viol = {"sf/violation_rate": avg_violations.get("total", 0.0)}
+                    for name, rate in avg_violations.items():
+                        if name != "total":
+                            wandb_viol[f"sf/violation_{name}"] = rate
+                    wandb.log(wandb_viol)
         return epoch_metrics.averaged()
 
     @torch.no_grad()
@@ -618,12 +662,19 @@ class Trainer:
         elapsed = time.time() - t0
 
         rc = results["summary_pos_mae"]
-        logger.info("  rollout coherence = %.4f (%.1fs)", rc, elapsed)
+        viol_rate = results.get("violation_rate", 0.0)
+        logger.info("  rollout coherence = %.4f, violation_rate = %.4f (%.1fs)", rc, viol_rate, elapsed)
 
         metrics = {"eval/summary_pos_mae": rc, "eval/time_s": elapsed}
+        metrics["eval/violation_rate"] = viol_rate
         for k, m in results["per_horizon"].items():
             for name, val in m.items():
-                metrics[f"eval/h{k}_{name}"] = val
+                if name == "violations":
+                    # val is a dict of per-type rates; flatten to eval/h{k}_violation_{type}
+                    for vtype, vrate in val.items():
+                        metrics[f"eval/h{k}_violation_{vtype}"] = vrate
+                else:
+                    metrics[f"eval/h{k}_{name}"] = val
         return metrics
 
     def train(self) -> list[dict]:
