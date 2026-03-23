@@ -265,9 +265,37 @@ The manifest contains:
 
 Two runs with the same `data_fingerprint` trained on the same data. Different fingerprint = different data — check `game_md5s` to see what changed.
 
-### Memory budget
+### Data loading strategy by scale
 
-The dataset loads all frames into contiguous tensors in RAM:
+Choose the right loading strategy based on dataset size and available hardware:
+
+| Dataset | Encoded size | Strategy | GPU | Why |
+|---------|-------------|----------|-----|-----|
+| **≤2K games** | ~11 GB | **Load into RAM** | A100/H100 | Fits easily. Fast vectorized batch loader (`get_batch()`). Zero I/O during training. |
+| **2K–10K games** | 11–65 GB | **Load into RAM** | H100 (128GB+ sys RAM) | Still fits. Keep fast batch loader. H100 recommended for speed + headroom. |
+| **2K–10K games** | 11–65 GB | **mmap fallback** | A100 (90GB sys RAM) | `torch.load(mmap=True)`. Works but random page faults on network storage add overhead. |
+| **10K+ games** | 65+ GB | **Streaming** | Any | `--streaming --buffer-size 5000`. Sequential I/O, predictable ~30GB RAM. Loses fast batch loader (falls back to DataLoader workers). |
+
+**Key files:**
+- `data/dataset.py`: `MeleeFrameDataset` (RAM), `StreamingMeleeDataset` (streaming)
+- `scripts/modal_train.py`: `mmap=True` on `torch.load()` (automatic, falls back if PyTorch < 2.1)
+
+**Current encoded files on Modal volume:**
+
+| File | Games | Size | Strategy |
+|------|-------|------|----------|
+| `encoded-e012-fd-top5.pt` | 1,988 | 11 GB | Load into RAM |
+| `encoded-v3-ranked-fd-top5.pt` | 7,721 | 53 GB | Load into RAM (H100) or mmap (A100) |
+
+**Benchmarks (d_model=768, AMP):**
+
+| Dataset | Batches/epoch | A100 time | H100 time (est) | Cost |
+|---------|--------------|-----------|-----------------|------|
+| 1.9K | 30,500 | ~3hr | ~1.5hr | $6-7 |
+| 7.7K | 145,000 | ~16-20hr | ~8-10hr | $32-40 |
+| 50K (est) | ~930,000 | impractical | ~50-65hr | $200-250 |
+
+### Memory budget (local machines)
 
 | Games | Float tensor | Int tensor | Total ~RAM |
 |-------|-------------|-----------|------------|
