@@ -1,6 +1,8 @@
 {
   "experiments": {
-    "in_flight": [],
+    "in_flight": [
+      {"id": "e029a-7k-scaling", "modal_app_id": "ap-an8IW4gFs6WMUkQ8FuJVTl", "wandb_run_id": "ulvl4h1a", "pr_number": null, "branch": "main", "started_at": "2026-03-23T15:16:00Z", "estimated_cost": 65.0, "note": "H100, AMP, 7.7K data, 2 epochs, unimix + curriculum [1,2,3]. First data scaling test."}
+    ],
     "max_concurrent": 3,
     "stale_timeout_hours": 4
   },
