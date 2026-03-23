@@ -2,8 +2,9 @@
 
 Individual experiment records. Each card documents one idea tested in isolation.
 
-*26 cards. Generated 2026-03-22 19:01 UTC*
+*27 cards. Generated 2026-03-23 10:31 UTC*
 
+- :white_check_mark: [Run Card: e028a-full-stack](e028a-full-stack.md) — *kept*
 - :white_check_mark: [Run Card: e027c-lossreweight-warmstart](e027c-lossreweight-warmstart.md) — *kept*
 - :x: [Run Card: e027b-e023b-regime-switch](e027b-e023b-regime-switch.md) — *discarded*
 - :white_check_mark: [Run Card: e026c-sf-curriculum](e026c-sf-curriculum.md) — *kept*

@@ -1,12 +1,10 @@
 {
   "experiments": {
-    "in_flight": [
-      {"id": "e028a-full-stack", "modal_app_id": "ap-e3NQqtFRCXuticAcPpLQa6", "wandb_run_id": "yqcjtzey", "pr_number": null, "branch": "main", "started_at": "2026-03-23T04:43:00Z", "estimated_cost": 10.0, "note": "A100, AMP, 2 epochs, unimix + curriculum [1,2,3] — combination test before 7.7K"}
-    ],
+    "in_flight": [],
     "max_concurrent": 3,
     "stale_timeout_hours": 4
   },
-  "prior_best_rc": 4.939,
+  "prior_best_rc": 4.798,
   "history": [
     {"id": "e018a-sf-minimal", "status": "kept", "rollout_coherence": 6.26, "prior_best_rc": 6.77, "cost": 3.90, "completed_at": "2026-03-15T18:04:00Z"},
     {"id": "e018b-sf-n5", "status": "discarded", "rollout_coherence": 6.45, "prior_best_rc": 6.26, "cost": 5.25, "completed_at": "2026-03-15T21:15:00Z"},
@@ -30,6 +28,7 @@
     {"id": "e026b-unimix", "status": "kept", "rollout_coherence": 5.120, "prior_best_rc": 5.146, "cost": 5.00, "completed_at": "2026-03-22T12:00:00Z"},
     {"id": "e026c-sf-curriculum", "status": "kept", "rollout_coherence": 4.965, "prior_best_rc": 5.120, "cost": 10.00, "completed_at": "2026-03-22T18:00:00Z"},
     {"id": "e027b-e023b-regime-switch", "status": "discarded", "rollout_coherence": 5.225, "prior_best_rc": 4.965, "cost": 5.00, "completed_at": "2026-03-22T21:00:00Z"},
-    {"id": "e027c-lossreweight-warmstart", "status": "kept", "rollout_coherence": 4.939, "prior_best_rc": 4.965, "cost": 5.00, "completed_at": "2026-03-22T21:00:00Z"}
+    {"id": "e027c-lossreweight-warmstart", "status": "kept", "rollout_coherence": 4.939, "prior_best_rc": 4.965, "cost": 5.00, "completed_at": "2026-03-22T21:00:00Z"},
+    {"id": "e028a-full-stack", "status": "kept", "rollout_coherence": 4.798, "prior_best_rc": 4.965, "cost": 10.00, "completed_at": "2026-03-23T08:00:00Z"}
   ]
 }

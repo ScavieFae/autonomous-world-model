@@ -10,7 +10,8 @@ A learned world model that runs onchain as an autonomous world. Trained on Super
 
 | Checkpoint | Experiment | change_acc | pos_mae | rollout_coherence | Notes |
 |-----------|-----------|-----------|---------|-------------------|-------|
-| `e027c-lossreweight-warmstart/best.pt` | E027c | 78.9% | 0.650 | **4.939** | e025b warm-start + standard weights epoch 2, regime switching |
+| `e028a-full-stack/best.pt` | E028a | 80.1% | 0.618 | **4.798** | b002 + unimix + SF curriculum, 2 epochs — combination test |
+| `e027c-lossreweight-warmstart/best.pt` | E027c | 78.9% | 0.650 | 4.939 | e025b warm-start + standard weights epoch 2, regime switching |
 | `e026c-sf-curriculum/best.pt` | E026c | 80.2% | 0.642 | 4.965 | b002 + SF curriculum N=1->2->3, 2 epochs, 1.9K data |
 | `e026b-unimix/best.pt` | E026b | 65.4% | 0.798 | 5.120 | b002 + 1% unimix on categoricals, 1.9K data |
 | `e025a-lr-warmup/best.pt` | E025a | 65.6% | 0.814 | 5.146 | b001 + SF + K=30 + d_model=768 + warmup 5%, 1.9K data |
@@ -19,11 +20,11 @@ A learned world model that runs onchain as an autonomous world. Trained on Super
 | `e018a-sf-minimal/best.pt` | E018a | 61.6% | 0.825 | 6.26 | b001 + Self-Forcing (20% SF, N=3), 1.9K data |
 | `e019-baseline-1k/best.pt` | E019 | 78.7% | 0.756 | 6.77 | b001, 1.9K data, full loss suite (10 heads) |
 
-E027c is the new best. Multi-epoch regime switching — position-focused loss weights (e025b) for epoch 1, standard weights for epoch 2 — achieved RC 4.939 (-0.5% vs prior best 4.965). Small but real (deterministic eval, seed=42). This validates the regime switching pattern alongside e026c's curriculum: epoch 2 is productive when it introduces a qualitatively different training objective.
+E028a is the new best. Unimix + SF curriculum compound cleanly: RC 4.798 (-3.4% vs e026c's 4.965). pos_mae 0.618 (-3.7%), change_acc 80.1% (flat). Critically, e028a maintains good percent tracking (h10 percent_mae 1.849 vs e026c's 1.701) — unlike e027c (h10 percent_mae 4.527) where the e025b warm-start destroyed percent. E028a is the true best on the full metric basket: best RC AND good percent tracking.
 
-E027b confirmed that SF curriculum requires the full progressive ramp: jumping from e023b to N=4/5 without N=1/2/3 foundation regressed to RC 5.225 (+5.2%). The path to longer SF horizons is extending e026c's curriculum, not cold-starting from pre-SF checkpoints.
+This is the recipe for the 7.7K scaling run: b002 + unimix + curriculum.
 
-Cumulative improvement from E019 baseline: -27.0% (6.77->4.939).
+Cumulative improvement from E019 baseline: -29.1% (6.77->4.798).
 
 ## The Eval
 
@@ -61,6 +62,7 @@ All of these are in b002 (`docs/base-builds/b002.yaml`). Every experiment after 
 | 1% Unimix on categoricals | E026b | -0.5% RC (5.146→5.120), prevents overconfident collapse | Kept, small but real |
 | SF curriculum N=1→2→3 (2 epochs) | E026c | -3.0% RC (5.120→4.965), +14.8pp change_acc | Kept, largest change_acc gain ever |
 | Multi-epoch regime switching (loss reweight→standard) | E027c | -0.5% RC (4.965→4.939), position-focused epoch 1 builds physics foundation | Kept, validates regime switching pattern |
+| Unimix + curriculum (full stack) | E028a | -3.4% RC (4.965→4.798), compounds cleanly, good percent tracking | Kept, new best, recipe for 7.7K scaling run |
 
 ### Promising but unfinished
 

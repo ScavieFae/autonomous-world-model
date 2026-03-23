@@ -1,12 +1,12 @@
 {
   "current_best": {
-    "experiment": "e027c",
-    "checkpoint": "e027c-lossreweight-warmstart/best.pt",
+    "experiment": "e028a",
+    "checkpoint": "e028a-full-stack/best.pt",
     "config": null,
-    "rollout_coherence": 4.939,
+    "rollout_coherence": 4.798,
     "metrics": {
-      "change_acc": 0.789,
-      "pos_mae": 0.650,
+      "change_acc": 0.801,
+      "pos_mae": 0.618,
       "loss": null
     },
     "model": {
@@ -20,15 +20,16 @@
     "training": {
       "sf_ratio": 4,
       "sf_unroll": 3,
+      "sf_curriculum": [1, 2, 3],
       "context_len": 30,
       "batch_size": 512,
       "lr": 0.0005,
       "warmup_pct": 0.05,
-      "regime_switch": "e025b_weights_then_standard",
+      "unimix_ratio": 0.01,
       "num_epochs": 2
     },
-    "wandb": "https://wandb.ai/shinewave/melee-worldmodel/runs/0p9495nw",
-    "kept_at": "2026-03-22"
+    "wandb": "https://wandb.ai/shinewave/melee-worldmodel/runs/yqcjtzey",
+    "kept_at": "2026-03-23"
   },
   "history": [
     {"experiment": "e019", "rc": 6.77, "kept_at": "2026-03-14"},
@@ -38,6 +39,7 @@
     {"experiment": "e025a", "rc": 5.146, "kept_at": "2026-03-22"},
     {"experiment": "e026b", "rc": 5.120, "kept_at": "2026-03-22"},
     {"experiment": "e026c", "rc": 4.965, "kept_at": "2026-03-22"},
-    {"experiment": "e027c", "rc": 4.939, "kept_at": "2026-03-22"}
+    {"experiment": "e027c", "rc": 4.939, "kept_at": "2026-03-22"},
+    {"experiment": "e028a", "rc": 4.798, "kept_at": "2026-03-23"}
   ]
 }
