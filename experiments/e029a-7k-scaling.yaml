@@ -48,6 +48,7 @@ training:
   log_interval: 500
   warmup_pct: 0.05
   amp: true
+  mmap: false          # H100 has 128GB+ RAM — load full tensors, skip mmap
 
 self_forcing:
   enabled: true

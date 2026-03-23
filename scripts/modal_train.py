@@ -154,17 +154,21 @@ def _train_impl(
     enc_cfg = EncodingConfig(**{k: v for k, v in enc_cfg_dict.items()
                                 if v is not None and hasattr(EncodingConfig, k)})
 
-    # Load pre-encoded data (mmap=True for large datasets — keeps ~29GB off RAM)
+    # Load pre-encoded data
     t0 = time.time()
     data_path = f"/data{encoded_file}"
-    logging.info("Loading pre-encoded data from %s", data_path)
-    try:
-        payload = torch.load(data_path, map_location="cpu", weights_only=False, mmap=True)
-        logging.info("Loaded with mmap=True (memory-mapped, low RAM footprint)")
-    except TypeError:
-        # PyTorch < 2.1 doesn't support mmap kwarg
+    use_mmap = train_cfg.get("mmap", True)  # default True, set false for large files on H100
+    logging.info("Loading pre-encoded data from %s (mmap=%s)", data_path, use_mmap)
+    if use_mmap:
+        try:
+            payload = torch.load(data_path, map_location="cpu", weights_only=False, mmap=True)
+            logging.info("Loaded with mmap=True (memory-mapped)")
+        except TypeError:
+            payload = torch.load(data_path, map_location="cpu", weights_only=False)
+            logging.info("Loaded without mmap (PyTorch < 2.1 fallback)")
+    else:
         payload = torch.load(data_path, map_location="cpu", weights_only=False)
-        logging.info("Loaded without mmap (PyTorch < 2.1 fallback)")
+        logging.info("Loaded with mmap=False (full RAM load)")
     load_time = time.time() - t0
     logging.info("Data loaded in %.1fs", load_time)
 
