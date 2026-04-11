@@ -1,0 +1,47 @@
+# e028a: JEPA baseline — LeWM architecture on Melee game state
+#
+# First test of JEPA paradigm on structured (non-pixel) data.
+# New experiment lineage — not built on b001/b002. Different architecture,
+# different loss, different training regime.
+#
+# All model/training values match LeWM defaults unless noted.
+# Data contract matches b002 (same encoding flags, same dataset).
+
+encoding:
+  xy_scale: 0.05
+  action_vocab: 400
+  action_embed_dim: 32
+  state_age_as_embed: true
+  state_flags: true
+  hitstun: true
+  ctrl_threshold_features: true
+  multi_position: true
+
+model:
+  arch: jepa
+  embed_dim: 192             # match LeWM
+  history_size: 3             # match LeWM (50ms context, no frameskip)
+  encoder_hidden_dim: 512     # MLP encoder trunk width
+  predictor_layers: 6         # match LeWM
+  predictor_heads: 16         # match LeWM
+  predictor_dim_head: 64      # match LeWM
+  predictor_mlp_dim: 2048     # match LeWM
+  predictor_dropout: 0.1      # match LeWM
+  sigreg_lambda: 0.1          # match LeWM
+  sigreg_knots: 17            # match LeWM
+  sigreg_projections: 1024    # match LeWM
+
+training:
+  batch_size: 128             # match LeWM
+  num_epochs: 100             # match LeWM
+  lr: 0.00005                 # match LeWM (5e-5)
+  weight_decay: 0.001         # match LeWM
+  gradient_clip: 1.0          # match LeWM
+  use_amp: true
+  warmup_pct: 0.05            # from b002
+  train_split: 0.9
+
+data:
+  stage_filter: 32            # Final Destination (match b002)
+
+save_dir: checkpoints

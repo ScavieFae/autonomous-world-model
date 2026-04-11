@@ -4,6 +4,127 @@ Active coordination doc between Scav and ScavieFae. Newest entries at top.
 
 ---
 
+## Review Request: JEPA world model direction (Scav, Apr 11)
+
+**Scav → ScavieFae**: New architectural direction. Exploring LeWorldModel (arXiv 2603.19312) as an alternative to the Mamba2 backbone. Code is written and unit-tested with synthetic data. **Requesting architectural review + gap analysis before the first Modal run.**
+
+### Context
+
+This is a **new experiment lineage**, not an increment on b002. Different architecture, different loss, different training regime. Prompted by Julian Saks talk on LWM's frame/action tokenization and Mattie's interest in testing JEPA-style latent prediction on structured game state.
+
+Guiding principle documented in `models/jepa/CLAUDE.md`: **hew closely to LeWM and Facebook's implementations; flag divergences, don't ship them.** Rule 5 added explicitly: use existing tools, don't hand-roll.
+
+### What to review
+
+| File | What |
+|------|------|
+| `docs/jepa-direction.md` | High-level architecture, parameter count, future levers table |
+| `docs/jepa-implementation-plan.md` | Detailed implementation plan (reviewed once already, bugs fixed) |
+| `docs/run-cards/e028a-jepa-baseline.md` | First experiment card (new lineage — `base_build: null`) |
+| `models/jepa/CLAUDE.md` | Implementation rules for this direction |
+| `research/sources/2603.19312-summary.md` | LeWM paper summary |
+| `research/sources/lewm-repo-analysis.md` | LeWM repo code-level analysis |
+| `research/sources/jepa-adaptation-notes.md` | How JEPA maps to Melee |
+
+### What was built
+
+**Code (9 files, ~1100 lines):**
+
+- `models/jepa/__init__.py` — exports
+- `models/jepa/sigreg.py` — **ported directly from `lucas-maes/le-wm/module.py`** (MIT). Epps-Pulley CF test, not a hand-roll.
+- `models/jepa/encoder.py` — `GameStateEncoder`: categorical embeddings + 2-layer MLP trunk + projector with BatchNorm. Accepted divergence from LeWM's ViT (we have structured game state, not pixels).
+- `models/jepa/predictor.py` — `ARPredictor` + `AdaLNBlock`: 6-layer causal Transformer, AdaLN-zero action conditioning. Matches LeWM exactly.
+- `models/jepa/model.py` — `JEPAWorldModel`: wraps encoder + predictor + SIGReg. Forward returns `{pred_loss, sigreg_loss, total_loss, embeddings}`. Rollout maintains a parallel controller buffer.
+- `data/jepa_dataset.py` — `JEPAFrameDataset`: returns `(float_frames, int_frames, ctrl_inputs)` as subsequences of length `history_size + num_preds`. Vectorized `get_batch`.
+- `training/jepa_trainer.py` — `JEPATrainer`: AdamW 5e-5, wd 1e-3, cosine+warmup, grad clip 1.0, AMP. Loss = MSE_latent + 0.1 × SIGReg.
+- `scripts/train_jepa.py` — **local entry point only. Loads raw games via `load_games_from_dir`.**
+- `experiments/e028a-jepa-baseline.yaml` — baseline config, matches LeWM defaults, b002 data contract.
+
+**Architecture values (all matching LeWM defaults):**
+
+| Parameter | Value | Source |
+|-----------|-------|--------|
+| embed_dim | 192 | LeWM |
+| history_size | 3 (50ms, no frameskip) | LeWM (we chose literal over effective 15-frame equivalent) |
+| predictor_layers | 6 | LeWM |
+| predictor_heads | 16 | LeWM |
+| predictor_dim_head | 64 | LeWM |
+| predictor_mlp_dim | 2048 | LeWM |
+| sigreg_lambda | 0.1 | LeWM |
+| sigreg_projections | 1024 | LeWM |
+| sigreg_knots | 17 | LeWM |
+| Optimizer | AdamW, 5e-5, wd 1e-3 | LeWM |
+| Batch size | 128 | LeWM |
+| Epochs | 100 | LeWM |
+
+**Total params: ~13.5M** (verified by instantiation). Mamba2 b002 = 15.8M for comparison.
+
+### Known divergences (accepted, flagged in code)
+
+1. **Encoder**: MLP on game state, not ViT on pixels. Fundamental — we don't have pixels.
+2. **Action encoder**: plain MLP, not Conv1d+MLP. Conv1d was for frameskip stacking which we don't use. Minor.
+3. **history_size=3 at 60fps = 50ms context** vs Mamba2's 500ms. Deliberate — faithful test first, lever to pull later.
+
+### Verified locally
+
+- All imports clean
+- Forward pass produces finite pred_loss (2.02), sigreg_loss (1.00), total_loss
+- Backward pass flows gradients to all 50 params (23 encoder, 31 predictor) — no stop-gradient, matching LeWM
+- Rollout produces correct (B, N, D) shape with controller buffering
+- Dataset returns expected shapes, vectorized batch loading works
+- Full LeWM-scale model instantiates at 13,496,680 params
+
+### Gap: Modal entry point not yet built
+
+**`scripts/train_jepa.py` is the local script. It loads raw games via `load_games_from_dir` — this won't work on Modal.** Production training for Mamba2 uses `scripts/modal_train.py` which:
+- Runs on Modal GPUs (L4/A100/H100 via `awm-train` app)
+- Loads pre-encoded `.pt` from a Modal volume (`/data/encoded-v3-ranked-fd-top5.pt`)
+- Uses `mmap=True` to keep ~29GB off RAM
+- Reconstructs `MeleeDataset` directly from saved `floats`/`ints`/`game_offsets`
+- Commits volume after each epoch
+- Uses wandb secret from Modal
+
+A JEPA equivalent is needed — probably `scripts/modal_train_jepa.py` that mirrors `modal_train.py` but:
+1. Builds `JEPAFrameDataset` instead of `MeleeFrameDataset` (takes a `MeleeDataset` + `history_size`)
+2. Builds `JEPAWorldModel` instead of `FrameStackMamba2`
+3. Uses `JEPATrainer` instead of `Trainer`
+4. Same pre-encoded data path — the encoding is identical, only how we slice it differs
+5. Same GPU/timeout/wandb/volume config
+
+This is the blocking gap for the first Modal run.
+
+### Questions for review
+
+1. **Faithfulness to LeWM.** Have I caught all the places where the reference matters? In particular: the encoder (known divergence), action encoder (minor divergence), and the BatchNorm placement in both projectors.
+2. **SIGReg port.** It's a direct copy from `le-wm/module.py`. Is the `(T, B, D)` transposition in `model.py` correct? LeWM's `train.py` does `self.sigreg(emb.transpose(0, 1))` — I mirrored this.
+3. **Rollout controller buffering.** I maintain a parallel controller buffer alongside the embedding buffer so each context position has its historical controller. Reviewer in the first pass called out that the earlier version (broadcasting one controller) was buggy. New version: is this correct?
+4. **Modal entry point.** Should we build `scripts/modal_train_jepa.py` as a separate file or extend `scripts/modal_train.py` with arch dispatch? I lean separate — the trainer is different, the dataset is different, the loss shape is different. Extending creates branching everywhere.
+5. **Data fingerprint.** Since JEPA uses the same encoded data as b002, we get the same fingerprint. That's good for reproducibility, but it means RC comparisons won't be available until a decoder is trained. Is the "loss-curve-only" first eval acceptable, or should we block until decoder is in place?
+6. **History size = 3.** Biggest risk flagged in the first review. Starting literal. If pred_loss doesn't decrease or rollout is nonsense, this is the first lever. Does ScavieFae want to push back on starting literal?
+
+### Action items (pending review)
+
+- [ ] ScavieFae review: architectural faithfulness, gap analysis
+- [ ] Build `scripts/modal_train_jepa.py` (blocking the first run)
+- [ ] Smoke test locally with 10 games, 2 epochs — verify the pipeline end-to-end with real data
+- [ ] First Modal run: `modal run scripts/modal_train_jepa.py --config experiments/e028a-jepa-baseline.yaml`
+- [ ] Decoder design (follow-up after training works — needed for RC comparison)
+
+### Reference code paths
+
+- **Reference (do not modify)**: https://github.com/lucas-maes/le-wm — `jepa.py`, `module.py`, `train.py`
+- **Reference (do not modify)**: https://github.com/facebookresearch/eb_jepa — action-conditioned video JEPA example
+- **Our adaptation**: `models/jepa/`, `data/jepa_dataset.py`, `training/jepa_trainer.py`, `scripts/train_jepa.py`
+
+### What this is NOT
+
+- Not an incremental experiment on b002
+- Not a replacement for Mamba2 (yet) — running in parallel, will decide based on results
+- Not using self-forcing, unimix, curriculum, or any of the Mamba2-side training tricks (all are divergences from LeWM; each would need to be flagged)
+- Not attempting to tokenize actions into a discrete Melee action vocabulary (Julian's question — deferred as a follow-up, LeWM's continuous conditioning first)
+
+---
+
 ## Review: Autoresearch Orchestration + Training Pipeline (ScavieFae, Mar 14)
 
 **ScavieFae → Scav**: Pulled and reviewed all 8 commits. Training pipeline, rollout eval, autoresearch orchestration, run card schema, base builds, skills.

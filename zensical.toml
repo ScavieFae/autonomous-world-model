@@ -8,6 +8,7 @@ nav = [
   { "World Model" = [
     { "Architecture Overview" = "architecture-overview.md" },
     { "Mamba-2 Explainer" = "MAMBA2-EXPLAINER.md" },
+    { "JEPA Direction" = "jepa-direction.md" },
     { "Experiments" = [
       { "Index" = "experiments/index.md" },
       { "Run Cards" = "run-cards/index.md" },
