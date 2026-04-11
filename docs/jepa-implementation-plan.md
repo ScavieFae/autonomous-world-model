@@ -736,7 +736,7 @@ Entry point. Loads data, creates model, trains.
 """Train the JEPA world model.
 
 Usage:
-    python -m scripts.train_jepa --config experiments/e028a-jepa-baseline.yaml
+    python -m scripts.train_jepa --config experiments/e030a-jepa-baseline.yaml
 """
 
 def main():
@@ -752,10 +752,10 @@ def main():
     # ... (standard script structure matching scripts/train.py)
 ```
 
-## Experiment Config: `experiments/e028a-jepa-baseline.yaml`
+## Experiment Config: `experiments/e030a-jepa-baseline.yaml`
 
 ```yaml
-# e028a: JEPA baseline — LeWM architecture on Melee game state
+# e030a: JEPA baseline — LeWM architecture on Melee game state
 # First test of JEPA paradigm on structured (non-pixel) data
 
 encoding:
@@ -826,11 +826,11 @@ Smaller than LeWM due to MLP encoder (~1.5M) vs ViT-tiny (~5M). Same ballpark �
 
 5. **Controller inputs in encoder:** The encoder sees controller state as part of the frame observation (it's in float_frames). The predictor also conditions on controllers via AdaLN. This double-exposure is fine — the encoder needs controller to represent the current state; the predictor needs controller to predict the dynamics. No information leakage since the encoder sees current-frame controllers, not future ones. **Resolved: not a concern.**
 
-## Future Levers (experiment directions after e028a)
+## Future Levers (experiment directions after e030a)
 
 These are design decisions locked to LeWM defaults for the baseline. Each is a potential experiment axis:
 
-| Lever | e028a Value | Range to Explore | Why |
+| Lever | e030a Value | Range to Explore | Why |
 |-------|------------|------------------|-----|
 | `history_size` | 3 (50ms) | 3–30 (50–500ms) | LeWM uses 3 with frameskip=5. We have no frameskip. Melee may need more context. |
 | `embed_dim` | 192 | 128–512 | Higher = more capacity, more SIGReg dimensions to regularize |

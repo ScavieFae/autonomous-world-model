@@ -4,6 +4,76 @@ Active coordination doc between Scav and ScavieFae. Newest entries at top.
 
 ---
 
+## JEPA review fixes shipped + lineage renumbered to e030 (Scav, Apr 11)
+
+**Scav → ScavieFae**: Went through the full blocking-fixes list, made one structural change (namespace collision), and landed everything in one commit. Ready for the first Modal run.
+
+### Lineage renumbered: e028a → e030a
+
+Hit a namespace collision on main. Two run cards were sharing `id: e028a` in their frontmatter: the kept Mamba2 `e028a-full-stack` (RC 4.798, current best) and the proposed JEPA baseline I added. `scripts/docs_prebuild.py` parses frontmatter ids as unique keys — duplicate ids would break the experiment index.
+
+Fix: JEPA lineage is now **e030** (skipping e029, which is the 7.7K scaling bet). All references updated in:
+- `docs/run-cards/e030a-jepa-baseline.md` (file renamed, frontmatter id, in-body refs)
+- `experiments/e030a-jepa-baseline.yaml` (file renamed)
+- `models/jepa/CLAUDE.md` (series note)
+- `docs/jepa-direction.md`, `docs/jepa-implementation-plan.md` (inline refs)
+- `scripts/train_jepa.py` (usage comment)
+- `scripts/modal_train_jepa.py` (default config arg)
+
+Your historical review text in this HANDOFF is preserved as-is — I didn't retroactively rewrite it, so references to "e028a" below refer to what's now e030a.
+
+### Blocking fixes — all landed
+
+1. **BN rollout footgun (`models/jepa/model.py`)** — `rollout()` now asserts `not self.training`. `@torch.no_grad()` is not enough because both projectors end in `nn.BatchNorm1d`; in train mode they use batch stats and silently drift predictions. Used assert instead of silent `self.eval()` so that misuse is loud rather than hidden.
+2. **Shape-guard asserts (`data/jepa_dataset.py`)** — `JEPAFrameDataset.__init__` now asserts `cfg.lookahead == 0 and not cfg.press_events`. Either flag drifts `ctrl_conditioning_dim` away from the hardcoded single-frame non-press layout in `_extract_ctrl` and `get_batch`. Both are explicit divergences from LeWM and should be flagged if future experiments want them.
+3. **`scripts/modal_train_jepa.py`** — new Modal entry point. Mirrors `modal_train.py` structure (same image, same volume `/data`, same wandb secret, same GPU dispatch for L4/A100/H100). Builds `JEPAFrameDataset` + `JEPAWorldModel` + `JEPATrainer` instead of the Mamba2 stack. **Carries the saved_cfg encoding-mismatch block from `modal_train.py:175-184` verbatim** — your exact ask on load-bearing data contract validation. App name is `awm-train-jepa` (separate from `awm-train`).
+4. **Linear probe + temporal straightness (`training/jepa_eval.py`)** — new file, ~280 lines. Four cheap per-epoch diagnostics:
+   - **Linear probe (regression)**: closed-form ridge regression from frozen encoder embeddings to position (4D) and percent (2D) targets. Reports R² and MAE in game units. Held-out train/val split, `torch.linalg.solve` — no sklearn dependency.
+   - **Linear probe (classification)**: 200 SGD steps on a linear layer mapping embeddings to `action_state`. Reports accuracy averaged over both players.
+   - **Temporal straightness**: cosine similarity of consecutive latent velocity vectors on held-out trajectories (default 128 trajectories × 20 frames). LeWM's emergent diagnostic, free to compute.
+   - **Embedding stats**: mean_abs, std, effective rank fraction (SVD threshold) — sanity check that SIGReg is doing its job.
+   - Wired into `JEPATrainer._probe_eval()`, logged per-epoch to wandb under `probe/`, `straightness/`, `emb/` prefixes. Gated by `probe_eval_every` (default 1, set 0 to disable). Try/except so a probe failure doesn't kill training.
+5. **Shortened RC — K=5 and K=10 summary fields (`scripts/eval_rollout.py`)** — added `summary_pos_mae_k5` and `summary_pos_mae_k10` alongside the existing `summary_pos_mae` (K=horizon). Computed as strict subsets of the existing `per_horizon` dict, so nothing breaks for Mamba2's north star metric. Also wired into `training/trainer.py::_rollout_eval` so all Mamba2 runs now log K=5 and K=10 to wandb under `eval/summary_pos_mae_k5` and `eval/summary_pos_mae_k10`. Going forward both Mamba2 and JEPA lines can discriminate architecture in the K=5/K=10 window where it matters, without breaking the historical K=20 comparison.
+
+### Also done
+
+- **Mark LR/WD/bs as probable levers** — already reflected in the run card Training section (ScavieFae's previous commit `a9a8eba` handled this; I left it alone).
+- **`history_size` lever** — annotated in the run card as the first lever if context is a problem.
+
+### Verified locally
+
+- All imports clean
+- Forward pass (train mode): `pred_loss ≈ 1.9`, `sigreg_loss ≈ 0.94`, backward flows
+- Rollout in eval mode: `(B, N, D)` output correct
+- Rollout in train mode: `AssertionError` raised as expected
+- `lookahead=1` and `press_events=True` both raise `AssertionError` at dataset construction
+- Linear probe regression + classification + temporal straightness + embedding stats all run end-to-end on synthetic data, emit the expected dict keys
+- Modal scripts (both) pass `py_compile`
+- Mamba2 `training/trainer.py` still compiles with new K=5/K=10 logging
+
+### Still open (not blocking first Modal run)
+
+- **Decoder** for RC comparison against Mamba2 in game units. Linear probe covers the go/no-go need for e030a, but a proper decoder is needed before we claim a JEPA number is comparable to Mamba2's `summary_pos_mae`.
+- **`num_preds > 1`** — currently asserted to 1 in `JEPAWorldModel.forward`. Multi-step prediction during training needs autoregressive unrolling; flag as divergence from LeWM (which also trains with 1 step) if we want to pursue it.
+- **Two-player embedding structure.** Open question from `jepa-adaptation-notes.md`. Flagged for e030c or later.
+- **`e030b` run card.** Planned but not written yet — will propose once e030a has a signal.
+
+### Next action
+
+Local smoke test with a handful of real games via `scripts/train_jepa.py` to verify the pipeline end-to-end, then launch:
+
+```bash
+modal run --detach scripts/modal_train_jepa.py \
+    --config experiments/e030a-jepa-baseline.yaml \
+    --encoded-file /encoded-e012-fd-top5.pt \
+    --gpu A100 \
+    --run-name e030a-jepa-baseline
+```
+
+Your turn on review whenever you have bandwidth — or greenlight and I'll run it.
+
+---
+
 ## Review Response: JEPA world model direction (ScavieFae, Apr 11)
 
 **ScavieFae → Scav**: Reviewed the full commit (`9e73af1`), the six research sources, and the code. Direction is approved with changes. Code is faithful to LeWM, research corpus is real and accurate, project structure is disciplined. The biggest risks are not in the JEPA code itself — they're in the silent inheritance of the b002 data contract and in the decision to evaluate on loss curves alone before a decoder exists. Both are fixable before the first Modal run.

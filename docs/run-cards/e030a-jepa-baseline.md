@@ -1,5 +1,5 @@
 ---
-id: e028a
+id: e030a
 created: 2026-04-04
 status: proposed
 type: architectural
@@ -7,10 +7,12 @@ base_build: null
 built_on: []
 source_paper: "2603.19312"
 rollout_coherence: null
-prior_best_rc: 4.965
+prior_best_rc: 4.798
 ---
 
-# Run Card: e028a-jepa-baseline
+# Run Card: e030a-jepa-baseline
+
+> **Lineage note:** First JEPA experiment. Renumbered from the original e028a slot to avoid collision with the Mamba2 `e028a-full-stack` (kept, RC 4.798 — current best). JEPA series is e030a → e030b → e030c.
 
 ## Goal
 
@@ -31,13 +33,13 @@ The core question: does latent-space prediction (JEPA) work for structured game 
 | Direction | Architecture | Params | Loss | Best RC |
 |-----------|-------------|--------|------|---------|
 | Mamba2 (b002) | SSM backbone, 16 pred heads | 15.8M | Weighted per-field | 4.965 |
-| **JEPA (e028a)** | **MLP encoder + Transformer predictor** | **~13M** | **MSE + SIGReg** | **TBD** |
+| **JEPA (e030a)** | **MLP encoder + Transformer predictor** | **~13M** | **MSE + SIGReg** | **TBD** |
 
 ## What Changes
 
 Everything. This is a different architecture with a different training objective.
 
-| Component | Mamba2 (b002) | JEPA (e028a) |
+| Component | Mamba2 (b002) | JEPA (e030a) |
 |-----------|--------------|-------------|
 | Backbone | Mamba-2 SSM (4 layers) | Transformer (6 layers) |
 | Prediction | Per-field heads (16) | Latent space (192-dim) |
@@ -52,20 +54,20 @@ Everything. This is a different architecture with a different training objective
 **Dataset:** `encoded-e012-fd-top5.pt` — the ~2K pre-encoded file (1,988 FD top-5 games, ~11 GB, loads into RAM). This is the distinct pre-encoded 2K dataset, **not** `max_games`-capping of the 7.7K file. Same distribution as 7.7K (FD / top-5), ~4× fewer games.
 
 **Why 2K not 7.7K:**
-- **Epistemic purity.** Two open questions right now — (1) does JEPA work on structured game state at all? (2) does data scaling help JEPA? — running on 7.7K confounds them. e029a is already answering (2) for the Mamba2 line; let e028a answer (1) for the JEPA line on directly-comparable data.
+- **Epistemic purity.** Two open questions right now — (1) does JEPA work on structured game state at all? (2) does data scaling help JEPA? — running on 7.7K confounds them. e029a is already answering (2) for the Mamba2 line; let e030a answer (1) for the JEPA line on directly-comparable data.
 - **Apples-to-apples with b002.** b002's best (E025a, RC 5.146) was trained on this exact file. Any JEPA number on the same dataset is directly comparable.
 - **Grokking is a same-data-many-passes phenomenon.** If we want to honestly test the cliff hypothesis, 2K × many epochs is canonical. 7.7K × fewer epochs would show different examples each epoch and muddy the phase-transition signal.
-- **Cheap and fast.** ~$5–10 on A100 vs ~$40–80 on H100 at the 50-epoch budget. Leaves room for e028b encoding ablation and e028c data scaling as follow-ups.
+- **Cheap and fast.** ~$5–10 on A100 vs ~$40–80 on H100 at the 50-epoch budget. Leaves room for e030b encoding ablation and e030c data scaling as follow-ups.
 - **Infra.** 2K fits in RAM easily; no mmap story to debug. e029a had to disable mmap to run on H100 — we sidestep it.
 
-**Encoding flags (match b002 contract):** FD (stage=32), top-5 chars [1,2,7,18,22], v3 encoding with state_flags, hitstun, ctrl_threshold, state_age_as_embed, multi_position. Note: this inheritance is itself a **risk** — see Key Risks #3 and the e028b follow-up.
+**Encoding flags (match b002 contract):** FD (stage=32), top-5 chars [1,2,7,18,22], v3 encoding with state_flags, hitstun, ctrl_threshold, state_age_as_embed, multi_position. Note: this inheritance is itself a **risk** — see Key Risks #3 and the e030b follow-up.
 
 ## Lineage plan
 
-- **e028a** (this card) — JEPA paradigm test on 2K, LeWM defaults, instrumented for the cliff. Answers "does JEPA work on structured data at our scale?"
-- **e028b** — v1-minimal encoding ablation on 2K. Drop `state_flags`, `ctrl_threshold_features`, `multi_position` — test whether the inherited b002 data contract helps or hurts JEPA.
-- **e028c** — data scaling on 7.7K with whatever 2K regime proved best. Structured comparison against e029a.
-- **e028d+** — LR/WD sweep, history_size lever, two-player embedding structure, multi-step prediction (after unblocking `num_preds==1` assert).
+- **e030a** (this card) — JEPA paradigm test on 2K, LeWM defaults, instrumented for the cliff. Answers "does JEPA work on structured data at our scale?"
+- **e030b** — v1-minimal encoding ablation on 2K. Drop `state_flags`, `ctrl_threshold_features`, `multi_position` — test whether the inherited b002 data contract helps or hurts JEPA.
+- **e030c** — data scaling on 7.7K with whatever 2K regime proved best. Structured comparison against e029a.
+- **e030d+** — LR/WD sweep, history_size lever, two-player embedding structure, multi-step prediction (after unblocking `num_preds==1` assert).
 
 ## Model
 
@@ -83,13 +85,14 @@ Everything. This is a different architecture with a different training objective
 - AMP (float16)
 - **GPU: A100** — 2K dataset fits in RAM, H100 is unnecessary overhead at this scale. Target budget ~$10.
 
-## Launch command (template — actual file is `scripts/modal_train_jepa.py`, still to be built)
+## Launch command
 
 ```bash
 modal run --detach scripts/modal_train_jepa.py \
-    --config experiments/e028a-jepa-baseline.yaml \
+    --config experiments/e030a-jepa-baseline.yaml \
     --encoded-file /encoded-e012-fd-top5.pt \
-    --run-name e028a-jepa-baseline
+    --gpu A100 \
+    --run-name e030a-jepa-baseline
 ```
 
 ### Epoch policy: instrument, don't cap artificially
@@ -112,7 +115,7 @@ We're explicitly not assuming either "no cliff" or "cliff exists." We're setting
 
 This is exploratory — we're testing a paradigm, not tuning a hyperparameter. Go/no-go is driven by the linear probe and RC@5, not `pred_loss`.
 
-- **Promising:** RC@5 within 30% of Mamba2 best; linear probe recovers position to <10% error. Worth continuing the lineage, probably with e028b (v1-minimal encoding ablation) and hyperparameter sweep.
+- **Promising:** RC@5 within 30% of Mamba2 best; linear probe recovers position to <10% error. Worth continuing the lineage, probably with e030b (v1-minimal encoding ablation) and hyperparameter sweep.
 - **Competitive:** RC@5 matches Mamba2. Serious contender. Push to full decoder + multi-step prediction.
 - **Not viable:** Linear probe can't recover basic physics (position, percent) after the curve clearly plateaus. Paradigm doesn't fit structured data at our scale. Close the line.
 - **Too early to tell:** Loss curves still descending at epoch 50. Extend if budget allows; cliff theory says this is a real possibility.
@@ -121,10 +124,10 @@ This is exploratory — we're testing a paradigm, not tuning a hyperparameter. G
 
 1. **50ms context.** history_size=3 at 60fps = 50ms. Mamba2 uses 500ms. LeWM's 3 at frameskip=5 is effectively 15 raw frames — we're literal 3, so 5x less effective context. If this fails, increasing history_size is the first lever.
 2. **Encoder capacity.** 2-layer MLP vs LeWM's 12-layer ViT. May bottleneck representation quality. No input normalization before the trunk — relative feature magnitudes drive early gradients.
-3. **Data contract inherited from b002 without re-justification.** `state_flags`, `ctrl_threshold_features`, `multi_position`, `state_age_as_embed`, stage/char filters all were chosen for Mamba2 per-field heads. JEPA has no per-field heads. Directly tested by follow-up **e028b: v1-minimal encoding ablation**.
+3. **Data contract inherited from b002 without re-justification.** `state_flags`, `ctrl_threshold_features`, `multi_position`, `state_age_as_embed`, stage/char filters all were chosen for Mamba2 per-field heads. JEPA has no per-field heads. Directly tested by follow-up **e030b: v1-minimal encoding ablation**.
 4. **LR/WD/bs are LeWM defaults, not tuned for our data.** b002 settled on 10x higher LR and 100x lower WD. Probable levers after first run.
 5. **SIGReg only constrains encoder distribution.** Predictor output has no direct anti-collapse protection — watch for mode collapse via constant predictor in the probe.
-6. **Two-player dynamics** inherited as "concat both players." Open question #4 in `jepa-adaptation-notes.md`. Flagged for e028c or later, not e028a.
+6. **Two-player dynamics** inherited as "concat both players." Open question #4 in `jepa-adaptation-notes.md`. Flagged for e030c or later, not e030a.
 
 ## Known blocking fixes (pre-Modal)
 

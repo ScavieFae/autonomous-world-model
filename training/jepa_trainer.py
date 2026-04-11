@@ -22,6 +22,7 @@ from torch.utils.data import DataLoader
 
 from data.jepa_dataset import JEPAFrameDataset
 from models.jepa.model import JEPAWorldModel
+from training.jepa_eval import run_jepa_eval
 
 try:
     import wandb
@@ -54,6 +55,11 @@ class JEPATrainer:
         warmup_pct: float = 0.0,
         gradient_clip: float = 1.0,
         num_workers: Optional[int] = None,
+        probe_eval_every: int = 1,
+        probe_samples: int = 1024,
+        straightness_trajectories: int = 128,
+        straightness_length: int = 20,
+        epoch_callback: Optional[callable] = None,
     ):
         # Device setup (same pattern as main Trainer)
         if device is None:
@@ -66,7 +72,7 @@ class JEPATrainer:
         self.device = torch.device(device)
         logger.info("Using device: %s", self.device)
         if self.device.type == "cuda":
-            vram_gb = torch.cuda.get_device_properties(0).total_mem / 1e9
+            vram_gb = torch.cuda.get_device_properties(0).total_memory / 1e9
             logger.info("GPU VRAM: %.1f GB", vram_gb)
 
         self._use_amp = use_amp and (device == "cuda")
@@ -150,6 +156,15 @@ class JEPATrainer:
             )
 
         self.history: list[dict] = []
+
+        # Probe eval config
+        self._probe_eval_every = probe_eval_every
+        self._probe_samples = probe_samples
+        self._straightness_trajectories = straightness_trajectories
+        self._straightness_length = straightness_length
+        self._train_dataset = train_dataset
+        self._val_dataset = val_dataset
+        self._epoch_callback = epoch_callback
 
     def _fast_batch_iter(self):
         """Yield batches using vectorized get_batch (same pattern as main Trainer)."""
@@ -270,22 +285,34 @@ class JEPATrainer:
             t0 = time.time()
             train_metrics = self._train_epoch()
             val_metrics = self._val_epoch()
+            probe_metrics = self._probe_eval(epoch)
             elapsed = time.time() - t0
 
-            combined = {**train_metrics, **val_metrics, "epoch": epoch, "time": elapsed}
+            combined = {
+                **train_metrics, **val_metrics, **probe_metrics,
+                "epoch": epoch, "time": elapsed,
+            }
             self.history.append(combined)
 
             val_str = ""
             if val_metrics:
-                val_str = f" | val_pred={val_metrics['val_pred_loss']:.4f} val_total={val_metrics['val_total_loss']:.4f}"
+                val_str = f" | val_pred={val_metrics['val_pred_loss']:.4f}"
+            probe_str = ""
+            if probe_metrics:
+                probe_str = (
+                    f" | pos_r2={probe_metrics.get('probe/pos_r2', float('nan')):.3f}"
+                    f" pos_mae={probe_metrics.get('probe/pos_mae', float('nan')):.2f}"
+                    f" act_acc={probe_metrics.get('probe/action_acc', float('nan')):.3f}"
+                    f" straight={probe_metrics.get('straightness/cosine', float('nan')):.3f}"
+                )
 
             logger.info(
-                "Epoch %d/%d [%.1fs]: pred=%.4f sigreg=%.4f total=%.4f%s",
+                "Epoch %d/%d [%.1fs]: pred=%.4f sigreg=%.4f total=%.4f%s%s",
                 epoch + 1, self.num_epochs, elapsed,
                 train_metrics["pred_loss"],
                 train_metrics["sigreg_loss"],
                 train_metrics["total_loss"],
-                val_str,
+                val_str, probe_str,
             )
 
             if wandb and wandb.run:
@@ -301,10 +328,38 @@ class JEPATrainer:
                     best_val_loss = val_loss
                     self._save_checkpoint("best.pt", epoch, val_loss)
 
+            if self._epoch_callback:
+                self._epoch_callback()
+
         if self.save_dir:
             self._save_checkpoint("final.pt", self.num_epochs - 1)
 
         return self.history
+
+    def _probe_eval(self, epoch: int) -> dict[str, float]:
+        """Run linear probe + temporal straightness + embedding stats.
+
+        Cheap per-epoch diagnostic. Gates when `probe_eval_every=0` or val
+        dataset is missing.
+        """
+        if self._probe_eval_every <= 0 or self._val_dataset is None:
+            return {}
+        if (epoch + 1) % self._probe_eval_every != 0:
+            return {}
+        try:
+            return run_jepa_eval(
+                self.model,
+                self._train_dataset,
+                self._val_dataset,
+                self.model.cfg,
+                device=str(self.device),
+                probe_samples=self._probe_samples,
+                straightness_trajectories=self._straightness_trajectories,
+                straightness_length=self._straightness_length,
+            )
+        except Exception as e:
+            logger.warning("Probe eval failed: %s", e)
+            return {}
 
     def _save_checkpoint(self, name: str, epoch: int, val_loss: float = 0.0) -> None:
         self.save_dir.mkdir(parents=True, exist_ok=True)

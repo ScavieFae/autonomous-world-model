@@ -213,9 +213,24 @@ def evaluate_rollout_coherence(
             }
         per_horizon[k + 1] = entry
 
-    # Summary: mean pos_mae across all horizons
+    # Summary: mean pos_mae across all horizons (K=horizon, the Mamba2 north star)
     all_pos_maes = [per_horizon[k + 1]["pos_mae"] for k in range(horizon)]
     summary_pos_mae = float(np.mean(all_pos_maes))
+
+    # Shortened summary windows — per ScavieFae review, K=20 is below the
+    # noise floor for architecture discrimination at 60fps fighting game
+    # chaos. K=5 (83ms) is pure local-dynamics; K=10 (167ms) is near-horizon
+    # coherence. Computed as means over the first K horizons — both are
+    # strictly-defined subsets of the existing per_horizon dict, so they
+    # don't break anything for Mamba2's summary_pos_mae north star.
+    def _mean_up_to(k: int) -> float:
+        k = min(k, horizon)
+        if k <= 0:
+            return float("nan")
+        return float(np.mean([per_horizon[i + 1]["pos_mae"] for i in range(k)]))
+
+    summary_pos_mae_k5 = _mean_up_to(5)
+    summary_pos_mae_k10 = _mean_up_to(10)
 
     # Summary violation rate: mean across all horizons
     all_violation_rates = [
@@ -226,6 +241,8 @@ def evaluate_rollout_coherence(
     return {
         "per_horizon": per_horizon,
         "summary_pos_mae": summary_pos_mae,
+        "summary_pos_mae_k5": summary_pos_mae_k5,
+        "summary_pos_mae_k10": summary_pos_mae_k10,
         "violation_rate": summary_violation_rate,
     }
 

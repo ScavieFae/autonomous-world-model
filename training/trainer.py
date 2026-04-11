@@ -662,10 +662,20 @@ class Trainer:
         elapsed = time.time() - t0
 
         rc = results["summary_pos_mae"]
+        rc_k5 = results.get("summary_pos_mae_k5", float("nan"))
+        rc_k10 = results.get("summary_pos_mae_k10", float("nan"))
         viol_rate = results.get("violation_rate", 0.0)
-        logger.info("  rollout coherence = %.4f, violation_rate = %.4f (%.1fs)", rc, viol_rate, elapsed)
+        logger.info(
+            "  rollout coherence: K=%d %.4f | K=5 %.4f | K=10 %.4f | viol %.4f (%.1fs)",
+            self._rollout_eval_horizon, rc, rc_k5, rc_k10, viol_rate, elapsed,
+        )
 
-        metrics = {"eval/summary_pos_mae": rc, "eval/time_s": elapsed}
+        metrics = {
+            "eval/summary_pos_mae": rc,
+            "eval/summary_pos_mae_k5": rc_k5,
+            "eval/summary_pos_mae_k10": rc_k10,
+            "eval/time_s": elapsed,
+        }
         metrics["eval/violation_rate"] = viol_rate
         for k, m in results["per_horizon"].items():
             for name, val in m.items():

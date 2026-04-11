@@ -64,4 +64,4 @@ That's it. MSE in latent space + SIGReg. No per-field heads, no weighted loss su
 
 ## Experiment Tracking
 
-JEPA experiments use the same run card system (`docs/run-cards/`). Series starts at e028.
+JEPA experiments use the same run card system (`docs/run-cards/`). Series starts at **e030** (e028a was taken by Mamba2 full-stack, e029 by the 7.7K scaling bet). The JEPA lineage is e030a → e030b → e030c+.

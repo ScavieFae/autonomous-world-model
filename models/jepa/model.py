@@ -131,6 +131,14 @@ class JEPAWorldModel(nn.Module):
         Returns:
             pred_embs: (B, N, D) — predicted latent embeddings
         """
+        # BN footgun guard: both projectors end in nn.BatchNorm1d.
+        # In train mode BN uses batch stats → predictions silently drift.
+        # @torch.no_grad() does not handle this — only .eval() does.
+        assert not self.training, (
+            "JEPAWorldModel.rollout() requires eval mode. "
+            "Call model.eval() before rollout() — BatchNorm projectors "
+            "will use batch stats in train mode and silently drift predictions."
+        )
         N = ctrl_sequence.shape[1]
 
         # Encode initial context

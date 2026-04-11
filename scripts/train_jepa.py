@@ -3,7 +3,7 @@
 
 Usage:
     python -m scripts.train_jepa --dataset /path/to/parsed/dataset
-    python -m scripts.train_jepa --config experiments/e028a-jepa-baseline.yaml --dataset /path
+    python -m scripts.train_jepa --config experiments/e030a-jepa-baseline.yaml --dataset /path
 """
 
 import argparse

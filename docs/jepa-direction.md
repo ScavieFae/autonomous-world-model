@@ -79,7 +79,7 @@ Everything else matches: predictor architecture, SIGReg, AdaLN, training regime.
 
 ## Future Levers
 
-Design decisions locked to LeWM defaults for the baseline experiment (e028a). Each is a potential experiment axis:
+Design decisions locked to LeWM defaults for the baseline experiment (e030a). Each is a potential experiment axis:
 
 | Lever | Baseline | Range | Rationale |
 |-------|----------|-------|-----------|
@@ -127,5 +127,5 @@ scripts/
 └── train_jepa.py   # Training entry point
 
 experiments/
-└── e028a-jepa-baseline.yaml  # First experiment config
+└── e030a-jepa-baseline.yaml  # First experiment config
 ```

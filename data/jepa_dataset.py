@@ -46,6 +46,19 @@ class JEPAFrameDataset(Dataset):
         self.seq_len = history_size + num_preds
         cfg = data.cfg
 
+        # Shape guards: _extract_ctrl and get_batch hardcode the single-frame
+        # non-press layout. ctrl_conditioning_dim multiplies by (1 + lookahead)
+        # and adds ctrl_extra_dim for press_events — toggling either flag
+        # would silently shape-mismatch the predictor. Kill the ambiguity now.
+        assert cfg.lookahead == 0, (
+            f"JEPAFrameDataset requires cfg.lookahead == 0 (got {cfg.lookahead}). "
+            "Multi-frame controller stacking is a divergence from LeWM — flag it."
+        )
+        assert not cfg.press_events, (
+            "JEPAFrameDataset requires cfg.press_events == False. "
+            "Press-event controller features are a divergence from LeWM — flag them."
+        )
+
         # Controller slice indices (same layout as MeleeFrameDataset)
         fp = cfg.float_per_player
         cd = cfg.continuous_dim
