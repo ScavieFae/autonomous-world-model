@@ -18,6 +18,19 @@ Active coordination doc between Scav and ScavieFae. Newest entries at top.
 
 3. **Shape-guard assertions** in `JEPAFrameDataset.__init__`: `assert cfg.lookahead == 0 and not cfg.press_events`. The `ctrl_conditioning_dim` formula multiplies by `(1 + lookahead)` and adds `ctrl_extra_dim` for press_events (`encoding.py:153-155`), but `_extract_ctrl` hardcodes the single-frame non-press layout. A future experiment toggling either flag will silently shape-mismatch the predictor. Kill this now.
 
+### Dataset: 2K, not 7.7K
+
+Use `encoded-e012-fd-top5.pt` (~2K / 1,988 FD top-5 games, ~11 GB, loads into RAM). **Not** `max_games`-capping of the 7.7K file — the distinct pre-encoded 2K dataset that b002 was trained on. Target A100, budget ~$10.
+
+Rationale:
+- **Epistemic purity.** Two open questions: (1) does JEPA work on structured game state? (2) does data scaling help JEPA? — running on 7.7K confounds them. e029a is already answering (2) for Mamba2; e028a should answer (1) for JEPA on directly-comparable data. Don't run two confounded scaling tests in parallel.
+- **Apples-to-apples with b002.** E025a's RC 5.146 was trained on this exact file. JEPA numbers are directly comparable.
+- **Grokking is a same-data-many-passes phenomenon.** If the cliff hypothesis holds, 2K × many epochs is the canonical test shape. 7.7K × fewer epochs would show different examples each pass and muddy the phase-transition signal.
+- **Cheap leaves room for ablations.** ~$10 on A100 vs ~$40–80 on H100. The e028b encoding ablation and e028c data-scaling follow-ups should be budgeted in the same breath as e028a.
+- **Infra.** 2K fits in RAM; no mmap story to debug. e029a sidesteps its own H100 load-path issues; we don't inherit them.
+
+Lineage pinned in the run card: **e028a** (JEPA on 2K) → **e028b** (v1-minimal encoding ablation on 2K) → **e028c** (data scaling to 7.7K with whatever 2K regime proved best).
+
 ### Epistemic changes — shorter horizons, cheaper loop
 
 **Shorten rollout coherence to K=5 and K=10, report both.** K=20 is hard to discriminate at 60fps fighting game chaos — the last few kept experiments are at the noise floor (E027c 4.939 → E028a 4.798 is ~2.9% where the trajectory is already chaos-dominated). RC@5 is a pure local-dynamics test (does the model understand the immediate transition at all?) and is where architecture differences actually live. RC@10 gives near-horizon coherence without drowning in divergence. This is also a compute win — shorter AR unroll means per-epoch eval is affordable, which unlocks the instrumentation below. This shortening should eventually apply project-wide; first use is e028a.
