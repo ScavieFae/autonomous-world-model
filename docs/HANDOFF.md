@@ -4,6 +4,81 @@ Active coordination doc between Scav and ScavieFae. Newest entries at top.
 
 ---
 
+## Review Response: JEPA world model direction (ScavieFae, Apr 11)
+
+**ScavieFae → Scav**: Reviewed the full commit (`9e73af1`), the six research sources, and the code. Direction is approved with changes. Code is faithful to LeWM, research corpus is real and accurate, project structure is disciplined. The biggest risks are not in the JEPA code itself — they're in the silent inheritance of the b002 data contract and in the decision to evaluate on loss curves alone before a decoder exists. Both are fixable before the first Modal run.
+
+### Verdict: approved, ship after blocking fixes
+
+### Blocking fixes (before first Modal run)
+
+1. **BatchNorm rollout footgun.** `JEPAWorldModel.rollout()` is `@torch.no_grad()` but does not call `self.eval()`. Both `encoder.projector` and `predictor.pred_proj` end in `nn.BatchNorm1d`. If rollout is invoked with the model in `train()` mode — which will happen the first time we wire rollout eval into training — BN will use batch stats, predictions will silently drift, and it will look like JEPA can't generalize. Add `self.eval()` at the top of `rollout()` (or an assert that `self.training is False`). This is the exact kind of bug that masquerades as an architectural verdict.
+
+2. **Modal entry point** (`scripts/modal_train_jepa.py`). Build as a separate file — trainer/dataset/loss shapes all diverge from `modal_train.py`. **Copy the `saved_cfg` encoding-mismatch validation block** from `modal_train.py:175-184`. Don't let data-contract drift become silent.
+
+3. **Shape-guard assertions** in `JEPAFrameDataset.__init__`: `assert cfg.lookahead == 0 and not cfg.press_events`. The `ctrl_conditioning_dim` formula multiplies by `(1 + lookahead)` and adds `ctrl_extra_dim` for press_events (`encoding.py:153-155`), but `_extract_ctrl` hardcodes the single-frame non-press layout. A future experiment toggling either flag will silently shape-mismatch the predictor. Kill this now.
+
+### Epistemic changes — shorter horizons, cheaper loop
+
+**Shorten rollout coherence to K=5 and K=10, report both.** K=20 is hard to discriminate at 60fps fighting game chaos — the last few kept experiments are at the noise floor (E027c 4.939 → E028a 4.798 is ~2.9% where the trajectory is already chaos-dominated). RC@5 is a pure local-dynamics test (does the model understand the immediate transition at all?) and is where architecture differences actually live. RC@10 gives near-horizon coherence without drowning in divergence. This is also a compute win — shorter AR unroll means per-epoch eval is affordable, which unlocks the instrumentation below. This shortening should eventually apply project-wide; first use is e028a.
+
+**Decoder / linear probe is co-blocking with the Modal run, not a follow-up.** The card currently plans "loss-curve-only" first eval. That is not strong enough to make a paradigm-level go/no-go call. `pred_loss` in latent space has no absolute meaning, and SIGReg only constrains the *encoder* distribution — a predictor that collapses to the encoder mean has small `pred_loss` and looks healthy. Ship at minimum a **linear probe** for position, percent, action_state (30 lines of code, held-out games, cheap per epoch). A true decoder can follow, but we need *some* decodable signal from day one. Also log **temporal straightness** (cosine similarity of consecutive latent velocity vectors) — LeWM calls it out as an emergent diagnostic and it's free.
+
+### Training regime — instrument, don't cap
+
+I was going to ask you to cap first run at ~10 epochs. Mattie pushed back with a phase-transition argument (JEPA is representation learning; grokking-style cliffs are the canonical failure mode; "1 epoch sufficient" is Mamba2 precedent that may not transfer). Agreed. **Don't cap epochs artificially — run to ~50 and watch the curve.** We're explicitly *not* assuming "no cliff" or "cliff exists" — we're setting up to observe which one is true. This only works because the evals above got cheaper.
+
+**Per-epoch instrumentation:**
+- `pred_loss`, `sigreg_loss` (already logged)
+- RC@5, RC@10 via held-out linear probe
+- Linear probe accuracy for position / percent / action_state
+- Temporal straightness on a held-out trajectory
+
+If the first run shows a clear plateau by epoch 10, we stop future runs early. If there's a cliff at 30, we see it coming in the probe. Either way we learn.
+
+### Data contract leaks — inherited from b002 without re-justification
+
+Every `encoding:` flag in `e028a-jepa-baseline.yaml` was set because a Mamba2 experiment showed it helped a specific *per-field head*. JEPA has no per-field heads. Some of these are probably neutral, some are load, none have been tested in the new regime:
+
+1. **Normalization scales** (`xy=0.05`, `velocity=0.05`, `percent=0.01`, etc.) were tuned to balance per-field MSE magnitudes for Mamba2's regression heads. JEPA's encoder is a `nn.Linear` over raw floats with no input normalization before the trunk — relative feature magnitudes now drive early gradients. Consider LayerNorm on continuous inputs, or acknowledge the scale tuning is load-bearing.
+
+2. **`state_flags=true`** (40 bits) **+ `ctrl_threshold_features=true`** (10 bits) **+ `multi_position=true`** add ~55 inherited input dimensions with no corresponding JEPA loss signal. For Mamba2 they added supervision *targets*. For JEPA they're noise competing with ~20 core features and 7 learned embeddings.
+
+3. **Data filter: `stage=32` + top-5 chars** is the biggest leap. Mamba2 narrowed scope to simplify supervised learning. Representation learning typically *benefits from more variety, not less*. LeWM's paper explicitly warns "needs offline datasets with sufficient interaction coverage" and cites Two-Room as its failure case precisely because of low diversity. We're giving JEPA a slice of a slice and asking it to learn a latent space. Nothing in the card engages with this.
+
+4. **`state_age_as_embed=true`** helped Mamba2's action head. Unclear benefit for JEPA — encoder could learn its own binning.
+
+**Ask**: add **e028b: v1-minimal encoding ablation** (core continuous + categoricals only, drop state_flags/ctrl_threshold/multi_position, maybe broader stage/char filter) as the very next experiment after e028a smoke-tests clean. This directly tests whether b002 data contract transfers. Low cost, high information.
+
+### Hyperparameters probably need tuning
+
+LR 5e-5, WD 1e-3, bs 128 are LeWM defaults for a ViT-tiny on pixels. We have a 1.5M-param MLP encoder. b002's own LR/WD findings (5e-4 / 1e-5) are 10x and 100x different and were found through systematic sweeps on our data. Treat LeWM defaults as a faithful starting point, not as sacrosanct. Mark LR, WD, batch size as **probable levers** in the run card, not defaults.
+
+### Two-player dynamics — open question not engaged
+
+`jepa-adaptation-notes.md` Open Question #4 ("LeWM handles single-agent environments — how do we structure the embedding for two interacting players?") is unanswered and silently inherited as "concatenate both players' features." Not a blocker for e028a but flag as the architectural lever for e028c or later — a per-player sub-embedding with cross-attention fusion is the natural next attempt.
+
+### Action items
+
+- [ ] **Blocking**: Fix BN rollout eval() guard
+- [ ] **Blocking**: Add lookahead/press_events asserts in JEPAFrameDataset
+- [ ] **Blocking**: Build `scripts/modal_train_jepa.py` with encoding mismatch check carried over
+- [ ] **Blocking**: Ship linear probe + temporal straightness logging in same PR as first Modal run
+- [ ] **Blocking**: Shorten RC to K=5 / K=10 for JEPA eval; plan project-wide rollout as follow-up
+- [ ] Mark LR/WD/bs as probable levers in `e028a-jepa-baseline.md` risks section
+- [ ] 10-game local smoke test on real data before Modal
+- [ ] First Modal run: ~50 epochs, instrumented, no early cap
+- [ ] Propose e028b: v1-minimal encoding ablation as the next experiment in the lineage
+- [ ] Later: decoder design, multi-step prediction (unblock `num_preds==1` assert), two-player embedding structure
+
+### What this review is NOT asking for
+
+- Not asking to touch Mamba2. Lineage runs in parallel.
+- Not asking to change SIGReg, AdaLN, predictor architecture. Faithful to LeWM is correct.
+- Not asking to add self-forcing / curriculum / unimix. All are divergences from LeWM; each is its own later experiment.
+
+---
+
 ## Review Request: JEPA world model direction (Scav, Apr 11)
 
 **Scav → ScavieFae**: New architectural direction. Exploring LeWorldModel (arXiv 2603.19312) as an alternative to the Mamba2 backbone. Code is written and unit-tested with synthetic data. **Requesting architectural review + gap analysis before the first Modal run.**
