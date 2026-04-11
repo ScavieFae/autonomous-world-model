@@ -243,27 +243,57 @@ def _interpret(metrics: dict[str, float]) -> str:
         else:
             lines.append(f"- Ditto swap: {ditto_swap:.3f}")
 
-    # Probes
+    # Per-player regression probes — R² and game-units MAE
     probe_keys = [k for k in metrics if k.startswith("probe/") and k.endswith("_r2")]
     if probe_keys:
         p0_x = metrics.get("probe/p0_x_r2", float("nan"))
         p1_x = metrics.get("probe/p1_x_r2", float("nan"))
+        p0_x_mae = metrics.get("probe/p0_x_mae_units", float("nan"))
+        p1_x_mae = metrics.get("probe/p1_x_mae_units", float("nan"))
         rel_x = metrics.get("probe/rel_x_r2", float("nan"))
+        rel_x_mae = metrics.get("probe/rel_x_mae_units", float("nan"))
+
         if not (np_isnan(p0_x) or np_isnan(p1_x)):
+            mae_suffix = ""
+            if not (np_isnan(p0_x_mae) or np_isnan(p1_x_mae)):
+                mae_suffix = f", MAE P0={p0_x_mae:.1f} P1={p1_x_mae:.1f} game units"
             if p0_x > 0.8 and p1_x > 0.8:
-                lines.append(f"- Per-player x probes: HEALTHY (P0 R²={p0_x:.3f}, P1 R²={p1_x:.3f})")
+                lines.append(f"- Per-player x probes: HEALTHY (P0 R²={p0_x:.3f}, P1 R²={p1_x:.3f}{mae_suffix})")
             elif abs(p0_x - p1_x) > 0.2:
                 lines.append(
-                    f"- Per-player x probes: ASYMMETRIC (P0 R²={p0_x:.3f}, P1 R²={p1_x:.3f}) — "
+                    f"- Per-player x probes: ASYMMETRIC (P0 R²={p0_x:.3f}, P1 R²={p1_x:.3f}{mae_suffix}) — "
                     f"one player is decodable, the other is not"
                 )
             else:
-                lines.append(f"- Per-player x probes: WEAK (P0 R²={p0_x:.3f}, P1 R²={p1_x:.3f})")
+                lines.append(f"- Per-player x probes: WEAK (P0 R²={p0_x:.3f}, P1 R²={p1_x:.3f}{mae_suffix})")
+
         if not np_isnan(rel_x):
+            mae_suffix = ""
+            if not np_isnan(rel_x_mae):
+                mae_suffix = f", MAE={rel_x_mae:.1f} game units"
             if rel_x > 0.8:
-                lines.append(f"- Relational rel_x probe: HEALTHY (R²={rel_x:.3f}) — cross-player binding present")
+                lines.append(f"- Relational rel_x probe: HEALTHY (R²={rel_x:.3f}{mae_suffix}) — cross-player binding present")
             else:
-                lines.append(f"- Relational rel_x probe: WEAK (R²={rel_x:.3f}) — cross-player binding missing")
+                lines.append(f"- Relational rel_x probe: WEAK (R²={rel_x:.3f}{mae_suffix}) — cross-player binding missing")
+
+    # Action classification probes (400 classes → random = 0.25%)
+    p0_action_acc = metrics.get("probe/p0_action_acc", float("nan"))
+    p1_action_acc = metrics.get("probe/p1_action_acc", float("nan"))
+    if not (np_isnan(p0_action_acc) and np_isnan(p1_action_acc)):
+        # Healthy is well above random (~0.25%); "very healthy" above 20%
+        asym = abs(p0_action_acc - p1_action_acc) > 0.1
+        if p0_action_acc > 0.2 and p1_action_acc > 0.2 and not asym:
+            tag = "HEALTHY"
+        elif asym:
+            tag = "ASYMMETRIC"
+        elif p0_action_acc > 0.05 and p1_action_acc > 0.05:
+            tag = "WEAK"
+        else:
+            tag = "NEAR-RANDOM"
+        lines.append(
+            f"- Action classification: {tag} (P0 acc={p0_action_acc:.3f}, "
+            f"P1 acc={p1_action_acc:.3f}; random ≈ 0.003)"
+        )
 
     straight = metrics.get("emergent/straightness", float("nan"))
     if not np_isnan(straight):

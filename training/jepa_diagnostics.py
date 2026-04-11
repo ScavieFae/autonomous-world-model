@@ -10,23 +10,29 @@ trunk preserve player identity or collapse to swap-symmetric features?
 See docs/jepa-data-flow.md for the full trace and motivation.
 
 Diagnostics:
-    swap_test              — encoder collapse detector (P0↔P1 swap cosine sim)
-    per_player_probes      — linear decodability of P0/P1 physical quantities
-    relational_probe       — cross-player binding (e.g., P0.x - P1.x)
-    temporal_straightness  — LeWM's emergent diagnostic on latent trajectories
+    swap_test                  — encoder collapse detector (P0↔P1 swap cosine sim)
+    linear_probe_regression    — continuous probe with R² and game-units MAE
+    linear_probe_classification — discrete probe (action_state) with holdout acc
+    run_linear_probes          — per-player + relational + action probes
+    temporal_straightness      — LeWM's emergent diagnostic on latent trajectories
 
 All functions take a JEPAWorldModel (or its encoder) and a batch of
 (float_frames, int_frames, ctrl_inputs). They do not mutate state.
 
 Expected reading:
-    swap_test.mean_cosine_sim:  LOW (< ~0.5) = healthy identity preservation
-                                HIGH (> ~0.9) = identity collapse
-    swap_test.ditto_cosine_sim: sharpest signal — dittos have no character
-                                asymmetry, so position/velocity/action are
-                                the only identity signal
+    swap_test.mean_cosine_sim:   LOW (< ~0.5) = healthy identity preservation
+                                 HIGH (> ~0.9) = identity collapse
+    swap_test.ditto_cosine_sim:  sharpest signal — dittos have no character
+                                 asymmetry, so position/velocity/action are
+                                 the only identity signal
     per_player probes R²:        HIGH (> 0.8) for position, percent = healthy
-                                LOW (< 0.3) = latent doesn't encode basic physics
+                                 LOW (< 0.3) = latent doesn't encode basic physics
+    per_player probes mae_units: MAE in game units (pixels for x/y, pct for
+                                 percent/shield). The run card success
+                                 criteria are written in game-unit terms.
     relational probe R²:         HIGH for (P0.x - P1.x) = cross-player binding OK
+    action probe accuracy:       random = 1/action_vocab (~0.25% on 400 classes);
+                                 healthy is well above random (tens of percent)
     temporal_straightness:       should INCREASE during training per LeWM
 """
 
@@ -202,23 +208,45 @@ def swap_test(
 # ============================================================================
 # Linear probes — decodability of game state from the latent
 # ============================================================================
+#
+# Three probe types:
+#   1. linear_probe_regression — closed-form least squares, returns R² and
+#      MAE in game units (via a per-target scale factor from EncodingConfig).
+#      R² is scale-invariant so the raw fit signal is the same either way,
+#      but MAE-in-game-units is what the run card's success criteria are
+#      written against ("recovers position to <N game units error").
+#   2. linear_probe_classification — ported from the deleted training/jepa_eval.py
+#      (commit 01aaa99). 200 SGD steps on a linear head, returns holdout
+#      accuracy. Used for discrete targets like action_state (400 classes).
+#   3. run_linear_probes — wraps everything, computes per-player + relational +
+#      action probes in a single pass on one batch.
 
-def linear_probe_r2(
+
+def linear_probe_regression(
     embeddings: torch.Tensor,
     targets: torch.Tensor,
     val_frac: float = 0.2,
-) -> float:
+    scale: float = 1.0,
+) -> dict[str, float]:
     """Fit a linear regression from embeddings to targets with a holdout split.
 
-    Pure torch, closed-form least squares — no sklearn dependency.
+    Pure torch, closed-form least squares — no sklearn dependency. Returns
+    both the scale-invariant R² on held-out samples and the MAE denormalized
+    to game units via the `scale` factor.
 
     Args:
         embeddings: (N, D) — flattened latents
-        targets:    (N,)   — continuous target (e.g., P0.x)
-        val_frac:   fraction of samples held out for R² evaluation
+        targets:    (N,)   — continuous target in normalized encoding units
+                             (e.g., `float_frames[..., 1]` for P0.x × 0.05)
+        val_frac:   fraction of samples held out for R²/MAE evaluation
+        scale:      EncodingConfig scale factor (e.g., `cfg.xy_scale = 0.05`).
+                    MAE in game units = MAE_normalized / scale.
+                    Pass 1.0 if the target is already in game units.
 
     Returns:
-        R² score on the validation split (can be negative for very bad fits).
+        dict with:
+            "r2":        R² on the held-out split (can be negative for bad fits)
+            "mae_units": MAE on the held-out split, converted to game units
     """
     if embeddings.ndim != 2:
         raise ValueError(f"embeddings must be 2D, got {embeddings.shape}")
@@ -241,8 +269,8 @@ def linear_probe_r2(
     train_idx = perm[val_n:]
     if train_idx.numel() < D + 1:
         # Not enough training samples for a unique solution — fall back to
-        # a ridge-regularized fit so we still return a finite R².
-        return _ridge_r2(emb, y, train_idx, val_idx, ridge=1e-3)
+        # a ridge-regularized fit so we still return finite metrics.
+        return _ridge_regression(emb, y, train_idx, val_idx, ridge=1e-3, scale=scale)
 
     ones_train = torch.ones(train_idx.numel(), 1, device=device, dtype=dtype)
     ones_val = torch.ones(val_n, 1, device=device, dtype=dtype)
@@ -255,22 +283,20 @@ def linear_probe_r2(
     try:
         w = torch.linalg.lstsq(X_train, y_train.unsqueeze(-1)).solution.squeeze(-1)
     except RuntimeError:
-        return _ridge_r2(emb, y, train_idx, val_idx, ridge=1e-3)
+        return _ridge_regression(emb, y, train_idx, val_idx, ridge=1e-3, scale=scale)
 
     y_pred = X_val @ w
-    ss_res = ((y_val - y_pred) ** 2).sum()
-    ss_tot = ((y_val - y_val.mean()) ** 2).sum().clamp_min(1e-12)
-    r2 = (1.0 - ss_res / ss_tot).item()
-    return r2
+    return _r2_and_mae(y_val, y_pred, scale)
 
 
-def _ridge_r2(
+def _ridge_regression(
     emb: torch.Tensor,
     y: torch.Tensor,
     train_idx: torch.Tensor,
     val_idx: torch.Tensor,
     ridge: float,
-) -> float:
+    scale: float,
+) -> dict[str, float]:
     """Ridge-regularized least squares fallback when samples < features."""
     device = emb.device
     dtype = emb.dtype
@@ -289,9 +315,91 @@ def _ridge_r2(
     b = X_train.T @ y_train
     w = torch.linalg.solve(A, b)
     y_pred = X_val @ w
+    return _r2_and_mae(y_val, y_pred, scale)
+
+
+def _r2_and_mae(
+    y_val: torch.Tensor, y_pred: torch.Tensor, scale: float
+) -> dict[str, float]:
+    """Compute R² (scale-invariant) and MAE in game units from a val split."""
     ss_res = ((y_val - y_pred) ** 2).sum()
     ss_tot = ((y_val - y_val.mean()) ** 2).sum().clamp_min(1e-12)
-    return (1.0 - ss_res / ss_tot).item()
+    r2 = (1.0 - ss_res / ss_tot).item()
+    mae_normalized = (y_val - y_pred).abs().mean().item()
+    # scale is the EncodingConfig multiplier (x_normalized = x_game * scale).
+    # To recover game units: divide normalized by scale.
+    mae_units = mae_normalized / scale if scale > 0 else mae_normalized
+    return {"r2": r2, "mae_units": mae_units}
+
+
+def linear_probe_classification(
+    embeddings: torch.Tensor,
+    targets: torch.Tensor,
+    num_classes: int,
+    val_frac: float = 0.2,
+    lr: float = 0.1,
+    steps: int = 200,
+) -> float:
+    """Fit a linear classifier with internal holdout, return validation accuracy.
+
+    Closed-form multinomial logistic isn't cheap; a few hundred SGD steps on
+    a linear head is enough for a probe — we just need to know whether the
+    signal is linearly decodable. Ported from training/jepa_eval.py (deleted
+    in the PR #22 merge) with the split changed to internal-holdout to match
+    the rest of this module.
+
+    Args:
+        embeddings: (N, D) — flattened latents
+        targets:    (N,)   — long tensor of class indices
+        num_classes: size of the classification head
+        val_frac:   fraction of samples held out for accuracy evaluation
+        lr:         SGD learning rate (matches jepa_eval.py default)
+        steps:      number of SGD steps (matches jepa_eval.py default)
+
+    Returns:
+        Held-out classification accuracy in [0, 1].
+    """
+    if embeddings.ndim != 2:
+        raise ValueError(f"embeddings must be 2D, got {embeddings.shape}")
+    if targets.ndim != 1 or targets.shape[0] != embeddings.shape[0]:
+        raise ValueError(
+            f"targets must be 1D matching embeddings[0]: "
+            f"emb {embeddings.shape}, targets {targets.shape}"
+        )
+
+    N, D = embeddings.shape
+    device = embeddings.device
+
+    val_n = max(1, int(N * val_frac))
+    perm = torch.randperm(N, device=device)
+    val_idx = perm[:val_n]
+    train_idx = perm[val_n:]
+
+    X_tr = embeddings[train_idx].float()
+    y_tr = targets[train_idx].long()
+    X_va = embeddings[val_idx].float()
+    y_va = targets[val_idx].long()
+
+    W = torch.zeros(D, num_classes, device=device, requires_grad=True)
+    bias = torch.zeros(num_classes, device=device, requires_grad=True)
+    optim = torch.optim.SGD([W, bias], lr=lr, momentum=0.9)
+
+    # Training loop needs grads even though this function is called under no_grad;
+    # guard with enable_grad for safety.
+    with torch.enable_grad():
+        for _ in range(steps):
+            logits = X_tr @ W + bias
+            loss = F.cross_entropy(logits, y_tr)
+            optim.zero_grad()
+            loss.backward()
+            optim.step()
+
+    with torch.no_grad():
+        val_logits = X_va @ W + bias
+        pred = val_logits.argmax(dim=-1)
+        acc = (pred == y_va).float().mean().item()
+
+    return acc
 
 
 def extract_probe_targets(
@@ -303,9 +411,12 @@ def extract_probe_targets(
 
     The float layout per player (from EncodingConfig):
         [percent, x, y, shield, (5 velocity dims), ...]
-
-    So P0.percent is at index 0, P0.x at 1, P0.y at 2, etc.
+    So P0.percent is at index 0, P0.x at 1, P0.y at 2, shield at 3.
     P1 is offset by float_per_player.
+
+    The int layout per player (from EncodingConfig):
+        [action, jumps, character, l_cancel, hurtbox, ground, last_attack, (state_age)]
+    So P0.action is at int index 0, P1.action at int index int_per_player.
 
     Args:
         float_frames: (B, T, 2*fp)
@@ -313,13 +424,15 @@ def extract_probe_targets(
         cfg:          EncodingConfig
 
     Returns:
-        Flat dict of named (B*T,) tensors ready for linear_probe_r2.
+        Flat dict of named (B*T,) tensors. Continuous targets are normalized
+        (use `_probe_scale(name, cfg)` to convert MAE to game units).
+        Categorical targets are long tensors.
     """
     fp = cfg.float_per_player
     ipp = cfg.int_per_player
 
-    # Core continuous layout: percent=0, x=1, y=2, shield=3
     targets = {
+        # Continuous, normalized (scale via _probe_scale)
         "p0_percent": float_frames[..., 0].flatten(),
         "p0_x": float_frames[..., 1].flatten(),
         "p0_y": float_frames[..., 2].flatten(),
@@ -328,25 +441,52 @@ def extract_probe_targets(
         "p1_x": float_frames[..., fp + 1].flatten(),
         "p1_y": float_frames[..., fp + 2].flatten(),
         "p1_shield": float_frames[..., fp + 3].flatten(),
-        # Relational targets — require cross-player binding in the latent
+        # Relational — require cross-player binding in the latent
         "rel_x": (float_frames[..., 1] - float_frames[..., fp + 1]).flatten(),
         "rel_y": (float_frames[..., 2] - float_frames[..., fp + 2]).flatten(),
         "rel_percent": (float_frames[..., 0] - float_frames[..., fp + 0]).flatten(),
+        # Categorical — long tensors for classification probes
+        "p0_action": int_frames[..., 0].flatten().long(),
+        "p1_action": int_frames[..., ipp].flatten().long(),
     }
     return targets
 
 
+def _probe_scale(name: str, cfg: EncodingConfig) -> float:
+    """Map a continuous probe target name to its EncodingConfig scale factor.
+
+    The scale factor is the multiplier that takes game units → normalized
+    encoding (e.g., `x_normalized = x_game * cfg.xy_scale`), so dividing a
+    normalized MAE by the scale recovers game-unit error. Targets absent
+    from this map get scale=1.0 (returned MAE stays in normalized units).
+    """
+    if name in ("p0_x", "p0_y", "p1_x", "p1_y", "rel_x", "rel_y"):
+        return cfg.xy_scale
+    if name in ("p0_percent", "p1_percent", "rel_percent"):
+        return cfg.percent_scale
+    if name in ("p0_shield", "p1_shield"):
+        return cfg.shield_scale
+    return 1.0
+
+
 @dataclass
 class ProbeResults:
-    per_player: dict[str, float]
-    relational: dict[str, float]
+    # Continuous probes: each value is {"r2": float, "mae_units": float}
+    per_player: dict[str, dict[str, float]]
+    relational: dict[str, dict[str, float]]
+    # Classification probes: each value is accuracy in [0, 1]
+    action: dict[str, float]
 
     def to_dict(self) -> dict[str, float]:
-        out = {}
+        out: dict[str, float] = {}
         for k, v in self.per_player.items():
-            out[f"probe/{k}_r2"] = v
+            out[f"probe/{k}_r2"] = v["r2"]
+            out[f"probe/{k}_mae_units"] = v["mae_units"]
         for k, v in self.relational.items():
-            out[f"probe/{k}_r2"] = v
+            out[f"probe/{k}_r2"] = v["r2"]
+            out[f"probe/{k}_mae_units"] = v["mae_units"]
+        for k, v in self.action.items():
+            out[f"probe/{k}_acc"] = v
         return out
 
 
@@ -358,30 +498,37 @@ def run_linear_probes(
     cfg: EncodingConfig,
     val_frac: float = 0.2,
 ) -> ProbeResults:
-    """Encode the batch and fit linear probes for per-player and relational targets.
+    """Encode the batch and fit all linear probes.
 
-    Per-player probes (separate P0 and P1):
-        percent, x, y, shield
+    Per-player continuous probes (regression):
+        p0_percent, p0_x, p0_y, p0_shield, p1_percent, p1_x, p1_y, p1_shield
+        Each returns R² and MAE in game units.
 
-    Relational probes (cross-player binding):
-        rel_x   = P0.x - P1.x
-        rel_y   = P0.y - P1.y
+    Relational continuous probes (regression):
+        rel_x = P0.x - P1.x
+        rel_y = P0.y - P1.y
         rel_percent = P0.percent - P1.percent
+        Test cross-player binding — a latent that just stacks independent
+        per-player slots can't fit these well.
 
-    A healthy representation fits all per-player probes with high R² (> 0.8
-    expected for positions and percent, which are directly encoded inputs).
-    Relational probes test whether the latent encodes cross-player structure
-    rather than just stacking independent per-player slots.
+    Action classification probes:
+        p0_action, p1_action — 400-class linear classification, holdout accuracy.
+
+    Healthy fit (expected on a working representation):
+        - per-player r2 > 0.8, mae_units small (e.g., x mae_units < ~10 pixels)
+        - relational r2 > 0.8
+        - action accuracy > random (random = 1/400 = 0.25%); good ≳ 20-40%
+          depending on how much the first frame determines action_state.
 
     Args:
         encoder:      GameStateEncoder in eval mode
         float_frames: (B, T, F)
         int_frames:   (B, T, I)
-        cfg:          EncodingConfig
-        val_frac:     fraction held out for R²
+        cfg:          EncodingConfig (for slot sizing and probe scales)
+        val_frac:     fraction held out within the batch
 
     Returns:
-        ProbeResults with per_player and relational R² dicts.
+        ProbeResults dataclass with per_player, relational, and action dicts.
     """
     assert not encoder.training, "run_linear_probes requires encoder.eval()"
 
@@ -390,16 +537,33 @@ def run_linear_probes(
 
     targets = extract_probe_targets(float_frames, int_frames, cfg)
 
-    per_player_keys = ["p0_percent", "p0_x", "p0_y", "p0_shield",
-                       "p1_percent", "p1_x", "p1_y", "p1_shield"]
+    per_player_keys = [
+        "p0_percent", "p0_x", "p0_y", "p0_shield",
+        "p1_percent", "p1_x", "p1_y", "p1_shield",
+    ]
     relational_keys = ["rel_x", "rel_y", "rel_percent"]
+    action_keys = ["p0_action", "p1_action"]
 
-    per_player = {k: linear_probe_r2(flat_embs, targets[k], val_frac)
-                  for k in per_player_keys}
-    relational = {k: linear_probe_r2(flat_embs, targets[k], val_frac)
-                  for k in relational_keys}
+    per_player = {
+        k: linear_probe_regression(
+            flat_embs, targets[k], val_frac, scale=_probe_scale(k, cfg),
+        )
+        for k in per_player_keys
+    }
+    relational = {
+        k: linear_probe_regression(
+            flat_embs, targets[k], val_frac, scale=_probe_scale(k, cfg),
+        )
+        for k in relational_keys
+    }
+    action = {
+        k: linear_probe_classification(
+            flat_embs, targets[k], num_classes=cfg.action_vocab, val_frac=val_frac,
+        )
+        for k in action_keys
+    }
 
-    return ProbeResults(per_player=per_player, relational=relational)
+    return ProbeResults(per_player=per_player, relational=relational, action=action)
 
 
 # ============================================================================
