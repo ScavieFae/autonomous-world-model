@@ -65,7 +65,9 @@ Everything. This is a different architecture with a different training objective
 - **e028a** (this card) — JEPA paradigm test on 2K, LeWM defaults, instrumented for the cliff. Answers "does JEPA work on structured data at our scale?"
 - **e028b** — v1-minimal encoding ablation on 2K. Drop `state_flags`, `ctrl_threshold_features`, `multi_position` — test whether the inherited b002 data contract helps or hurts JEPA.
 - **e028c** — data scaling on 7.7K with whatever 2K regime proved best. Structured comparison against e029a.
-- **e028d+** — LR/WD sweep, history_size lever, two-player embedding structure, multi-step prediction (after unblocking `num_preds==1` assert).
+- **e028d+** — LR/WD sweep, history_size lever, multi-step prediction (after unblocking `num_preds==1` assert).
+
+**Pre-registered architectural fix — e028-identity-fix**: if e028a's identity diagnostics fire (`swap.ditto_cosine_sim > 0.9` or any per-player probe R² < 0.3), **before** running any other e028 experiment, run `e028-identity-fix` with a per-player shared-weight sub-encoder + cross-attention fusion. Same-weight encoder applied independently to each player, output as two tokens with explicit player-ID positional embedding, 2 layers of self-attention over the two tokens, mean-pool or CLS readout. This is the canonical two-player symmetric architecture from AlphaZero — it processes P0 and P1 with the same weights (right inductive bias for permutation symmetry of character logic) but positional embeddings + attention preserve and model their interaction. Pre-registering the fix means we don't debate the architecture after observing the failure; we have a ready replacement.
 
 ## Model
 
@@ -103,10 +105,24 @@ We're explicitly not assuming either "no cliff" or "cliff exists." We're setting
 **Primary signals (per epoch):**
 - `pred_loss`, `sigreg_loss` — training dynamics
 - **RC@5, RC@10** — shortened from K=20. Fighting game state at 60fps is chaos-dominated past ~150ms; K=20 is below the noise floor for architecture discrimination. K=5 (83ms) is a pure local-dynamics test; K=10 (167ms) is near-horizon coherence. Both numbers logged, neither alone is the north star.
-- **Linear probe accuracy** on held-out games for `position`, `percent`, `action_state`. Cheap (~30 lines of code), held-out, interpretable. This is the go/no-go signal — a JEPA run that can't linearly decode position from its latent has not learned a usable representation no matter what `pred_loss` says.
-- **Temporal straightness** — cosine similarity of consecutive latent velocity vectors. LeWM calls this out as an emergent diagnostic; free to compute.
+- **Identity diagnostics suite** — see below. Ships in `training/jepa_diagnostics.py`.
+- **Temporal straightness** — cosine similarity of consecutive latent velocity vectors. LeWM calls this out as an emergent diagnostic; free to compute; included in the diagnostic suite.
 
 **Why shortened RC:** K=20 is hard to discriminate — recent Mamba2 kept experiments (E027c 4.939 → E028a 4.798) are at ~2.9% deltas at K=20 where the trajectory is already chaos-dominated. RC@5 is where architecture differences actually live. Shorter AR unroll also unlocks affordable per-epoch eval, which unlocks the instrument-don't-cap policy above. The broader project-wide RC shortening is a follow-up.
+
+### Identity diagnostics (swap test, per-player probes, relational probe)
+
+See `docs/jepa-data-flow.md` for the full trace of how P0 and P1 reach the latent and why this failure mode is structurally more likely under JEPA's loss than Mamba2's. In short: the encoder concatenates both players' features into a dedicated-slot input, but the trunk MLP is free to learn swap-symmetric features, and unlike Mamba2 the JEPA loss does not explicitly penalize player-identity collapse. We need to measure whether it actually stays identity-aware or silently collapses. All three diagnostics run on a fixed held-out batch, per epoch, from `training/jepa_diagnostics.py`:
+
+| Diagnostic | Detects | Healthy | Collapsed |
+|------------|---------|---------|-----------|
+| `swap_test.mean_cosine_sim` | Encoder trunk learns swap-symmetric features | < ~0.5 | > ~0.9 |
+| `swap_test.ditto_cosine_sim` | Same, on ditto matchups where character asymmetry is zero (sharpest signal) | < ~0.5 | > ~0.9 |
+| `per_player_probes[p0_x, p1_x]` R² | Projector loses one player's info while keeping the other | both > 0.8 | one < 0.3 or large asymmetry |
+| `per_player_probes[p0_percent, p1_percent]` R² | Same, for percent | both > 0.8 | — |
+| `relational_probes[rel_x, rel_y]` R² | Latent encodes cross-player binding, not just stacked per-player slots | > 0.8 | < 0.3 |
+
+**Reporting policy**: swap similarity (mean + ditto) and per-player probe R² are **required reported numbers** in every JEPA run card from e028a onward, alongside RC. They are **not** a kept/discarded gate yet — we need 5–10 experiments' worth of observed values before we can set a principled threshold. Until then: report, track, and flag any run where `swap.ditto_cosine_sim > 0.9` or any per-player probe has R² < 0.3 in the run card's closeout discussion.
 
 ## Success Criteria
 
@@ -119,12 +135,12 @@ This is exploratory — we're testing a paradigm, not tuning a hyperparameter. G
 
 ## Key Risks
 
-1. **50ms context.** history_size=3 at 60fps = 50ms. Mamba2 uses 500ms. LeWM's 3 at frameskip=5 is effectively 15 raw frames — we're literal 3, so 5x less effective context. If this fails, increasing history_size is the first lever.
-2. **Encoder capacity.** 2-layer MLP vs LeWM's 12-layer ViT. May bottleneck representation quality. No input normalization before the trunk — relative feature magnitudes drive early gradients.
-3. **Data contract inherited from b002 without re-justification.** `state_flags`, `ctrl_threshold_features`, `multi_position`, `state_age_as_embed`, stage/char filters all were chosen for Mamba2 per-field heads. JEPA has no per-field heads. Directly tested by follow-up **e028b: v1-minimal encoding ablation**.
-4. **LR/WD/bs are LeWM defaults, not tuned for our data.** b002 settled on 10x higher LR and 100x lower WD. Probable levers after first run.
-5. **SIGReg only constrains encoder distribution.** Predictor output has no direct anti-collapse protection — watch for mode collapse via constant predictor in the probe.
-6. **Two-player dynamics** inherited as "concat both players." Open question #4 in `jepa-adaptation-notes.md`. Flagged for e028c or later, not e028a.
+1. **Player identity collapse.** The encoder concatenates P0 and P1 features into dedicated slots but then runs them through a 2-layer MLP trunk, which is free to learn swap-symmetric features. Unlike Mamba2, JEPA's loss does not explicitly penalize losing P0/P1 identity — SIGReg regularizes the latent *distribution*, MSE measures self-consistency, neither cares who is who. This is structurally more at risk than Mamba2's per-player head loss. Dittos (Fox vs Fox etc.) are the sharpest test. Instrumented by the swap test, per-player probes, and relational probes (see Evaluation). Pre-registered fix: per-player shared-weight sub-encoder + cross-attention fusion (see Lineage plan). Full trace in `docs/jepa-data-flow.md`.
+2. **50ms context.** history_size=3 at 60fps = 50ms. Mamba2 uses 500ms. LeWM's 3 at frameskip=5 is effectively 15 raw frames — we're literal 3, so 5x less effective context. If this fails, increasing history_size is the first lever.
+3. **Encoder capacity.** 2-layer MLP vs LeWM's 12-layer ViT. May bottleneck representation quality. No input normalization before the trunk — relative feature magnitudes drive early gradients.
+4. **Data contract inherited from b002 without re-justification.** `state_flags`, `ctrl_threshold_features`, `multi_position`, `state_age_as_embed`, stage/char filters all were chosen for Mamba2 per-field heads. JEPA has no per-field heads. Directly tested by follow-up **e028b: v1-minimal encoding ablation**.
+5. **LR/WD/bs are LeWM defaults, not tuned for our data.** b002 settled on 10x higher LR and 100x lower WD. Probable levers after first run.
+6. **SIGReg only constrains encoder distribution.** Predictor output has no direct anti-collapse protection — watch for mode collapse via constant predictor in the probe.
 
 ## Known blocking fixes (pre-Modal)
 

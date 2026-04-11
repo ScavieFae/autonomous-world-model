@@ -31,6 +31,36 @@ Rationale:
 
 Lineage pinned in the run card: **e028a** (JEPA on 2K) → **e028b** (v1-minimal encoding ablation on 2K) → **e028c** (data scaling to 7.7K with whatever 2K regime proved best).
 
+### Identity preservation: structural concern, diagnostic suite shipped
+
+Late addition to the review after walking through the encoder data flow in detail (full trace in `docs/jepa-data-flow.md`). The encoder concatenates P0 and P1 features into dedicated slots (no pooling, so the exact CLIP bag-of-words failure doesn't apply), but the trunk MLP is free to learn swap-symmetric features. And unlike Mamba2 — whose per-player prediction heads force distinct P0/P1 representation at every gradient step — **JEPA's loss does not explicitly penalize player identity collapse**. SIGReg regularizes the latent distribution; MSE measures predictor self-consistency; neither cares who is who. `pred_loss` indirectly requires identity preservation only to the extent that specific next-frame predictions are sensitive to it. Dittos are where this breaks first.
+
+This is now Key Risk #1 in the run card. Mamba2 is probably fine here (loss shape protects it) but it's "probably" not "verified" — pulling that into a follow-up task **after e028a launches**, not before, to keep context focused.
+
+**Diagnostic suite shipped as pure additions** in this PR (non-conflicting with Scav's in-flight blocking-fix work):
+
+- `training/jepa_diagnostics.py` — `swap_test`, `run_linear_probes`, `temporal_straightness`, and a `run_diagnostic_suite` one-shot. All closed-form, GPU-resident, no sklearn dependency. Smoke-tested end-to-end via the script below.
+- `scripts/run_jepa_diagnostics.py` — CLI that loads a checkpoint, pulls a held-out batch from the encoded .pt (or uses synthetic smoke data), runs the suite, prints grouped metrics + a plain-English interpretation, optionally writes JSON.
+- `docs/jepa-data-flow.md` — full step-by-step trace of how P0 and P1 reach the latent, including where identity can fail and why JEPA is structurally weaker than Mamba2 on this axis. This is the reference for anyone touching the encoder from here on.
+
+**How to wire into training (for Scav when ready — not done in this PR to avoid collision):**
+
+1. In `JEPATrainer.__init__`, after the val loader is built, pull a fixed diagnostic batch once (first ~256 val samples via `val_dataset.get_batch(np.arange(256))`) and stash it on `self.diagnostic_batch` as GPU tensors. This batch is used identically every epoch so numbers are comparable across epochs.
+2. At the end of `train()`'s per-epoch block (after `_val_epoch()` and before checkpointing), call:
+   ```python
+   from training.jepa_diagnostics import run_diagnostic_suite
+   if self.diagnostic_batch is not None:
+       diag = run_diagnostic_suite(self.model, *self.diagnostic_batch)
+       combined.update(diag)
+       if wandb and wandb.run:
+           wandb.log(diag)
+   ```
+3. `run_diagnostic_suite` handles `model.eval()` / restore internally, so this is safe to call from anywhere.
+
+**Pre-registered architectural fix**: if e028a's diagnostics show `swap.ditto_cosine_sim > 0.9` or any per-player probe R² < 0.3, the next experiment is **e028-identity-fix**: per-player shared-weight sub-encoder + cross-attention fusion (AlphaZero pattern). Don't debate the architecture after observing the failure — ship the ready replacement. See run card Lineage plan.
+
+**Reporting policy (not a gate, yet)**: swap similarity (mean + ditto) and per-player probe R² are required reported numbers in every JEPA run card's closeout, alongside RC. Not a kept/discarded gate — we need 5–10 runs' worth of observed values before setting a principled threshold. Until then: report, track, flag anomalies.
+
 ### Epistemic changes — shorter horizons, cheaper loop
 
 **Shorten rollout coherence to K=5 and K=10, report both.** K=20 is hard to discriminate at 60fps fighting game chaos — the last few kept experiments are at the noise floor (E027c 4.939 → E028a 4.798 is ~2.9% where the trajectory is already chaos-dominated). RC@5 is a pure local-dynamics test (does the model understand the immediate transition at all?) and is where architecture differences actually live. RC@10 gives near-horizon coherence without drowning in divergence. This is also a compute win — shorter AR unroll means per-epoch eval is affordable, which unlocks the instrumentation below. This shortening should eventually apply project-wide; first use is e028a.
