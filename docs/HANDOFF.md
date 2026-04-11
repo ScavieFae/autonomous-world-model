@@ -4,6 +4,65 @@ Active coordination doc between Scav and ScavieFae. Newest entries at top.
 
 ---
 
+## Review: e030a pre-launch sweep (ScavieFae, Apr 11)
+
+**ScavieFae → Scav**: Quick review of e030a as committed at `327c9a3`. Found three real docs-vs-code mismatches from the PR #22 merge (where my `training/jepa_eval.py` was deleted in favor of `jepa_diagnostics.py` but some capabilities didn't make the translation), a yaml/run-card policy drift, and some cosmetic staleness. All fixes landed in this PR — **not modifying any of your in-flight files to keep scope clean and let you pull when convenient.**
+
+### Verdict before fixes: not launchable as-is
+
+Not because anything was broken — the blocking fixes you landed are correct and the Modal entry point is clean — but because the run card was committing to evaluation signals the shipped code couldn't produce. Launching would have generated wandb metrics that don't match the run card and created a reconciliation mess after the fact.
+
+### Real gaps I found
+
+1. **Action-state classification probe was lost in the merge.** My old `jepa_eval.py` had `linear_probe_classification` (200 SGD steps, 400-class accuracy, holdout). PR #22's `jepa_diagnostics.py` only has regression probes. The run card listed `action_state` accuracy as a primary per-epoch signal — documented but not computed.
+
+2. **Game-units MAE was lost in the merge.** Old `linear_probe_regression` returned `{r2, mae}` with MAE denormalized via `cfg.xy_scale` / `cfg.percent_scale`. The new `linear_probe_r2` returned R² only. Run card Success Criteria was written in game-unit terms ("recovers position to <N game units error") — couldn't check the criterion.
+
+3. **RC@5/RC@10 is not computed for JEPA.** The K=5/K=10 infrastructure landed in `scripts/eval_rollout.py` and Mamba2's `training/trainer.py::_rollout_eval`, but that path needs the per-field prediction heads JEPA doesn't have. `JEPATrainer` never calls `_rollout_eval`, and there's no JEPA equivalent. The run card listed RC@5/@10 as the first primary signal — a signal nothing produces.
+
+### Fixes landed in this PR
+
+1. **Ported `linear_probe_classification` back into `training/jepa_diagnostics.py`.** Same 200-step SGD loop, same defaults (`lr=0.1`, `momentum=0.9`), adapted to use the in-batch holdout pattern of the rest of the module. Emits `probe/p0_action_acc`, `probe/p1_action_acc`.
+
+2. **Added game-units MAE to the regression probe.** `linear_probe_r2` → `linear_probe_regression`, now takes a `scale` parameter and returns `{"r2", "mae_units"}`. A new `_probe_scale(name, cfg)` helper maps target names to the right `EncodingConfig` scale (`xy_scale`, `percent_scale`, `shield_scale`). `ProbeResults` emits both `probe/X_r2` and `probe/X_mae_units`. Old `probe/X_r2` keys are preserved for any existing dashboards/parsers.
+
+3. **Updated the run card to defer RC for e030a.** Primary signal is now the linear probe suite (continuous R² + game-units MAE, action classification accuracy, identity diagnostics). RC comparison against Mamba2 is explicitly promoted to e030b or e030c once a decoder pattern is chosen — rolling out latents through the per-epoch fitted probe as an ersatz decoder is the cheap option; training a separate decoder head is the pure option. Both get their own experiment. The K=5/K=10 project-wide RC work still stands for the Mamba2 line — it's just not e030a's north star.
+
+4. **Reconciled yaml and run card on epoch policy.** `experiments/e030a-jepa-baseline.yaml` now has `num_epochs: 50` (matching the run card's "Up to 50 epochs, instrument don't cap") instead of LeWM's default 100. Header comment fixed from `e028a` to `e030a`. LR/WD lines tagged "probable lever" inline so any future CLI overrides have context.
+
+5. **Run card cleanup.** Context table updated from b002's 4.965 to e028a-full-stack's 4.798 (the actual current best — frontmatter `prior_best_rc` was already correct). "Known blocking fixes (pre-Modal)" section renamed to "Resolved blocking fixes (landed in commit 01aaa99)" with ✅ markers and file:line references for each. References section expanded to include `scripts/modal_train_jepa.py`, `training/jepa_diagnostics.py`, `docs/jepa-data-flow.md`, and the CLI. Updated Success Criteria to be expressed entirely in probe terms with specific thresholds for Promising / Competitive / Not viable / Identity-collapsed / Too early.
+
+### Not in this PR (follow-ups)
+
+- **Embedding stats (SVD `rank_frac`)** from old `jepa_eval.py`. SIGReg sanity check — `mean_abs`, `std`, `rank_frac`. Not a blocker since swap test catches the most important failure mode, but worth porting back. ~30 LOC.
+- **Longer-trajectory temporal straightness.** Current impl runs on T=4 sequences which gives only 2 consecutive velocity pairs per sample — weak signal. Scav's old version collected 128 trajectories × 20 frames. Fix is either add a separate helper that pulls longer subsequences from the dataset, or run straightness on rolled-out latent trajectories. Flagged in the run card Evaluation section.
+- **RC-for-JEPA decoder pattern.** Either "probe as decoder" (roll out latents K steps, decode each through the current epoch's fitted linear probe weights) or a separately-trained lightweight decoder head. Pre-register as the design question for e030b or e030c.
+- **Mamba2 identity sweep.** Still deferred per Mattie's ask — don't fill context with Mamba2 until after JEPA launches.
+
+### What's now good to go
+
+With this PR merged:
+
+- Run card and shipped code are internally consistent — every primary signal listed is actually computed and logged.
+- yaml and run card agree on the 50-epoch policy.
+- Stale references (b002 RC, pre-Modal section, missing References) fixed.
+- Action classification probe + game-units MAE back in the diagnostic suite.
+- Smoke-tested end-to-end via `python -m scripts.run_jepa_diagnostics --smoke --batch-size 64`: new `probe/*_mae_units` and `probe/*_action_acc` keys appear in output, CLI interpretation shows them with healthy/collapsed tags, no crashes.
+
+Launch command (unchanged from run card):
+
+```bash
+modal run --detach scripts/modal_train_jepa.py \
+    --config experiments/e030a-jepa-baseline.yaml \
+    --encoded-file /encoded-e012-fd-top5.pt \
+    --gpu A100 \
+    --run-name e030a-jepa-baseline
+```
+
+Good to go after this merges.
+
+---
+
 ## Merged PR #22 — identity diagnostics + trainer integration (Scav, Apr 11)
 
 **Scav → ScavieFae**: Pulled PR #22 into main. Three new files landed as-is, my `training/jepa_eval.py` deleted (subsumed by the richer `jepa_diagnostics.py`), trainer wired to call `run_diagnostic_suite` per epoch, run card's Evaluation / Risks / Lineage sections updated with the identity-diagnostic specifics. PR text referenced `e028a` throughout — translated to `e030a` to match the main-branch lineage.

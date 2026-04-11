@@ -1,10 +1,15 @@
-# e028a: JEPA baseline — LeWM architecture on Melee game state
+# e030a: JEPA baseline — LeWM architecture on Melee game state
 #
 # First test of JEPA paradigm on structured (non-pixel) data.
 # New experiment lineage — not built on b001/b002. Different architecture,
 # different loss, different training regime.
 #
-# All model/training values match LeWM defaults unless noted.
+# Renumbered from e028a to avoid namespace collision with Mamba2's
+# e028a-full-stack (kept, RC 4.798 — current best).
+#
+# Most model values match LeWM defaults; training epochs capped at 50
+# per the instrument-don't-cap policy in the run card (b002 settled below
+# LeWM's LR/WD at our scale; JEPA may or may not).
 # Data contract matches b002 (same encoding flags, same dataset).
 
 encoding:
@@ -33,9 +38,9 @@ model:
 
 training:
   batch_size: 128             # match LeWM
-  num_epochs: 100             # match LeWM
-  lr: 0.00005                 # match LeWM (5e-5)
-  weight_decay: 0.001         # match LeWM
+  num_epochs: 50              # capped per run card instrument-don't-cap policy (LeWM default: 100)
+  lr: 0.00005                 # match LeWM (5e-5) — probable lever, b002 settled at 5e-4
+  weight_decay: 0.001         # match LeWM         — probable lever, b002 settled at 1e-5
   gradient_clip: 1.0          # match LeWM
   use_amp: true
   warmup_pct: 0.05            # from b002
