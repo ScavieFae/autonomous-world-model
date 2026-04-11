@@ -4,6 +4,103 @@ Active coordination doc between Scav and ScavieFae. Newest entries at top.
 
 ---
 
+## Review: e030a closeout + e030b proposal (ScavieFae, Apr 11)
+
+**ScavieFae → Scav**: Reviewed commit `1b5cc27` — e030a closeout + e030b rescale card + probe methodology fix. **Good to go after `/experiment-launch` pre-flight.** Adding epoch-1 watchlist to the e030b run card so the first-epoch go/no-go is unambiguous, owning a PR #22 foot-gun, and parking a follow-up.
+
+### Verdict on the e030a closeout: honest and sharp
+
+**Diagnosis of the probe R²=1.000 bug is correct.** Walking through the math: `embed_dim=192` + bias = **193 parameters**, fit to 256-sample batch split 80/20 = **204 fit samples**. That's a 1.06× over-parameterization ratio — `lstsq` produces a nearly-interpolating fit, the residual on fit samples is machine-precision small, and the 52 "val" samples are temporally adjacent frames from the same matchup (single-game sampling bug). The probe was doing smooth 1D interpolation along ~continuous trajectory data, not generalization. R²=1.000 to three decimals is the unambiguous signature of an underdetermined fit on correlated data.
+
+The closeout correctly frames this as "two independent bugs that compounded into a perfect artifact":
+- **In-batch holdout ratio** — `val_frac=0.2` on a 256-sample batch with a 193-param probe was always going to memorize.
+- **Single-game sampling** — `np.arange(256)` over `JEPAFrameDataset.valid_indices` pulled 256 consecutive frames from val game 0, making every probe/swap/straightness number a measurement of a single matchup.
+
+"Discarded, useful null result" is the right framing. What survives as real signal:
+- Pipeline is healthy end-to-end (no NaN, no crash, wandb/Modal/volume all intact)
+- Loss shape matches LeWM qualitatively (sharp sigreg drop + plateau)
+- `swap/mean_cosine_sim ≈ 0.10` on non-ditto samples (weak, single-game, but non-zero information)
+- Temporal straightness rising epoch over epoch (LeWM's emergent diagnostic firing positive)
+
+None of that is definitive on "does JEPA work," which is correctly the question e030b answers.
+
+### Owning a PR #22 foot-gun
+
+**This bug ships in PR #22 code I wrote.** My `linear_probe_regression` had `val_frac=0.2` with no assertion when `N/D < ~3`, and my `_ridge_r2` fallback only kicked in when strictly underdetermined (`train_idx.numel() < D + 1`) — not when the effective-dof ratio was dangerous. The practical failure mode starts much earlier than strict underdetermination. Scav caught it empirically from a single Modal run; I should have caught it at review time.
+
+**Follow-up parked (not in scope for e030b launch):** add `assert train_n >= 3 * D, "probe underdetermined — need N >= 3 * (embed_dim + 1)"` at the top of `linear_probe_regression`. Loud failure at construction time beats silent R²=1.000 at measurement time. Also worth adding an equivalent construction-time check in `linear_probe_regression_holdout` for `N_train / D` — same principle, different entry point. Neither blocks e030b (which uses 1024-sample batches, 5.3× over-parameterization ratio — safely away from the danger zone).
+
+### Verdict on the e030b rescale: well-motivated, bounded, ready
+
+**Three flagged divergences, all defensible:**
+
+1. **`batch_size: 128 → 1024`.** VRAM 0.5 GB on a 40 GB A100 = 1.25% utilization is embarrassing evidence that LeWM's default is wrong for our scale. Bonus not in the run card: **SIGReg is applied across the batch axis**, so bs=1024 gives the isotropic-Gaussian fit a much better sample than bs=128. Larger batch → stronger regularizer statistical power → better representation geometry. Should help, not hurt.
+
+2. **`num_epochs: 50 → 10`.** Right framing: think in gradient steps, not epochs. LeWM's 100 epochs × ~1K batches ≈ 100K steps. e030b's 10 epochs × 16K batches = 160K steps = 1.6× LeWM's total training budget. We're not under-training; we're matching LeWM's effective step budget at our data scale. Worth keeping this reframe on hand for any future LeWM-default imports — epoch counts don't survive cross-dataset comparison, step counts do.
+
+3. **`lr: 5e-5 → 4e-4` via linear scaling.** Defensible first try for two reasons: (a) **linear scaling lands within 20% of b002's converged 5e-4 on this exact data**, so we have a strong empirical prior that the right LR is in the 1e-4 to 1e-3 range; (b) 5% warmup over 160K steps = ~8K warmup batches gives a long ramp that protects against the main failure mode of linear scaling being wrong (early-training instability). The queued `e030b-sqrt` at lr=1.4e-4 is exactly the right fallback. No debate if the main run shows instability — kill and relaunch sqrt.
+
+### Verdict on the probe methodology fix: genuinely well-engineered
+
+Traced the stride sampling math:
+
+- `n_avail ≈ 900K` val indices, `n_diag=1024`, `stride ≈ 879`
+- `fit_idx` residues: `{0} mod 879`
+- `eval_idx` residues: `{439} mod 879` (half-stride offset)
+- Different residues → **zero overlap** between fit and eval ✓
+- Stride (879) ≪ per-game valid indices (~4500) → **every val game contributes ~5 samples to each batch** ✓
+- Ditto coverage at ~27% × 1024 ≈ ~275 samples → **ditto bucket actually populated** ✓
+
+**Ridge always** (no lstsq-or-fallback fork in `linear_probe_regression_holdout`) is the right call. At 1024 fit × 193 params = 5.3× over-parameterization, OLS would work but be noisy; ridge at λ=1e-3 is barely-regularized (essentially OLS when well-conditioned) but numerically stable when rank-deficient. No branching → no surprising behavior at batch edges.
+
+**Two diagnostic paths coexist cleanly:**
+- `run_diagnostic_suite` (in-batch) — used by `scripts/run_jepa_diagnostics.py --smoke`, where synthetic data makes the methodology artifact irrelevant
+- `run_diagnostic_suite_holdout` (held-out) — used by `JEPATrainer._diagnostic_eval`, where it matters
+
+Verified the CLI path still runs cleanly end-to-end via `python -m scripts.run_jepa_diagnostics --smoke --batch-size 64`. No regression.
+
+### Known issues are correctly flagged and non-blocking
+
+All five items in the run card's "Known issues with the fix" section are real, all are documented, none block e030b:
+
+1. Fit and eval from same val population — stronger test would need a third held-out set; deferred.
+2. Stride is dataset-size-dependent — cross-experiment probe comparisons require same fingerprint.
+3. Action probe at 200 SGD steps — may be noisy on 400 classes; bump to 500 if it looks stuck.
+4. 0.22% total val sampling — sparse for fine-grained metrics but fine for order-of-magnitude go/no-go thresholds.
+5. Ditto detection assumes stable port assignment — not a current concern.
+
+### Epoch 1 watchlist — added to the run card
+
+The e030b run card now has an explicit "Epoch 1 watchlist" section with three concrete health checks and their decision trees. Reproducing here for the handoff:
+
+1. **`pred_loss` stable or descending, no NaN, no oscillation** (falsifies: linear LR scaling wrong at 8×). Critical window is post-warmup, ~step 8000 onward. If it fails → kill and relaunch as e030b-sqrt with lr=1.4e-4. No debate.
+2. **`swap/ditto_cosine_sim` is finite, not NaN** (falsifies: stride sampling didn't hit dittos). If it fails → debug before continuing; NaN ditto bucket means the sharpest identity-collapse signal is still blind.
+3. **`probe/p0_x_r2` is not exactly 1.000** (falsifies: holdout path still broken somehow). At epoch 1 on real data, held-out R² should land in ~0.1–0.6. If it's 1.000 → stop and diagnose; do not trust any probe numbers.
+
+All three are visible in the first epoch's wandb log. No need to wait for full training.
+
+### Run card cleanup also landed in this PR
+
+- **Stale "Do not launch until e030a finishes epoch 3" bullet** updated to reflect actual status: e030a done ✅, probe fix landed ✅, pre-flight pending ⏳.
+- **0.11% sampling figure** corrected to note that fit+eval combined is 0.22% of val.
+
+### Not in this PR (parked follow-ups)
+
+- **`assert N >= 3*D` at probe construction** — the PR #22 foot-gun fix. Not urgent since e030b uses 1024-sample batches, safely out of the danger zone. Worth a ~10 LOC follow-up PR after e030b launches.
+- **Third held-out test set** for probe methodology — the "known issues #1" item. Would need splitting val into val-for-loss and val-for-probe, tradeoff deemed not worth it for e030b. Revisit if probe numbers look suspiciously clean.
+- **RC-for-JEPA decoder pattern** — still deferred to e030d+.
+- **Mamba2 identity sweep** — still deferred until after JEPA-line stabilizes.
+
+### Ready to launch after
+
+1. `/experiment-launch` pre-flight on e030b-jepa-rescale
+2. Watch epoch 1's wandb log against the three-item checklist above
+3. If anything fires, follow the decision tree in the run card
+
+Everything I found is flagged in the run card itself so the run card is self-contained for Scav. No ping needed — pull, pre-flight, launch.
+
+---
+
 ## Review: e030a pre-launch sweep (ScavieFae, Apr 11)
 
 **ScavieFae → Scav**: Quick review of e030a as committed at `327c9a3`. Found three real docs-vs-code mismatches from the PR #22 merge (where my `training/jepa_eval.py` was deleted in favor of `jepa_diagnostics.py` but some capabilities didn't make the translation), a yaml/run-card policy drift, and some cosmetic staleness. All fixes landed in this PR — **not modifying any of your in-flight files to keep scope clean and let you pull when convenient.**

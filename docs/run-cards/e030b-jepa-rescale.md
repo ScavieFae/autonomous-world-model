@@ -122,7 +122,7 @@ Flagging these so future experiments don't rediscover them the hard way:
 
 3. **`linear_probe_classification` at 1024 samples still uses 200 SGD steps**. For a 400-class action classifier on 192-dim input with ~820 training samples (80% of 1024), 200 steps may not be enough to converge. If action probe accuracy looks suspicious (stuck at random, or asymmetric in ways that don't match the regression probes), the first fix is bumping `steps=200` to `steps=500` in `linear_probe_classification`. Not done in e030b to keep the rescale scope minimal.
 
-4. **Diagnostic batch size still doesn't cover the full val set**. At B=1024 and ~900K val indices, we're sampling 0.11% of val. For noisy metrics (action accuracy on 400 classes) the sample size still bites. Can't go much higher without making the probe eval expensive; this is the knee of the curve.
+4. **Diagnostic batch size still doesn't cover the full val set**. At B=1024 and ~900K val indices, each batch is 0.11% of val; fit+eval combined is 0.22%. For noisy metrics (action accuracy on 400 classes, where ~2 samples per class on average) the sample size still bites. Can't go much higher without making the probe eval expensive; this is the knee of the curve.
 
 5. **Ditto detection assumes first-frame character ID is stable**. `JEPAFrameDataset` uses one frame's categoricals, and the swap test compares `int_frames[..., 2]` to `int_frames[..., ipp+2]` per sample. If two players ever swap ports mid-match (doesn't happen in our data but a theoretical edge case), the ditto buckets would be noisy. Not a current concern.
 
@@ -170,10 +170,28 @@ modal run --detach scripts/modal_train_jepa.py \
     --run-name e030b-jepa-rescale
 ```
 
-**Do not launch until:**
-1. e030a finishes epoch 3 and the current Modal run is killed cleanly.
-2. The probe methodology fix lands in `training/jepa_diagnostics.py` / `training/jepa_trainer.py` and passes a smoke test.
-3. `/experiment-launch` pre-flight gates all green on this card (including a local smoke of the held-out probe change).
+**Pre-launch status (updated post-review):**
+1. ✅ e030a stopped cleanly after epoch 3, closeout Results section written.
+2. ✅ Probe methodology fix landed in `training/jepa_diagnostics.py` (new `*_holdout` functions) and `training/jepa_trainer.py` (stride-sampled fit/eval batches). Smoke-tested via `python -m scripts.run_jepa_diagnostics --smoke` and via end-to-end trainer smoke on synthetic data.
+3. ⏳ `/experiment-launch` pre-flight not yet run against this card — required before hitting Modal.
+
+**First real-data check** is epoch 1 of e030b on Modal. See "Epoch 1 watchlist" below for the three specific things to confirm before trusting any of the new numbers.
+
+### Epoch 1 watchlist (what to verify in the first epoch's wandb log)
+
+Both the hyperparameter rescale and the probe fix land untested on real data in epoch 1. Three independent health checks to run against the wandb log as soon as epoch 1 completes — each one falsifies a specific assumption:
+
+1. **`pred_loss` is stable or descending, no NaN, no oscillation.** Falsifies: linear LR scaling is wrong at 8×. Warmup over 5% of 160K steps = ~8K batches will hide early instability for most of epoch 1, so the critical window is ~step 8000 onward where the LR reaches its 4e-4 peak. If `pred_loss` starts oscillating or spikes there, **kill the run and relaunch as e030b-sqrt with lr=1.4e-4** (queued in the Lineage plan — no debate, no investigation). If it's stable through epoch 1 we can trust the LR choice for the rest of the run.
+
+2. **`swap/ditto_cosine_sim` is a finite number, not NaN.** Falsifies: the stride sampling didn't actually hit dittos. At ~27% ditto rate on top-5 chars, a 1024-sample fit batch should have ~275 dittos — the bucket should be populated on the very first diagnostic eval. If it's still NaN, something's wrong with either the stride math (unlikely given verification) or the ditto detection path in `swap_test` (more likely — the `int_frames[..., 2]` vs `int_frames[..., ipp + 2]` comparison assumes the encoding's int layout holds). Debug before continuing — a NaN ditto bucket at epoch 1 means we're still blind on the sharpest identity-collapse signal.
+
+3. **`probe/p0_x_r2` is not exactly 1.000 (to three decimals).** Falsifies: the probe holdout path is still broken somehow. At epoch 1 on real data with a partially-trained encoder, held-out position R² should land somewhere in the 0.1–0.6 range depending on how well the representation has formed. If it's 1.000 again, the fit and eval batches are not actually disjoint or the ridge regularizer is insufficient — either way, **stop and diagnose before trusting probe numbers for anything else in this run.** This is the specific bug that killed e030a; confirming it's dead is the single most important epoch-1 observation.
+
+All three are visible in the first epoch's wandb log, no need to wait for full training. If any of them fails, the decision tree is clean:
+- #1 fails → kill, relaunch e030b-sqrt
+- #2 or #3 fails → stop, diagnose, do not trust any probe numbers
+
+If all three pass, the rest of the run is basically "observe the curve and report at closeout."
 
 ## Evaluation
 
