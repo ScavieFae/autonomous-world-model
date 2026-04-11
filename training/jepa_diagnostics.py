@@ -490,6 +490,187 @@ class ProbeResults:
         return out
 
 
+def linear_probe_regression_holdout(
+    train_embs: torch.Tensor,
+    train_y: torch.Tensor,
+    val_embs: torch.Tensor,
+    val_y: torch.Tensor,
+    scale: float = 1.0,
+    ridge: float = 1e-3,
+) -> dict[str, float]:
+    """Fit a linear regression on train, evaluate R² and MAE on val.
+
+    Unlike `linear_probe_regression`, does not split internally — the caller
+    provides already-disjoint train and val sets. This is the right shape
+    for a real held-out evaluation: fit on one batch of val-game frames,
+    evaluate on a stride-disjoint second batch from the same val distribution.
+
+    Always uses ridge regression — avoids the lstsq-or-fallback fork from
+    `linear_probe_regression` and keeps numerics stable when train_embs is
+    rank-deficient (common at small batch sizes).
+
+    Args:
+        train_embs: (N_train, D) — fit embeddings
+        train_y:    (N_train,)   — fit targets (normalized encoding units)
+        val_embs:   (N_val, D)   — eval embeddings
+        val_y:      (N_val,)     — eval targets (normalized encoding units)
+        scale:      EncodingConfig scale factor for the target (see
+                    `_probe_scale`); MAE is reported in game units.
+        ridge:      L2 regularization — low enough to be a near-OLS fit
+                    when well-conditioned, high enough to keep the solve
+                    stable when not.
+
+    Returns:
+        dict with "r2" and "mae_units" on the val split.
+    """
+    if train_embs.ndim != 2 or val_embs.ndim != 2:
+        raise ValueError(
+            f"Embeddings must be 2D; got train {train_embs.shape}, val {val_embs.shape}"
+        )
+    if train_embs.shape[1] != val_embs.shape[1]:
+        raise ValueError(
+            f"Embedding dim mismatch: train {train_embs.shape[1]}, val {val_embs.shape[1]}"
+        )
+    if train_y.shape[0] != train_embs.shape[0] or val_y.shape[0] != val_embs.shape[0]:
+        raise ValueError("Target shape must match embedding leading dim")
+
+    device = train_embs.device
+    dtype = torch.float32
+
+    Xt = torch.cat(
+        [train_embs.to(dtype), torch.ones(train_embs.shape[0], 1, device=device, dtype=dtype)],
+        dim=-1,
+    )
+    Xv = torch.cat(
+        [val_embs.to(dtype), torch.ones(val_embs.shape[0], 1, device=device, dtype=dtype)],
+        dim=-1,
+    )
+    yt = train_y.to(dtype)
+    yv = val_y.to(dtype)
+
+    D = Xt.shape[-1]
+    A = Xt.T @ Xt + ridge * torch.eye(D, device=device, dtype=dtype)
+    b = Xt.T @ yt
+    w = torch.linalg.solve(A, b)
+    y_pred = Xv @ w
+    return _r2_and_mae(yv, y_pred, scale)
+
+
+def linear_probe_classification_holdout(
+    train_embs: torch.Tensor,
+    train_y: torch.Tensor,
+    val_embs: torch.Tensor,
+    val_y: torch.Tensor,
+    num_classes: int,
+    lr: float = 0.1,
+    steps: int = 200,
+) -> float:
+    """Fit a linear classifier on train, return accuracy on val.
+
+    Unlike `linear_probe_classification`, takes separate train and val
+    batches — no internal split. See `linear_probe_regression_holdout` for
+    the motivation.
+
+    Returns:
+        Held-out classification accuracy in [0, 1].
+    """
+    if train_embs.ndim != 2 or val_embs.ndim != 2:
+        raise ValueError("Embeddings must be 2D")
+    device = train_embs.device
+
+    Xt = train_embs.float()
+    yt = train_y.long()
+    Xv = val_embs.float()
+    yv = val_y.long()
+
+    D = Xt.shape[-1]
+    W = torch.zeros(D, num_classes, device=device, requires_grad=True)
+    bias = torch.zeros(num_classes, device=device, requires_grad=True)
+    optim = torch.optim.SGD([W, bias], lr=lr, momentum=0.9)
+
+    with torch.enable_grad():
+        for _ in range(steps):
+            logits = Xt @ W + bias
+            loss = F.cross_entropy(logits, yt)
+            optim.zero_grad()
+            loss.backward()
+            optim.step()
+
+    with torch.no_grad():
+        val_logits = Xv @ W + bias
+        pred = val_logits.argmax(dim=-1)
+        return (pred == yv).float().mean().item()
+
+
+@torch.no_grad()
+def run_linear_probes_holdout(
+    encoder,
+    fit_batch: tuple[torch.Tensor, torch.Tensor],
+    eval_batch: tuple[torch.Tensor, torch.Tensor],
+    cfg: EncodingConfig,
+) -> ProbeResults:
+    """Run all linear probes with held-out fit and eval batches.
+
+    This is the methodology-correct version of `run_linear_probes`. Fit
+    batch and eval batch must come from disjoint samples of the val set
+    (e.g., interleaved stride sampling — see `JEPATrainer.__init__`).
+
+    Args:
+        encoder:    GameStateEncoder in eval mode
+        fit_batch:  (float_frames, int_frames) for probe fitting
+        eval_batch: (float_frames, int_frames) for probe evaluation
+                    — must be disjoint from fit_batch
+        cfg:        EncodingConfig for slot sizing and probe scales
+
+    Returns:
+        ProbeResults with per_player, relational, and action dicts.
+    """
+    assert not encoder.training, "run_linear_probes_holdout requires encoder.eval()"
+
+    fit_float, fit_int = fit_batch
+    eval_float, eval_int = eval_batch
+
+    fit_embs = encoder(fit_float, fit_int).flatten(0, 1)   # (N_fit, D)
+    eval_embs = encoder(eval_float, eval_int).flatten(0, 1)  # (N_eval, D)
+
+    fit_targets = extract_probe_targets(fit_float, fit_int, cfg)
+    eval_targets = extract_probe_targets(eval_float, eval_int, cfg)
+
+    per_player_keys = [
+        "p0_percent", "p0_x", "p0_y", "p0_shield",
+        "p1_percent", "p1_x", "p1_y", "p1_shield",
+    ]
+    relational_keys = ["rel_x", "rel_y", "rel_percent"]
+    action_keys = ["p0_action", "p1_action"]
+
+    per_player = {
+        k: linear_probe_regression_holdout(
+            fit_embs, fit_targets[k],
+            eval_embs, eval_targets[k],
+            scale=_probe_scale(k, cfg),
+        )
+        for k in per_player_keys
+    }
+    relational = {
+        k: linear_probe_regression_holdout(
+            fit_embs, fit_targets[k],
+            eval_embs, eval_targets[k],
+            scale=_probe_scale(k, cfg),
+        )
+        for k in relational_keys
+    }
+    action = {
+        k: linear_probe_classification_holdout(
+            fit_embs, fit_targets[k],
+            eval_embs, eval_targets[k],
+            num_classes=cfg.action_vocab,
+        )
+        for k in action_keys
+    }
+
+    return ProbeResults(per_player=per_player, relational=relational, action=action)
+
+
 @torch.no_grad()
 def run_linear_probes(
     encoder,
@@ -648,6 +829,68 @@ def run_diagnostic_suite(
 
         # Temporal straightness on the encoded sequence
         embs = encoder(float_frames, int_frames)
+        metrics["emergent/straightness"] = temporal_straightness(embs)
+
+        return metrics
+    finally:
+        if was_training:
+            model.train()
+
+
+@torch.no_grad()
+def run_diagnostic_suite_holdout(
+    model,
+    fit_batch: tuple[torch.Tensor, torch.Tensor, torch.Tensor],
+    eval_batch: tuple[torch.Tensor, torch.Tensor, torch.Tensor],
+) -> dict[str, float]:
+    """Run the full JEPA diagnostic suite with held-out probe methodology.
+
+    This is the methodology-correct variant of `run_diagnostic_suite`:
+      - Linear probes fit on `fit_batch`, evaluate on `eval_batch`
+      - Swap test runs on `fit_batch` (could also run on both concatenated,
+        but the swap test is cheap and doesn't benefit meaningfully from
+        more samples beyond ~1K)
+      - Temporal straightness runs on `fit_batch`
+      - Both batches must be from the same population (e.g., stride-sampled
+        slices of val_dataset) but must be disjoint sample indices
+
+    Use this when training; `run_diagnostic_suite` still exists for the
+    `scripts/run_jepa_diagnostics.py --smoke` path where only a single
+    synthetic batch is available.
+
+    Args:
+        model:      JEPAWorldModel — must have .encoder and .cfg
+        fit_batch:  (float_frames, int_frames, ctrl_inputs) for probe
+                    fitting, swap test, and straightness
+        eval_batch: (float_frames, int_frames, ctrl_inputs) for probe
+                    evaluation — must be disjoint from fit_batch
+
+    Returns:
+        Flat dict of metric_name → float, ready for wandb.log().
+    """
+    was_training = model.training
+    model.eval()
+    try:
+        cfg = model.cfg
+        encoder = model.encoder
+
+        metrics: dict[str, float] = {}
+
+        fit_float, fit_int, _ = fit_batch
+        eval_float, eval_int, _ = eval_batch
+
+        # Swap test on the fit batch (cheap, no train/eval distinction needed)
+        swap_result = swap_test(encoder, fit_float, fit_int, cfg)
+        metrics.update(swap_result.to_dict())
+
+        # Linear probes — the actually-held-out version
+        probe_result = run_linear_probes_holdout(
+            encoder, (fit_float, fit_int), (eval_float, eval_int), cfg,
+        )
+        metrics.update(probe_result.to_dict())
+
+        # Temporal straightness on the fit batch
+        embs = encoder(fit_float, fit_int)
         metrics["emergent/straightness"] = temporal_straightness(embs)
 
         return metrics

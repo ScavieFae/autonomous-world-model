@@ -22,7 +22,7 @@ from torch.utils.data import DataLoader
 
 from data.jepa_dataset import JEPAFrameDataset
 from models.jepa.model import JEPAWorldModel
-from training.jepa_diagnostics import run_diagnostic_suite
+from training.jepa_diagnostics import run_diagnostic_suite_holdout
 
 try:
     import wandb
@@ -161,30 +161,51 @@ class JEPATrainer:
         self._val_dataset = val_dataset
         self._epoch_callback = epoch_callback
 
-        # Pull a fixed diagnostic batch once from val (or train as fallback).
-        # Using the same batch every epoch makes swap_test / probe metrics
-        # comparable across epochs — a moving batch would add variance that
-        # masks real identity-collapse signal.
-        self.diagnostic_batch: Optional[tuple[torch.Tensor, torch.Tensor, torch.Tensor]] = None
+        # Diagnostic batches — stride-sampled, held-out methodology.
+        #
+        # e030a bug: pulling np.arange(256) from JEPAFrameDataset returns
+        # the first 256 valid starting frames, which all come from the first
+        # val game (each game contributes ~4497 indices in game order). Probe
+        # and swap numbers measured a single matchup, ditto bucket was empty.
+        #
+        # e030b fix: stride-sample across the full val range so both batches
+        # span all ~200 val games. Two batches at disjoint half-stride offsets
+        # let us fit the linear probe on one and evaluate on the other without
+        # the in-batch 80/20 memorization artifact that invalidated e030a's
+        # probe numbers. See docs/run-cards/e030b-jepa-rescale.md for the
+        # known-issues list on this approach.
+        self.probe_fit_batch: Optional[tuple[torch.Tensor, torch.Tensor, torch.Tensor]] = None
+        self.probe_eval_batch: Optional[tuple[torch.Tensor, torch.Tensor, torch.Tensor]] = None
         if diagnostic_every > 0:
             diag_source = val_dataset if val_dataset and len(val_dataset) > 0 else train_dataset
             n_avail = len(diag_source)
-            n_diag = min(diagnostic_batch_size, n_avail)
-            if n_diag > 0 and hasattr(diag_source, "get_batch"):
-                float_frames, int_frames, ctrl_inputs = diag_source.get_batch(
-                    np.arange(n_diag)
-                )
-                self.diagnostic_batch = (
-                    float_frames.to(self.device),
-                    int_frames.to(self.device),
-                    ctrl_inputs.to(self.device),
-                )
-                logger.info(
-                    "Diagnostic batch: %d samples from %s set",
-                    n_diag, "val" if diag_source is val_dataset else "train",
-                )
-            else:
+            if n_avail <= 0 or not hasattr(diag_source, "get_batch"):
                 logger.warning("Diagnostic batch: no suitable dataset, disabling suite")
+            else:
+                # Stride so each batch spans all val games. With ~900K val
+                # indices and B=1024, stride ≈ 880, one sample every ~15s of
+                # gameplay across the full val distribution.
+                n_diag = min(diagnostic_batch_size, n_avail // 2)
+                stride = max(1, n_avail // max(1, n_diag))
+                fit_idx = np.arange(0, n_avail, stride, dtype=np.int64)[:n_diag]
+                # Offset the eval batch by half a stride — disjoint indices,
+                # same distribution coverage.
+                eval_offset = stride // 2
+                eval_idx = np.arange(
+                    eval_offset, n_avail, stride, dtype=np.int64,
+                )[:n_diag]
+
+                fit_parts = diag_source.get_batch(fit_idx)
+                eval_parts = diag_source.get_batch(eval_idx)
+                self.probe_fit_batch = tuple(t.to(self.device) for t in fit_parts)
+                self.probe_eval_batch = tuple(t.to(self.device) for t in eval_parts)
+                logger.info(
+                    "Diagnostic batches: fit=%d, eval=%d (stride=%d) from %s set "
+                    "(n_avail=%d, expected games covered: all)",
+                    len(fit_idx), len(eval_idx), stride,
+                    "val" if diag_source is val_dataset else "train",
+                    n_avail,
+                )
 
     def _fast_batch_iter(self):
         """Yield batches using vectorized get_batch (same pattern as main Trainer)."""
@@ -359,19 +380,21 @@ class JEPATrainer:
         return self.history
 
     def _diagnostic_eval(self, epoch: int) -> dict[str, float]:
-        """Run the JEPA identity diagnostic suite on the fixed diagnostic batch.
+        """Run the JEPA identity diagnostic suite on held-out probe batches.
 
-        Gates when diagnostic_every == 0 or the batch wasn't built.
-        run_diagnostic_suite handles model.eval()/restore internally.
+        Uses `run_diagnostic_suite_holdout` with stride-sampled disjoint
+        fit/eval batches — probe R² is a real held-out metric, not an
+        in-batch memorization artifact. Gates when diagnostic_every == 0
+        or the batches weren't built. The suite handles model.eval()/restore
+        internally.
         """
-        if self._diagnostic_every <= 0 or self.diagnostic_batch is None:
+        if self._diagnostic_every <= 0 or self.probe_fit_batch is None:
             return {}
         if (epoch + 1) % self._diagnostic_every != 0:
             return {}
         try:
-            float_frames, int_frames, ctrl_inputs = self.diagnostic_batch
-            return run_diagnostic_suite(
-                self.model, float_frames, int_frames, ctrl_inputs,
+            return run_diagnostic_suite_holdout(
+                self.model, self.probe_fit_batch, self.probe_eval_batch,
             )
         except Exception as e:
             logger.warning("Diagnostic suite failed: %s", e)

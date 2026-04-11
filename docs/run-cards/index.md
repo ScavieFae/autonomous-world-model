@@ -2,8 +2,10 @@
 
 Individual experiment records. Each card documents one idea tested in isolation.
 
-*27 cards. Generated 2026-03-23 10:31 UTC*
+*29 cards. Generated 2026-04-11 23:14 UTC*
 
+- :bulb: [Run Card: e030b-jepa-rescale](e030b-jepa-rescale.md) — *proposed*
+- :x: [Run Card: e030a-jepa-baseline](e030a-jepa-baseline.md) — *discarded*
 - :white_check_mark: [Run Card: e028a-full-stack](e028a-full-stack.md) — *kept*
 - :white_check_mark: [Run Card: e027c-lossreweight-warmstart](e027c-lossreweight-warmstart.md) — *kept*
 - :x: [Run Card: e027b-e023b-regime-switch](e027b-e023b-regime-switch.md) — *discarded*

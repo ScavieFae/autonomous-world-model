@@ -1,0 +1,55 @@
+# e030b: JEPA rescale — same architecture as e030a, hyperparameters fit to our data size
+#
+# Three deliberate deviations from LeWM, each flagged and justified in the run card
+# (docs/run-cards/e030b-jepa-rescale.md):
+#
+#   1. batch_size  128 → 1024  — GPU was 1.25% utilized at LeWM's default
+#   2. num_epochs  50  → 10    — 122K batches/epoch at 128 gave ~80 min/epoch;
+#                                bs=1024 gives ~16K batches/epoch; total gradient
+#                                steps (160K) ≥ LeWM's full training budget
+#   3. lr          5e-5 → 4e-4 — linear scaling by batch ratio. Lands within 20%
+#                                of b002's 5e-4 converged LR on this dataset.
+#
+# Model architecture, loss, SIGReg, AdaLN — all identical to e030a.
+# Data contract identical to e030a (b002 flags, encoded-e012-fd-top5.pt).
+
+encoding:
+  xy_scale: 0.05
+  action_vocab: 400
+  action_embed_dim: 32
+  state_age_as_embed: true
+  state_flags: true
+  hitstun: true
+  ctrl_threshold_features: true
+  multi_position: true
+
+model:
+  arch: jepa
+  embed_dim: 192             # match LeWM
+  history_size: 3             # match LeWM (50ms context, no frameskip)
+  encoder_hidden_dim: 512     # MLP encoder trunk width
+  predictor_layers: 6         # match LeWM
+  predictor_heads: 16         # match LeWM
+  predictor_dim_head: 64      # match LeWM
+  predictor_mlp_dim: 2048     # match LeWM
+  predictor_dropout: 0.1      # match LeWM
+  sigreg_lambda: 0.1          # match LeWM
+  sigreg_knots: 17            # match LeWM
+  sigreg_projections: 1024    # match LeWM
+
+training:
+  batch_size: 1024            # DIVERGENCE from LeWM default 128 — see run card
+  num_epochs: 10              # DIVERGENCE from LeWM default 100 — see run card
+  lr: 0.0004                  # DIVERGENCE from LeWM default 5e-5 — linear scale by batch
+  weight_decay: 0.001         # match LeWM — b002's 1e-5 is a separate lever
+  gradient_clip: 1.0          # match LeWM
+  use_amp: true
+  warmup_pct: 0.05            # from b002
+  train_split: 0.9
+  diagnostic_every: 1
+  diagnostic_batch_size: 1024 # larger than e030a's 256 — better probe fits + BN stats
+
+data:
+  stage_filter: 32            # Final Destination (match b002)
+
+save_dir: checkpoints
