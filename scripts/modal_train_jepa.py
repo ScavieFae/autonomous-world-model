@@ -283,10 +283,8 @@ def _train_impl(
         warmup_pct=train_cfg.get("warmup_pct", 0.0),
         gradient_clip=train_cfg.get("gradient_clip", 1.0),
         num_workers=train_cfg.get("num_workers"),
-        probe_eval_every=train_cfg.get("probe_eval_every", 1),
-        probe_samples=train_cfg.get("probe_samples", 1024),
-        straightness_trajectories=train_cfg.get("straightness_trajectories", 128),
-        straightness_length=train_cfg.get("straightness_length", 20),
+        diagnostic_every=train_cfg.get("diagnostic_every", 1),
+        diagnostic_batch_size=train_cfg.get("diagnostic_batch_size", 256),
         epoch_callback=lambda: vol.commit(),
     )
 
@@ -314,10 +312,11 @@ def _train_impl(
         logging.info("--- JEPA Training complete ---")
         for k in [
             "pred_loss", "sigreg_loss", "total_loss",
-            "probe/pos_r2", "probe/pos_mae",
-            "probe/percent_r2", "probe/action_acc",
-            "straightness/cosine",
-            "emb/std", "emb/rank_frac",
+            "swap/mean_cosine_sim", "swap/ditto_cosine_sim",
+            "probe/p0_x_r2", "probe/p1_x_r2",
+            "probe/p0_percent_r2", "probe/p1_percent_r2",
+            "probe/rel_x_r2", "probe/rel_percent_r2",
+            "emergent/straightness",
         ]:
             if k in final:
                 logging.info("  %s: %.4f", k, final[k])
@@ -366,8 +365,9 @@ def main(
         r = result["results"]
         for k in [
             "pred_loss", "total_loss",
-            "probe/pos_r2", "probe/pos_mae",
-            "probe/action_acc", "straightness/cosine",
+            "swap/mean_cosine_sim", "swap/ditto_cosine_sim",
+            "probe/p0_x_r2", "probe/p1_x_r2", "probe/rel_x_r2",
+            "emergent/straightness",
         ]:
             if k in r:
                 print(f"  {k}: {r[k]:.4f}")

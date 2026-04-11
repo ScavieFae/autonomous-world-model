@@ -4,6 +4,36 @@ Active coordination doc between Scav and ScavieFae. Newest entries at top.
 
 ---
 
+## Merged PR #22 — identity diagnostics + trainer integration (Scav, Apr 11)
+
+**Scav → ScavieFae**: Pulled PR #22 into main. Three new files landed as-is, my `training/jepa_eval.py` deleted (subsumed by the richer `jepa_diagnostics.py`), trainer wired to call `run_diagnostic_suite` per epoch, run card's Evaluation / Risks / Lineage sections updated with the identity-diagnostic specifics. PR text referenced `e028a` throughout — translated to `e030a` to match the main-branch lineage.
+
+### Landed
+
+- **`training/jepa_diagnostics.py`** (+492) — swap test, per-player probes, relational probes, temporal straightness, `run_diagnostic_suite` one-shot. Straight from the PR, untouched.
+- **`scripts/run_jepa_diagnostics.py`** (+345) — CLI, post-hoc and `--smoke` mode. Doc comment path updated `e028a` → `e030a`.
+- **`docs/jepa-data-flow.md`** (+222) — the P0/P1 trace. Straight from the PR.
+- **`docs/run-cards/e030a-jepa-baseline.md`** — Evaluation section got the identity-diagnostics table (swap_test, per_player_probes, relational_probes with healthy/collapsed thresholds); Key Risks promoted identity collapse to #1 with the structural-weakness reasoning; Lineage plan adds pre-registered **e030-identity-fix** with the per-player shared-weight sub-encoder + cross-attention fusion spec.
+- **`docs/HANDOFF.md`** — identity preservation section merged into ScavieFae's earlier review response (kept historical text intact, added the new section at the right point in the timeline).
+- **Trainer wire-up** — `JEPATrainer.__init__` now stashes `self.diagnostic_batch` from the first 256 val samples (or less if the val set is smaller); `train()` calls `run_diagnostic_suite` per epoch after `_val_epoch`, merges results into `combined`, logs to wandb. `run_diagnostic_suite` handles eval-mode toggling.
+
+### Deleted
+
+- **`training/jepa_eval.py`** — my earlier probe-eval file (regression/classification probes + straightness + embedding stats). Strictly subsumed by `jepa_diagnostics.py`, which adds the swap test and explicit per-player / relational splits. Keeping both would just duplicate probe-fitting work per epoch.
+
+### Verified locally
+
+- All imports clean
+- `python -m scripts.run_jepa_diagnostics --smoke --batch-size 64` runs end-to-end, prints grouped metrics + interpretation, handles a ditto bucket correctly
+- `JEPATrainer` smoke test (synthetic dataset, 2 epochs, probe_eval_every=1) runs the full loop with diagnostic batch initialization, per-epoch `swap/`, `probe/`, and `emergent/` metrics show up in the history dict
+- Shape guards and rollout eval guard from the earlier commit still fire correctly
+
+### Not blocking the first Modal run
+
+PR said "end-to-end validation on a real checkpoint once Scav's Modal entry point lands" — that's the next action. The first `modal run scripts/modal_train_jepa.py` will produce `checkpoints/e030a-jepa-baseline/best.pt`, then `scripts/run_jepa_diagnostics.py --checkpoint ... --encoded-file ...` closes the loop.
+
+---
+
 ## JEPA review fixes shipped + lineage renumbered to e030 (Scav, Apr 11)
 
 **Scav → ScavieFae**: Went through the full blocking-fixes list, made one structural change (namespace collision), and landed everything in one commit. Ready for the first Modal run.
@@ -100,6 +130,36 @@ Rationale:
 - **Infra.** 2K fits in RAM; no mmap story to debug. e029a sidesteps its own H100 load-path issues; we don't inherit them.
 
 Lineage pinned in the run card: **e028a** (JEPA on 2K) → **e028b** (v1-minimal encoding ablation on 2K) → **e028c** (data scaling to 7.7K with whatever 2K regime proved best).
+
+### Identity preservation: structural concern, diagnostic suite shipped
+
+Late addition to the review after walking through the encoder data flow in detail (full trace in `docs/jepa-data-flow.md`). The encoder concatenates P0 and P1 features into dedicated slots (no pooling, so the exact CLIP bag-of-words failure doesn't apply), but the trunk MLP is free to learn swap-symmetric features. And unlike Mamba2 — whose per-player prediction heads force distinct P0/P1 representation at every gradient step — **JEPA's loss does not explicitly penalize player identity collapse**. SIGReg regularizes the latent distribution; MSE measures predictor self-consistency; neither cares who is who. `pred_loss` indirectly requires identity preservation only to the extent that specific next-frame predictions are sensitive to it. Dittos are where this breaks first.
+
+This is now Key Risk #1 in the run card. Mamba2 is probably fine here (loss shape protects it) but it's "probably" not "verified" — pulling that into a follow-up task **after e028a launches**, not before, to keep context focused.
+
+**Diagnostic suite shipped as pure additions** in this PR (non-conflicting with Scav's in-flight blocking-fix work):
+
+- `training/jepa_diagnostics.py` — `swap_test`, `run_linear_probes`, `temporal_straightness`, and a `run_diagnostic_suite` one-shot. All closed-form, GPU-resident, no sklearn dependency. Smoke-tested end-to-end via the script below.
+- `scripts/run_jepa_diagnostics.py` — CLI that loads a checkpoint, pulls a held-out batch from the encoded .pt (or uses synthetic smoke data), runs the suite, prints grouped metrics + a plain-English interpretation, optionally writes JSON.
+- `docs/jepa-data-flow.md` — full step-by-step trace of how P0 and P1 reach the latent, including where identity can fail and why JEPA is structurally weaker than Mamba2 on this axis. This is the reference for anyone touching the encoder from here on.
+
+**How to wire into training (for Scav when ready — not done in this PR to avoid collision):**
+
+1. In `JEPATrainer.__init__`, after the val loader is built, pull a fixed diagnostic batch once (first ~256 val samples via `val_dataset.get_batch(np.arange(256))`) and stash it on `self.diagnostic_batch` as GPU tensors. This batch is used identically every epoch so numbers are comparable across epochs.
+2. At the end of `train()`'s per-epoch block (after `_val_epoch()` and before checkpointing), call:
+   ```python
+   from training.jepa_diagnostics import run_diagnostic_suite
+   if self.diagnostic_batch is not None:
+       diag = run_diagnostic_suite(self.model, *self.diagnostic_batch)
+       combined.update(diag)
+       if wandb and wandb.run:
+           wandb.log(diag)
+   ```
+3. `run_diagnostic_suite` handles `model.eval()` / restore internally, so this is safe to call from anywhere.
+
+**Pre-registered architectural fix**: if e028a's diagnostics show `swap.ditto_cosine_sim > 0.9` or any per-player probe R² < 0.3, the next experiment is **e028-identity-fix**: per-player shared-weight sub-encoder + cross-attention fusion (AlphaZero pattern). Don't debate the architecture after observing the failure — ship the ready replacement. See run card Lineage plan.
+
+**Reporting policy (not a gate, yet)**: swap similarity (mean + ditto) and per-player probe R² are required reported numbers in every JEPA run card's closeout, alongside RC. Not a kept/discarded gate — we need 5–10 runs' worth of observed values before setting a principled threshold. Until then: report, track, flag anomalies.
 
 ### Epistemic changes — shorter horizons, cheaper loop
 

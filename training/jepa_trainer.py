@@ -22,7 +22,7 @@ from torch.utils.data import DataLoader
 
 from data.jepa_dataset import JEPAFrameDataset
 from models.jepa.model import JEPAWorldModel
-from training.jepa_eval import run_jepa_eval
+from training.jepa_diagnostics import run_diagnostic_suite
 
 try:
     import wandb
@@ -55,10 +55,8 @@ class JEPATrainer:
         warmup_pct: float = 0.0,
         gradient_clip: float = 1.0,
         num_workers: Optional[int] = None,
-        probe_eval_every: int = 1,
-        probe_samples: int = 1024,
-        straightness_trajectories: int = 128,
-        straightness_length: int = 20,
+        diagnostic_every: int = 1,
+        diagnostic_batch_size: int = 256,
         epoch_callback: Optional[callable] = None,
     ):
         # Device setup (same pattern as main Trainer)
@@ -157,14 +155,36 @@ class JEPATrainer:
 
         self.history: list[dict] = []
 
-        # Probe eval config
-        self._probe_eval_every = probe_eval_every
-        self._probe_samples = probe_samples
-        self._straightness_trajectories = straightness_trajectories
-        self._straightness_length = straightness_length
+        # Diagnostic suite config
+        self._diagnostic_every = diagnostic_every
         self._train_dataset = train_dataset
         self._val_dataset = val_dataset
         self._epoch_callback = epoch_callback
+
+        # Pull a fixed diagnostic batch once from val (or train as fallback).
+        # Using the same batch every epoch makes swap_test / probe metrics
+        # comparable across epochs — a moving batch would add variance that
+        # masks real identity-collapse signal.
+        self.diagnostic_batch: Optional[tuple[torch.Tensor, torch.Tensor, torch.Tensor]] = None
+        if diagnostic_every > 0:
+            diag_source = val_dataset if val_dataset and len(val_dataset) > 0 else train_dataset
+            n_avail = len(diag_source)
+            n_diag = min(diagnostic_batch_size, n_avail)
+            if n_diag > 0 and hasattr(diag_source, "get_batch"):
+                float_frames, int_frames, ctrl_inputs = diag_source.get_batch(
+                    np.arange(n_diag)
+                )
+                self.diagnostic_batch = (
+                    float_frames.to(self.device),
+                    int_frames.to(self.device),
+                    ctrl_inputs.to(self.device),
+                )
+                logger.info(
+                    "Diagnostic batch: %d samples from %s set",
+                    n_diag, "val" if diag_source is val_dataset else "train",
+                )
+            else:
+                logger.warning("Diagnostic batch: no suitable dataset, disabling suite")
 
     def _fast_batch_iter(self):
         """Yield batches using vectorized get_batch (same pattern as main Trainer)."""
@@ -285,11 +305,11 @@ class JEPATrainer:
             t0 = time.time()
             train_metrics = self._train_epoch()
             val_metrics = self._val_epoch()
-            probe_metrics = self._probe_eval(epoch)
+            diag_metrics = self._diagnostic_eval(epoch)
             elapsed = time.time() - t0
 
             combined = {
-                **train_metrics, **val_metrics, **probe_metrics,
+                **train_metrics, **val_metrics, **diag_metrics,
                 "epoch": epoch, "time": elapsed,
             }
             self.history.append(combined)
@@ -297,13 +317,15 @@ class JEPATrainer:
             val_str = ""
             if val_metrics:
                 val_str = f" | val_pred={val_metrics['val_pred_loss']:.4f}"
-            probe_str = ""
-            if probe_metrics:
-                probe_str = (
-                    f" | pos_r2={probe_metrics.get('probe/pos_r2', float('nan')):.3f}"
-                    f" pos_mae={probe_metrics.get('probe/pos_mae', float('nan')):.2f}"
-                    f" act_acc={probe_metrics.get('probe/action_acc', float('nan')):.3f}"
-                    f" straight={probe_metrics.get('straightness/cosine', float('nan')):.3f}"
+            diag_str = ""
+            if diag_metrics:
+                diag_str = (
+                    f" | swap={diag_metrics.get('swap/mean_cosine_sim', float('nan')):.3f}"
+                    f" ditto={diag_metrics.get('swap/ditto_cosine_sim', float('nan')):.3f}"
+                    f" p0x_r2={diag_metrics.get('probe/p0_x_r2', float('nan')):.3f}"
+                    f" p1x_r2={diag_metrics.get('probe/p1_x_r2', float('nan')):.3f}"
+                    f" relx_r2={diag_metrics.get('probe/rel_x_r2', float('nan')):.3f}"
+                    f" straight={diag_metrics.get('emergent/straightness', float('nan')):.3f}"
                 )
 
             logger.info(
@@ -312,7 +334,7 @@ class JEPATrainer:
                 train_metrics["pred_loss"],
                 train_metrics["sigreg_loss"],
                 train_metrics["total_loss"],
-                val_str, probe_str,
+                val_str, diag_str,
             )
 
             if wandb and wandb.run:
@@ -336,29 +358,23 @@ class JEPATrainer:
 
         return self.history
 
-    def _probe_eval(self, epoch: int) -> dict[str, float]:
-        """Run linear probe + temporal straightness + embedding stats.
+    def _diagnostic_eval(self, epoch: int) -> dict[str, float]:
+        """Run the JEPA identity diagnostic suite on the fixed diagnostic batch.
 
-        Cheap per-epoch diagnostic. Gates when `probe_eval_every=0` or val
-        dataset is missing.
+        Gates when diagnostic_every == 0 or the batch wasn't built.
+        run_diagnostic_suite handles model.eval()/restore internally.
         """
-        if self._probe_eval_every <= 0 or self._val_dataset is None:
+        if self._diagnostic_every <= 0 or self.diagnostic_batch is None:
             return {}
-        if (epoch + 1) % self._probe_eval_every != 0:
+        if (epoch + 1) % self._diagnostic_every != 0:
             return {}
         try:
-            return run_jepa_eval(
-                self.model,
-                self._train_dataset,
-                self._val_dataset,
-                self.model.cfg,
-                device=str(self.device),
-                probe_samples=self._probe_samples,
-                straightness_trajectories=self._straightness_trajectories,
-                straightness_length=self._straightness_length,
+            float_frames, int_frames, ctrl_inputs = self.diagnostic_batch
+            return run_diagnostic_suite(
+                self.model, float_frames, int_frames, ctrl_inputs,
             )
         except Exception as e:
-            logger.warning("Probe eval failed: %s", e)
+            logger.warning("Diagnostic suite failed: %s", e)
             return {}
 
     def _save_checkpoint(self, name: str, epoch: int, val_loss: float = 0.0) -> None:
