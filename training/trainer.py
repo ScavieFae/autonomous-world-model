@@ -553,7 +553,11 @@ class Trainer:
             num_batches = len(self.train_loader)
         log_interval = self._compute_log_interval(num_batches)
 
-        # Profiling accumulators (only active when self._profile is True)
+        # Profiling accumulators (only active when self._profile is True).
+        # Profile only the first log_interval batches (~500), then turn off.
+        # CUDA sync in profiling mode kills GPU pipelining (~2× overhead);
+        # sampling the first 500 batches gives representative percentages
+        # without slowing down the rest of the epoch.
         prof_data_ms = 0.0
         prof_forward_ms = 0.0
         prof_backward_ms = 0.0
@@ -561,6 +565,8 @@ class Trainer:
         prof_sf_ms = 0.0
         prof_n_tf = 0
         prof_n_sf = 0
+        prof_active = self._profile
+        prof_sample_batches = log_interval  # profile this many, then stop
 
         sf_count = 0
         sf_violation_accum: dict[str, float] = {}
@@ -573,7 +579,7 @@ class Trainer:
             )
 
             if is_sf:
-                if self._profile and self.device.type == "cuda":
+                if prof_active and self.device.type == "cuda":
                     torch.cuda.synchronize()
                     t_sf = time.time()
 
@@ -582,12 +588,12 @@ class Trainer:
                 for name, rate in sf_violations.items():
                     sf_violation_accum[name] = sf_violation_accum.get(name, 0.0) + rate
 
-                if self._profile and self.device.type == "cuda":
+                if prof_active and self.device.type == "cuda":
                     torch.cuda.synchronize()
                     prof_sf_ms += (time.time() - t_sf) * 1000
                     prof_n_sf += 1
             else:
-                if self._profile and self.device.type == "cuda":
+                if prof_active and self.device.type == "cuda":
                     torch.cuda.synchronize()
                     t_data = time.time()
 
@@ -597,7 +603,7 @@ class Trainer:
                 float_tgt = float_tgt.to(self.device)
                 int_tgt = int_tgt.to(self.device)
 
-                if self._profile and self.device.type == "cuda":
+                if prof_active and self.device.type == "cuda":
                     torch.cuda.synchronize()
                     prof_data_ms += (time.time() - t_data) * 1000
                     t_fwd = time.time()
@@ -608,19 +614,19 @@ class Trainer:
                         predictions, float_tgt, int_tgt, int_ctx,
                     )
 
-                if self._profile and self.device.type == "cuda":
+                if prof_active and self.device.type == "cuda":
                     torch.cuda.synchronize()
                     prof_forward_ms += (time.time() - t_fwd) * 1000
                     t_bwd = time.time()
 
                 self._scaler.scale(loss).backward()
 
-                if self._profile and self.device.type == "cuda":
+                if prof_active and self.device.type == "cuda":
                     torch.cuda.synchronize()
                     prof_backward_ms += (time.time() - t_bwd) * 1000
                     prof_n_tf += 1
 
-            if self._profile and self.device.type == "cuda":
+            if prof_active and self.device.type == "cuda":
                 torch.cuda.synchronize()
                 t_opt = time.time()
 
@@ -633,7 +639,7 @@ class Trainer:
             self._sf_global_step += 1
             epoch_metrics.update(batch_metrics)
 
-            if self._profile and self.device.type == "cuda":
+            if prof_active and self.device.type == "cuda":
                 torch.cuda.synchronize()
                 prof_optim_ms += (time.time() - t_opt) * 1000
 
@@ -644,6 +650,35 @@ class Trainer:
                     torch.cuda.max_memory_allocated() / 1e9,
                     torch.cuda.memory_allocated() / 1e9,
                 )
+
+            # Turn off profiling after the sample window to stop the CUDA
+            # sync overhead from slowing down the rest of the epoch. Emit a
+            # partial breakdown so we get the numbers early.
+            if prof_active and (batch_idx + 1) >= prof_sample_batches:
+                prof_active = False
+                total_ms = prof_data_ms + prof_forward_ms + prof_backward_ms + prof_optim_ms + prof_sf_ms
+                if total_ms > 0:
+                    logger.info("  ── PROFILE (first %d batches, sync overhead removed for rest) ──", batch_idx + 1)
+                    logger.info("  data loading:  %8.1f ms  (%5.1f%%)  %.2f ms/batch",
+                                 prof_data_ms, 100 * prof_data_ms / total_ms,
+                                 prof_data_ms / max(1, prof_n_tf))
+                    logger.info("  forward pass:  %8.1f ms  (%5.1f%%)  %.2f ms/batch",
+                                 prof_forward_ms, 100 * prof_forward_ms / total_ms,
+                                 prof_forward_ms / max(1, prof_n_tf))
+                    logger.info("  backward pass: %8.1f ms  (%5.1f%%)  %.2f ms/batch",
+                                 prof_backward_ms, 100 * prof_backward_ms / total_ms,
+                                 prof_backward_ms / max(1, prof_n_tf))
+                    logger.info("  optimizer:     %8.1f ms  (%5.1f%%)  %.2f ms/batch",
+                                 prof_optim_ms, 100 * prof_optim_ms / total_ms,
+                                 prof_optim_ms / max(1, prof_n_tf + prof_n_sf))
+                    if prof_n_sf > 0:
+                        logger.info("  self-forcing:  %8.1f ms  (%5.1f%%)  %.2f ms/batch",
+                                     prof_sf_ms, 100 * prof_sf_ms / total_ms,
+                                     prof_sf_ms / max(1, prof_n_sf))
+                    logger.info("  TOTAL:         %8.1f ms  (%d TF + %d SF batches sampled)",
+                                 total_ms, prof_n_tf, prof_n_sf)
+                    logger.info("  avg ms/batch:  %.2f (with sync overhead — real speed is faster)",
+                                 total_ms / max(1, prof_n_tf + prof_n_sf))
 
             if (batch_idx + 1) % log_interval == 0:
                 pct = 100.0 * (batch_idx + 1) / num_batches
