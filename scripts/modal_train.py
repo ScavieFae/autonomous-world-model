@@ -312,6 +312,8 @@ def _train_impl(
         muon_lr=train_cfg.get("muon_lr", 0.02),
         adamw_lr=train_cfg.get("adamw_lr", 3e-4),
         resume_from=f"/data{resume}" if resume else None,
+        profile=train_cfg.get("profile", False),
+        gpu_resident=train_cfg.get("gpu_resident", False),
     )
 
     history = trainer.train()

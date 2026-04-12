@@ -1,0 +1,72 @@
+# e031a: Profile the existing b002 training pipeline
+#
+# Identical to e028a-full-stack (current best, RC 4.798) but with:
+#   - profile: true — per-phase CUDA-synced timing
+#   - gpu_resident: true — move dataset tensors to GPU at startup
+#   - 1 epoch only — just enough to measure timing
+#
+# Purpose: measure where wall-clock time goes (data loading vs forward
+# vs backward vs SF vs optimizer) so we know what to optimize.
+# Also tests GPU-resident data as the first speed intervention.
+
+data:
+  dataset_dir: null
+  max_games: null
+  stage_filter: 32
+  character_filter: [1, 2, 7, 18, 22]
+
+encoding:
+  state_age_as_embed: true
+  state_age_embed_vocab: 150
+  state_age_embed_dim: 8
+  state_flags: true
+  hitstun: true
+  ctrl_threshold_features: true
+  multi_position: true
+  focal_offset: 0
+  projectiles: false
+  press_events: false
+  lookahead: 0
+
+model:
+  arch: mamba2
+  context_len: 30
+  d_model: 768
+  d_state: 64
+  n_layers: 4
+  headdim: 64
+  dropout: 0.1
+  chunk_size: 15
+  unimix_ratio: 0.01
+
+training:
+  lr: 0.0005
+  weight_decay: 0.00001
+  batch_size: 512
+  num_epochs: 1
+  train_split: 0.9
+  log_interval: 500
+  warmup_pct: 0.05
+  amp: true
+  profile: true
+  gpu_resident: true
+
+self_forcing:
+  enabled: true
+  ratio: 4
+  unroll_length: 3
+  curriculum: [1, 2, 3]
+
+loss_weights:
+  continuous: 1.0
+  velocity: 0.5
+  dynamics: 0.5
+  binary: 1.0
+  action: 2.0
+  jumps: 0.5
+  l_cancel: 0.3
+  hurtbox: 0.3
+  ground: 0.3
+  last_attack: 0.3
+
+save_dir: checkpoints/e031a-speed-profile

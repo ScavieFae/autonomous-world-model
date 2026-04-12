@@ -63,6 +63,8 @@ class Trainer:
         optimizer: str = "adamw",
         muon_lr: float = 0.02,
         adamw_lr: float = 3e-4,
+        profile: bool = False,
+        gpu_resident: bool = False,
     ):
         if device is None:
             if torch.backends.mps.is_available():
@@ -94,10 +96,32 @@ class Trainer:
         self.start_epoch = 0
         self._log_interval_override = log_interval
         self._epoch_callback = epoch_callback
+        self._profile = profile
+
+        # GPU-resident dataset: move the contiguous float/int tensors to GPU
+        # once at startup so get_batch does GPU-side fancy indexing instead
+        # of CPU→GPU transfer per batch. 2K games ≈ 2GB — fits on A100-40GB.
+        if gpu_resident and self.device.type == "cuda" and dataset is not None:
+            t0 = time.time()
+            dataset.floats = dataset.floats.to(self.device)
+            dataset.ints = dataset.ints.to(self.device)
+            elapsed = time.time() - t0
+            logger.info(
+                "GPU-resident dataset: moved %.2f GB to %s in %.1fs",
+                (dataset.floats.nbytes + dataset.ints.nbytes) / 1e9,
+                self.device, elapsed,
+            )
+            if self.device.type == "cuda":
+                logger.info(
+                    "VRAM after dataset.to(): %.2f GB",
+                    torch.cuda.memory_allocated() / 1e9,
+                )
 
         # DataLoader workers: CUDA benefits from multi-process loading.
-        # MPS/CPU stays single-process.
-        if num_workers is None:
+        # MPS/CPU stays single-process. GPU-resident skips workers entirely.
+        if gpu_resident:
+            num_workers = 0
+        elif num_workers is None:
             num_workers = 4 if device == "cuda" else 0
         loader_kwargs: dict = {}
         if num_workers > 0:
@@ -524,36 +548,76 @@ class Trainer:
             num_batches = len(self.train_loader)
         log_interval = self._compute_log_interval(num_batches)
 
+        # Profiling accumulators (only active when self._profile is True)
+        prof_data_ms = 0.0
+        prof_forward_ms = 0.0
+        prof_backward_ms = 0.0
+        prof_optim_ms = 0.0
+        prof_sf_ms = 0.0
+        prof_n_tf = 0
+        prof_n_sf = 0
+
         sf_count = 0
-        sf_violation_accum: dict[str, float] = {}  # accumulated violation rates across SF batches
+        sf_violation_accum: dict[str, float] = {}
         for batch_idx, (float_ctx, int_ctx, next_ctrl, float_tgt, int_tgt) in enumerate(batch_iter):
             self.optimizer.zero_grad()
 
-            # Interleave: every (ratio+1)th batch is Self-Forcing
             is_sf = (
                 self._sf_enabled
                 and (batch_idx + 1) % (self._sf_ratio + 1) == 0
             )
 
             if is_sf:
-                # SF does per-step backward internally (saves GPU memory).
-                # Returns scalar loss, not tensor — don't call backward.
+                if self._profile and self.device.type == "cuda":
+                    torch.cuda.synchronize()
+                    t_sf = time.time()
+
                 loss_val, batch_metrics, sf_violations = self._self_forcing_step()
                 sf_count += 1
                 for name, rate in sf_violations.items():
                     sf_violation_accum[name] = sf_violation_accum.get(name, 0.0) + rate
+
+                if self._profile and self.device.type == "cuda":
+                    torch.cuda.synchronize()
+                    prof_sf_ms += (time.time() - t_sf) * 1000
+                    prof_n_sf += 1
             else:
+                if self._profile and self.device.type == "cuda":
+                    torch.cuda.synchronize()
+                    t_data = time.time()
+
                 float_ctx = float_ctx.to(self.device)
                 int_ctx = int_ctx.to(self.device)
                 next_ctrl = next_ctrl.to(self.device)
                 float_tgt = float_tgt.to(self.device)
                 int_tgt = int_tgt.to(self.device)
+
+                if self._profile and self.device.type == "cuda":
+                    torch.cuda.synchronize()
+                    prof_data_ms += (time.time() - t_data) * 1000
+                    t_fwd = time.time()
+
                 with autocast("cuda", enabled=self._use_amp, dtype=self._amp_dtype):
                     predictions = self.model(float_ctx, int_ctx, next_ctrl)
                     loss, batch_metrics = self.metrics.compute_loss(
                         predictions, float_tgt, int_tgt, int_ctx,
                     )
+
+                if self._profile and self.device.type == "cuda":
+                    torch.cuda.synchronize()
+                    prof_forward_ms += (time.time() - t_fwd) * 1000
+                    t_bwd = time.time()
+
                 self._scaler.scale(loss).backward()
+
+                if self._profile and self.device.type == "cuda":
+                    torch.cuda.synchronize()
+                    prof_backward_ms += (time.time() - t_bwd) * 1000
+                    prof_n_tf += 1
+
+            if self._profile and self.device.type == "cuda":
+                torch.cuda.synchronize()
+                t_opt = time.time()
 
             self._scaler.unscale_(self.optimizer)
             torch.nn.utils.clip_grad_norm_(self.model.parameters(), max_norm=1.0)
@@ -563,6 +627,10 @@ class Trainer:
                 self.scheduler.step()
             self._sf_global_step += 1
             epoch_metrics.update(batch_metrics)
+
+            if self._profile and self.device.type == "cuda":
+                torch.cuda.synchronize()
+                prof_optim_ms += (time.time() - t_opt) * 1000
 
             # Log VRAM peak after first batch
             if batch_idx == 0 and self.device.type == "cuda":
@@ -596,7 +664,6 @@ class Trainer:
 
         if sf_count > 0:
             logger.info("  Self-Forcing: %d SF batches this epoch", sf_count)
-            # Log averaged constraint violation rates for the epoch
             if sf_violation_accum:
                 avg_violations = {
                     name: total / sf_count for name, total in sf_violation_accum.items()
@@ -614,6 +681,44 @@ class Trainer:
                         if name != "total":
                             wandb_viol[f"sf/violation_{name}"] = rate
                     wandb.log(wandb_viol)
+
+        if self._profile and (prof_n_tf + prof_n_sf) > 0:
+            total_ms = prof_data_ms + prof_forward_ms + prof_backward_ms + prof_optim_ms + prof_sf_ms
+            logger.info("  ── PROFILE ──")
+            logger.info("  data loading:  %8.1f ms  (%5.1f%%)  %.2f ms/batch",
+                         prof_data_ms, 100 * prof_data_ms / max(1, total_ms),
+                         prof_data_ms / max(1, prof_n_tf))
+            logger.info("  forward pass:  %8.1f ms  (%5.1f%%)  %.2f ms/batch",
+                         prof_forward_ms, 100 * prof_forward_ms / max(1, total_ms),
+                         prof_forward_ms / max(1, prof_n_tf))
+            logger.info("  backward pass: %8.1f ms  (%5.1f%%)  %.2f ms/batch",
+                         prof_backward_ms, 100 * prof_backward_ms / max(1, total_ms),
+                         prof_backward_ms / max(1, prof_n_tf))
+            logger.info("  optimizer:     %8.1f ms  (%5.1f%%)  %.2f ms/batch",
+                         prof_optim_ms, 100 * prof_optim_ms / max(1, total_ms),
+                         prof_optim_ms / max(1, prof_n_tf + prof_n_sf))
+            if prof_n_sf > 0:
+                logger.info("  self-forcing:  %8.1f ms  (%5.1f%%)  %.2f ms/batch",
+                             prof_sf_ms, 100 * prof_sf_ms / max(1, total_ms),
+                             prof_sf_ms / max(1, prof_n_sf))
+            logger.info("  TOTAL:         %8.1f ms  (%d TF batches + %d SF batches)",
+                         total_ms, prof_n_tf, prof_n_sf)
+            logger.info("  avg ms/batch:  %.2f  (all phases combined)",
+                         total_ms / max(1, prof_n_tf + prof_n_sf))
+            if wandb and wandb.run:
+                wandb.log({
+                    "profile/data_ms_per_batch": prof_data_ms / max(1, prof_n_tf),
+                    "profile/forward_ms_per_batch": prof_forward_ms / max(1, prof_n_tf),
+                    "profile/backward_ms_per_batch": prof_backward_ms / max(1, prof_n_tf),
+                    "profile/optim_ms_per_batch": prof_optim_ms / max(1, prof_n_tf + prof_n_sf),
+                    "profile/sf_ms_per_batch": prof_sf_ms / max(1, prof_n_sf) if prof_n_sf > 0 else 0,
+                    "profile/total_ms": total_ms,
+                    "profile/data_pct": 100 * prof_data_ms / max(1, total_ms),
+                    "profile/forward_pct": 100 * prof_forward_ms / max(1, total_ms),
+                    "profile/backward_pct": 100 * prof_backward_ms / max(1, total_ms),
+                    "profile/sf_pct": 100 * prof_sf_ms / max(1, total_ms) if prof_n_sf > 0 else 0,
+                })
+
         return epoch_metrics.averaged()
 
     @torch.no_grad()
