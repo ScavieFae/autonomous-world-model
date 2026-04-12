@@ -120,9 +120,91 @@ At epoch 10, the encoder has reached a local optimum where Layer B information i
 
 **Not an argument to abandon the paradigm.** LeWM's environments (PushT, Reacher, Cube) are largely Layer-A-only — they're continuous control tasks where the dynamics are smooth. Melee has Layer B baked into the rules, which is a structurally different problem than the one LeWM was designed for. That doesn't mean LeWM's approach is bad; it means we need to extend it with a Layer-B-aware loss or architecture.
 
-**Not a hyperparameter issue.** Reducing SIGReg λ would let the encoder be less Gaussian, which might preserve more raw information, but it doesn't directly reward representing Layer B. Training for fewer epochs would catch the encoder before it specializes, but that's fragile and requires knowing the right early-stopping epoch. These are mitigations, not fixes.
+**Not *only* a hyperparameter issue.** This is worth unpacking carefully — see the next section for the full "levers vs fixes" breakdown. The short version: λ and early-stopping epoch are real levers that bias the Layer A / Layer B tradeoff, but they're knobs on the tradeoff, not ways to eliminate it.
 
 **Not specific to JEPA.** Mamba2 has the same death→respawn problem. Mamba2 avoids some of the symptoms because its per-field supervised heads force some Layer B representation (the 400-class action head has to get transitions right), but the rare-event imbalance still crushes the signal. We see percent bumps and action state transitions predicted poorly in Mamba2 rollouts too.
+
+## Levers vs. fixes: what λ can and cannot do
+
+This deserves its own section because the distinction is load-bearing for how we design e030c and beyond, and because "is this a hyperparameter issue" is the question every reader of this note will ask first.
+
+### Why λ *is* a real lever (not zero signal)
+
+Lower SIGReg λ gives the encoder more freedom to be non-Gaussian. That genuinely matters for Layer B, and the mechanism is concrete:
+
+Step-function game state — percent, stocks, action_state transitions — produces **multimodal distributions** in the encoder output when the input distribution has discrete bumps. A frame where percent just jumped from 40 to 50 looks different from a frame where percent stayed at 40 across all the input features that covary with percent (the hit flash animation, the knockback velocity, the hitlag counter). If the encoder preserves that information, the latent distribution for frames-near-hit will be bimodal or multimodal — some samples sit in the "no hit" mode, some in the "hit just happened" mode, and the mixture is structured.
+
+SIGReg explicitly pulls the encoder distribution toward an isotropic unimodal Gaussian. At high λ, any multimodal structure gets penalized because it's "non-Gaussian" — even though the multimodality is the information we want. At low λ, the encoder has slack to produce multimodal distributions, which is literally the shape Layer B information takes in embedding space.
+
+So λ **is** a tuning knob on Layer B preservation. The λ sweep is not zero-signal work. A λ=0.01 run that holds Competitive probe R² through 10 epochs would tell us the SIGReg smoothness prior was the binding constraint on Layer B, and that a much lower-λ regime is the operationally-correct setting for our domain.
+
+### Why λ is a knob on a tradeoff, not a fix
+
+**Even at λ=0 you still have three other gradients pushing the encoder toward Layer A:**
+
+1. **MSE in latent space itself.** MSE-optimal for step-function targets is "predict the mean" because the penalty for getting a step wrong scales with the step size squared, while the penalty for a small constant bias is linear in the bias. A smooth encoder that never predicts the step dodges the big squared penalty at the cost of a constant small miss on every frame. Low MSE, zero Layer B. This gradient is present regardless of SIGReg — turning off the regularizer doesn't turn off the MSE loss term that's rewarding smoothness.
+
+2. **The rare-event gradient budget.** In our data, a Layer B transition (percent bump, action_state switch, death) occurs on roughly 0.01% to 3% of frames depending on the event type. The model sees ~97% of gradient updates that reward smooth continuation, ~3% that reward representing a transition. Gradient descent is a local-optimum search weighted by frequency. Even with a perfect loss that directly rewarded transition fidelity, you'd still need the frequency balance to be non-pathological, and it isn't. The rare-event imbalance bites independently of whether SIGReg is active.
+
+3. **Temporal straightness as an emergent property.** LeWM's paper celebrates rising temporal straightness as a sign of successful training. It is literally a measure of how smoothly latent trajectories flow over time. A perfectly straight trajectory cannot contain a discontinuity, which means it cannot represent a Layer B event that by definition *is* a discontinuity. We observe straightness rising monotonically in e030b from 0.51 to 0.78 — the encoder is optimizing for line-like trajectories, and the prior literature interprets this as health. The "emergence" is the encoder actively learning to suppress the structure we need. Turning λ to zero does not remove this gradient — straightness is an emergent property of MSE + history-conditioning in a latent space, not something SIGReg directly induces.
+
+**So the equilibrium point** — where the encoder's Layer A / Layer B tradeoff settles — is a function of λ, MSE weight, context length, and the data distribution's rare-event frequency. λ is one axis of that equilibrium. Moving λ shifts the equilibrium point along one axis but doesn't collapse the tradeoff to zero. You can bias the encoder toward Layer B, you can't eliminate the pressure pulling it toward Layer A.
+
+### What counts as a fix vs. a lever
+
+The distinction we care about:
+
+- **Lever**: A setting whose adjustment shifts the A/B equilibrium point. The structural pressure against Layer B is still there; you're just finding a point on the curve with more Layer B than the default. Leverage is finite and bounded.
+- **Fix**: A change that adds a gradient pushing toward Layer B, or removes a gradient pushing against it. Changes the shape of the loss landscape rather than finding a better point inside it.
+
+**Leave at (levers, not fixes):**
+
+- **SIGReg λ**. Reduces one of the smoothness priors. Doesn't touch MSE or straightness pressure.
+- **Early stopping**. Catches the encoder before specialization completes. Fragile — requires knowing the right epoch, and every dataset or architecture change resets the schedule.
+- **Decreased number of training epochs**. Same mechanism as early stopping, equally fragile.
+- **Smaller SIGReg projection count**. Weaker distributional estimator → weaker regularization pressure. Same axis as λ, different knob.
+
+**These are real fixes** (each one adds or removes a structural gradient):
+
+- **Layer B reconstruction auxiliary head** (item 4 in "What we might try"). Adds an explicit loss term that rewards preserving action_state / percent / stocks information. The encoder now has a gradient telling it to keep Layer B, not just "try not to be too Gaussian." This is the closest thing to a direct fix in the short term.
+- **Event-weighted MSE** (item 5). Upweights the gradient budget on rare-event frames. Doesn't just bias the tradeoff — literally rebalances the frequency imbalance that starves Layer B of gradient signal. Fix for the second structural issue from the list above.
+- **Longer context window** (item 6). A 50ms context can't hold a full death animation. The encoder can't represent what it can't see. Extending `history_size` is structural because it changes what Layer B events are *expressible* given the input, not just how they're weighted.
+- **Hybrid latent with explicit event dimension** (item 7). Splits the encoder output into a continuous part trained with MSE+SIGReg and a discrete part trained with CE. Removes the "SIGReg applies to everything" gradient from the discrete part. Structural.
+- **Hierarchical world model** (item 8). Two models, one for each layer. Removes the "one representation must serve both layers" constraint entirely. Most structural.
+
+**Item 9** ("use Mamba2 for the Layer B fields") is a hybrid approach that sidesteps the question rather than answering it. Listed as a fix for completeness but it's really "stop trying to fix JEPA for Layer B."
+
+### What this means for e030c and the λ sweep
+
+The λ sweep is still worth running. But we should run it with a **clear expectation of what it measures**, not with a hope that it fixes the problem.
+
+**What e030c (λ sweep) actually measures:**
+
+- **The λ→probe-R² curve on our data.** At λ ∈ {0.01, 0.03, 0.1, 0.3}, what's the Layer B information retention after 10 epochs? This tells us the structural floor of MSE+SIGReg on our data. If the curve is steep (λ=0.01 preserves most Layer B, λ=0.3 destroys all of it), the regularizer is the dominant specializer and we can find an operating point. If the curve is flat (all λ values produce similar degradation), the regularizer was not the binding constraint and we need a structural fix.
+- **Whether the current λ=0.1 is approximately optimal.** Even "yes this λ is good" is useful to know — it closes the axis and focuses future work on the non-λ fixes.
+- **A data point we can cite in the Layer B discussion going forward.** "We swept λ and got X → Y range on probe R²" is a specific, defensible empirical result. "We didn't try λ sweep" is an open question that will keep coming up in every future review.
+
+**What e030c (λ sweep) does not and cannot measure:**
+
+- Whether JEPA can handle Layer B events in principle. (No lever setting eliminates the other three gradients.)
+- Whether death→respawn is representable. (It isn't, under any λ, because the other gradients still forbid the required discontinuity and context is too short.)
+- Whether the paradigm is viable for onchain deployment. (Competitive-at-epoch-1 with aggressive early stopping is already answering that question today.)
+
+**So the right framing for e030c** is "measure the λ axis so we know where the floor is" — a data-gathering run on an axis where we already know the mechanism. Not "test if λ fixes the problem." This framing matters because it tells us *in advance* what the success criteria should be:
+
+- **Expected outcome if the mechanism is as described**: λ=0.01 yields some improvement (10–30% better probe R² at epoch 10 than λ=0.1) but still shows monotonic degradation across training. The axis has signal but doesn't fix the structural issue.
+- **Surprising outcome if λ is the dominant constraint**: λ=0.01 holds probe R² flat or increases it across epochs. The regularizer was the binding constraint and we have an operating point that makes the paradigm usable as-is.
+- **Surprising outcome if MSE is the dominant constraint**: λ=0.01 shows essentially the same degradation curve as λ=0.1. SIGReg wasn't binding and we need to move to structural fixes (item 4 or 5) for the next experiment.
+
+All three outcomes are informative. All three update our model of the mechanism. The λ sweep is worth running not because it might fix anything but because each outcome narrows the space of what the next fix should look like.
+
+### Checkpoint-saving is orthogonal to this discussion
+
+Worth naming separately: **the checkpoint-saving strategy bug is its own issue, independent of the Layer A/B analysis**. e030b saved best.pt by val_total_loss, which was monotonically decreasing, so the Competitive checkpoint at epoch 1 was overwritten by the Not-viable checkpoint at epoch 10. This is a separate bug from the structural Layer B issue — it's a checkpoint-selection bug that happened to reveal the structural issue loudly.
+
+Fixing checkpoint saving (select by probe R², or save per-epoch checkpoints and pick post-hoc) is a ~15 LOC change and a real lever — it doesn't fix Layer B, but it **makes the paradigm operationally usable today**. A JEPA model at epoch 1 of e030b was Competitive-zone. The only reason we don't have a deployable JEPA checkpoint right now is that we overwrote it. Fixing checkpoint saving means every future JEPA run produces a usable artifact whose quality is bounded by the early-epoch peak rather than the late-epoch floor.
+
+This is a lever (doesn't fix the underlying issue) but a very cheap lever that unblocks deployment while the real fixes proceed.
 
 ## What we might try
 
