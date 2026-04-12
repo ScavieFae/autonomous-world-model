@@ -129,6 +129,11 @@ def evaluate_rollout_coherence(
     vel_maes = [[] for _ in range(horizon)]
     action_accs = [[] for _ in range(horizon)]
     percent_maes = [[] for _ in range(horizon)]
+    # action_change_acc needs special handling: at frames where GT action
+    # differs from the PREVIOUS GT frame, did the model predict the new one?
+    # Accumulator holds (n_correct, n_changes) per horizon so we can compute
+    # accuracy at the end (avoiding division-by-zero when no changes happen).
+    action_change_counts = [[0, 0] for _ in range(horizon)]  # [correct, total]
     horizon_violations: list[dict[str, float]] = [{} for _ in range(horizon)]
 
     starts_t = torch.from_numpy(starting_points)
@@ -188,6 +193,42 @@ def evaluate_rollout_coherence(
         action_acc = (p0_act_match + p1_act_match) / 2.0
         action_accs[k] = action_acc.tolist()
 
+        # Action CHANGE accuracy: the sharp diagnostic that catches the
+        # "position improved but moves are now wrong" regime tradeoff.
+        # Fetch previous GT frame's action (either frame start+k-1 from the
+        # dataset, or for k=0 the seed context's last frame action).
+        if k == 0:
+            # Seed context ends at start-1 in global frame coords, so the
+            # "previous" GT action is the last context frame's action.
+            prev_gt_int = batch_ints[:, -1, :]  # (N, I) — last context frame
+            prev_p0_act = prev_gt_int[:, 0]
+            prev_p1_act = prev_gt_int[:, ipp]
+        else:
+            prev_gt_float_ignored = torch.stack(
+                [dataset.ints[t + k - 1] for t in starting_points]
+            ).cpu()
+            prev_p0_act = prev_gt_float_ignored[:, 0]
+            prev_p1_act = prev_gt_float_ignored[:, ipp]
+
+        p0_changed = prev_p0_act != gt_int[:, 0]
+        p1_changed = prev_p1_act != gt_int[:, ipp]
+        n_p0_changes = int(p0_changed.sum().item())
+        n_p1_changes = int(p1_changed.sum().item())
+        if n_p0_changes > 0:
+            p0_change_correct = int(
+                ((next_int[:, 0] == gt_int[:, 0]) & p0_changed).sum().item()
+            )
+        else:
+            p0_change_correct = 0
+        if n_p1_changes > 0:
+            p1_change_correct = int(
+                ((next_int[:, ipp] == gt_int[:, ipp]) & p1_changed).sum().item()
+            )
+        else:
+            p1_change_correct = 0
+        action_change_counts[k][0] = p0_change_correct + p1_change_correct
+        action_change_counts[k][1] = n_p0_changes + n_p1_changes
+
         # Percent MAE: index 0 for each player, denormalized
         p0_pct = (next_float[:, 0] - gt_float[:, 0]).abs() / cfg.percent_scale
         p1_pct = (next_float[:, fp] - gt_float[:, fp]).abs() / cfg.percent_scale
@@ -207,7 +248,15 @@ def evaluate_rollout_coherence(
             "action_acc": float(np.mean(action_accs[k])),
             "percent_mae": float(np.mean(percent_maes[k])),
         }
-        # Add violation data for this horizon
+        # Action change accuracy — undefined when no frames changed in this
+        # horizon slice. Report as NaN in that case (rare at K=1, common at
+        # later horizons if the rollout stalls).
+        n_correct, n_total = action_change_counts[k]
+        entry["action_change_acc"] = (
+            float(n_correct / n_total) if n_total > 0 else float("nan")
+        )
+        entry["action_change_n"] = int(n_total)
+
         if horizon_violations[k]:
             entry["violation_rate"] = horizon_violations[k].get("total", 0.0)
             entry["violations"] = {
@@ -216,37 +265,64 @@ def evaluate_rollout_coherence(
             }
         per_horizon[k + 1] = entry
 
-    # Summary: mean pos_mae across all horizons (K=horizon, the Mamba2 north star)
-    all_pos_maes = [per_horizon[k + 1]["pos_mae"] for k in range(horizon)]
-    summary_pos_mae = float(np.mean(all_pos_maes))
-
-    # Shortened summary windows — per ScavieFae review, K=20 is below the
-    # noise floor for architecture discrimination at 60fps fighting game
-    # chaos. K=5 (83ms) is pure local-dynamics; K=10 (167ms) is near-horizon
-    # coherence. Computed as means over the first K horizons — both are
-    # strictly-defined subsets of the existing per_horizon dict, so they
-    # don't break anything for Mamba2's summary_pos_mae north star.
-    def _mean_up_to(k: int) -> float:
+    # Summary helpers — mean a given per_horizon field over the first K
+    # horizons. Used for both K=horizon (legacy north star) and K=5/K=10
+    # (per ScavieFae review — K=20 is below the noise floor for
+    # architecture discrimination at 60fps, K=5 is pure local-dynamics).
+    def _mean_up_to(field: str, k: int) -> float:
         k = min(k, horizon)
         if k <= 0:
             return float("nan")
-        return float(np.mean([per_horizon[i + 1]["pos_mae"] for i in range(k)]))
+        vals = [per_horizon[i + 1].get(field, float("nan")) for i in range(k)]
+        vals = [v for v in vals if v == v]  # drop NaN
+        if not vals:
+            return float("nan")
+        return float(np.mean(vals))
 
-    summary_pos_mae_k5 = _mean_up_to(5)
-    summary_pos_mae_k10 = _mean_up_to(10)
+    # Legacy: pos_mae mean across full horizon (the Mamba2 north star)
+    summary_pos_mae = _mean_up_to("pos_mae", horizon)
+
+    # K=5 and K=10 summaries for every metric (per Mattie's multi-metric
+    # directive — single-metric tracking hides regime tradeoffs like
+    # "position improved but action_change_acc degraded").
+    summary_pos_mae_k5 = _mean_up_to("pos_mae", 5)
+    summary_pos_mae_k10 = _mean_up_to("pos_mae", 10)
+    summary_vel_mae_k5 = _mean_up_to("vel_mae", 5)
+    summary_vel_mae_k10 = _mean_up_to("vel_mae", 10)
+    summary_action_acc_k5 = _mean_up_to("action_acc", 5)
+    summary_action_acc_k10 = _mean_up_to("action_acc", 10)
+    summary_action_change_acc_k5 = _mean_up_to("action_change_acc", 5)
+    summary_action_change_acc_k10 = _mean_up_to("action_change_acc", 10)
+    summary_percent_mae_k5 = _mean_up_to("percent_mae", 5)
+    summary_percent_mae_k10 = _mean_up_to("percent_mae", 10)
 
     # Summary violation rate: mean across all horizons
     all_violation_rates = [
         per_horizon[k + 1].get("violation_rate", 0.0) for k in range(horizon)
     ]
     summary_violation_rate = float(np.mean(all_violation_rates))
+    summary_violation_rate_k5 = _mean_up_to("violation_rate", 5)
+    summary_violation_rate_k10 = _mean_up_to("violation_rate", 10)
 
     return {
         "per_horizon": per_horizon,
+        # Legacy K=horizon summary (Mamba2 historical north star)
         "summary_pos_mae": summary_pos_mae,
-        "summary_pos_mae_k5": summary_pos_mae_k5,
-        "summary_pos_mae_k10": summary_pos_mae_k10,
         "violation_rate": summary_violation_rate,
+        # K=5 suite (new primary)
+        "summary_pos_mae_k5": summary_pos_mae_k5,
+        "summary_vel_mae_k5": summary_vel_mae_k5,
+        "summary_action_acc_k5": summary_action_acc_k5,
+        "summary_action_change_acc_k5": summary_action_change_acc_k5,
+        "summary_percent_mae_k5": summary_percent_mae_k5,
+        "summary_violation_rate_k5": summary_violation_rate_k5,
+        # K=10 suite (secondary)
+        "summary_pos_mae_k10": summary_pos_mae_k10,
+        "summary_vel_mae_k10": summary_vel_mae_k10,
+        "summary_action_acc_k10": summary_action_acc_k10,
+        "summary_action_change_acc_k10": summary_action_change_acc_k10,
+        "summary_percent_mae_k10": summary_percent_mae_k10,
+        "summary_violation_rate_k10": summary_violation_rate_k10,
     }
 
 

@@ -51,7 +51,7 @@ class Trainer:
         dataset: Optional["MeleeDataset"] = None,
         rollout_eval_every: int = 1,
         rollout_eval_samples: int = 300,
-        rollout_eval_horizon: int = 20,
+        rollout_eval_horizon: int = 10,  # was 20; K=5 is primary, K=10 secondary
         sf_enabled: bool = False,
         sf_ratio: int = 4,
         sf_unroll_length: int = 3,
@@ -806,29 +806,73 @@ class Trainer:
         )
         elapsed = time.time() - t0
 
-        rc = results["summary_pos_mae"]
-        rc_k5 = results.get("summary_pos_mae_k5", float("nan"))
-        rc_k10 = results.get("summary_pos_mae_k10", float("nan"))
-        viol_rate = results.get("violation_rate", 0.0)
+        # Multi-metric rollout suite — log the full picture at K=5 (primary)
+        # and K=10 (secondary) so we can catch regime tradeoffs like
+        # "position improved but action_change_acc degraded" that a single
+        # scalar hides.
+        def _g(key: str) -> float:
+            return float(results.get(key, float("nan")))
+
+        rc_legacy = _g("summary_pos_mae")  # K=horizon, kept for continuity
+        viol_rate = _g("violation_rate")
+
+        k5 = {
+            "pos":        _g("summary_pos_mae_k5"),
+            "vel":        _g("summary_vel_mae_k5"),
+            "act":        _g("summary_action_acc_k5"),
+            "act_chg":    _g("summary_action_change_acc_k5"),
+            "pct":        _g("summary_percent_mae_k5"),
+            "viol":       _g("summary_violation_rate_k5"),
+        }
+        k10 = {
+            "pos":        _g("summary_pos_mae_k10"),
+            "vel":        _g("summary_vel_mae_k10"),
+            "act":        _g("summary_action_acc_k10"),
+            "act_chg":    _g("summary_action_change_acc_k10"),
+            "pct":        _g("summary_percent_mae_k10"),
+            "viol":       _g("summary_violation_rate_k10"),
+        }
+
+        logger.info("  rollout eval complete (%.1fs)", elapsed)
         logger.info(
-            "  rollout coherence: K=%d %.4f | K=5 %.4f | K=10 %.4f | viol %.4f (%.1fs)",
-            self._rollout_eval_horizon, rc, rc_k5, rc_k10, viol_rate, elapsed,
+            "    K=5:  pos=%6.2f  vel=%6.2f  act=%.3f  act_chg=%.3f  pct=%6.2f  viol=%.3f",
+            k5["pos"], k5["vel"], k5["act"], k5["act_chg"], k5["pct"], k5["viol"],
+        )
+        logger.info(
+            "    K=10: pos=%6.2f  vel=%6.2f  act=%.3f  act_chg=%.3f  pct=%6.2f  viol=%.3f",
+            k10["pos"], k10["vel"], k10["act"], k10["act_chg"], k10["pct"], k10["viol"],
+        )
+        logger.info(
+            "    K=%d legacy: pos_mae=%.4f  viol=%.4f",
+            self._rollout_eval_horizon, rc_legacy, viol_rate,
         )
 
         metrics = {
-            "eval/summary_pos_mae": rc,
-            "eval/summary_pos_mae_k5": rc_k5,
-            "eval/summary_pos_mae_k10": rc_k10,
+            # Legacy K=horizon scalar (continuity with pre-multi-metric runs)
+            "eval/summary_pos_mae": rc_legacy,
+            "eval/violation_rate": viol_rate,
             "eval/time_s": elapsed,
+            # K=5 suite (new primary)
+            "eval/summary_pos_mae_k5": k5["pos"],
+            "eval/summary_vel_mae_k5": k5["vel"],
+            "eval/summary_action_acc_k5": k5["act"],
+            "eval/summary_action_change_acc_k5": k5["act_chg"],
+            "eval/summary_percent_mae_k5": k5["pct"],
+            "eval/summary_violation_rate_k5": k5["viol"],
+            # K=10 suite (secondary)
+            "eval/summary_pos_mae_k10": k10["pos"],
+            "eval/summary_vel_mae_k10": k10["vel"],
+            "eval/summary_action_acc_k10": k10["act"],
+            "eval/summary_action_change_acc_k10": k10["act_chg"],
+            "eval/summary_percent_mae_k10": k10["pct"],
+            "eval/summary_violation_rate_k10": k10["viol"],
         }
-        metrics["eval/violation_rate"] = viol_rate
         for k, m in results["per_horizon"].items():
             for name, val in m.items():
                 if name == "violations":
-                    # val is a dict of per-type rates; flatten to eval/h{k}_violation_{type}
                     for vtype, vrate in val.items():
                         metrics[f"eval/h{k}_violation_{vtype}"] = vrate
-                else:
+                elif isinstance(val, (int, float)):
                     metrics[f"eval/h{k}_{name}"] = val
         return metrics
 
