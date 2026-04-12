@@ -367,6 +367,9 @@ class JEPATrainer:
             if self.save_dir:
                 val_loss = val_metrics.get("val_total_loss", train_metrics["total_loss"])
                 self._save_checkpoint("latest.pt", epoch, val_loss)
+                # Per-epoch checkpoint — preserves matched-budget comparisons
+                # across runs with different num_epochs. Never overwritten.
+                self._save_checkpoint(f"epoch{epoch + 1}.pt", epoch, val_loss)
                 if val_loss < best_val_loss:
                     best_val_loss = val_loss
                     self._save_checkpoint("best.pt", epoch, val_loss)

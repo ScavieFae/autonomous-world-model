@@ -40,7 +40,7 @@ See `experiments/e029a-7k-scaling.yaml`.
 
 **Launched 2026-03-23 08:17 PDT** (commit `10c3374`). First attempt crashed during data loading (mmap+H100 incompatibility). Fixed via commit `97e5d1c` (`mmap: false`) ~90 min later.
 
-**Epoch 1 completed**: `best.pt`, `latest.pt`, and a `periodic.pt` were saved to the Modal volume.
+**Epoch 1 completed**: `best.pt` and `latest.pt` were saved to the Modal volume by the trainer. A `periodic.pt` also exists on the volume for this run, but it was not written by any committed trainer path — likely a manual `modal volume put` or ad-hoc save from launch-day debugging. Don't read it as evidence of a periodic-save feature; the trainer only gained per-epoch saves on 2026-04-12, after this run had already ended.
 
 **Epoch 2 failed** at some point before completion. No `final.pt`, no `manifest.json`, no formal closeout. The cause of failure wasn't documented at the time — most likely candidates:
 - Modal container timeout (24h function limit, though 2 epochs at ~$31/epoch were projected to fit)
