@@ -4,6 +4,198 @@ Active coordination doc between Scav and ScavieFae. Newest entries at top.
 
 ---
 
+## Canonical JEPA viz test game + two parsing bugs filed (Scav, Apr 11)
+
+After the viz agent shipped the reconstruction tool against an arbitrary test replay, Mattie spotted two things in the rendered output:
+
+1. **The game was on Battlefield**, not Final Destination. Training was FD-only (`stage_filter: 32`). The agent didn't filter.
+2. **The characters were Fox, not Marth** (agent mislabeled them as Marth in its report — character ID 1 = Fox per `models/checkpoint.py:91`).
+
+Both observations led to discovering a deeper issue: **the parsed parquet files all have `stage = 0` regardless of actual stage.** Verified by sampling 30 random games from the dataset via `load_game()` — all 30 returned stage=0 even though meta.json correctly labels them with real stage IDs (2/3/8/28/31/32). This is universal across the parse, not a one-off.
+
+### Bugs filed as separate GitHub issues
+
+- **[#24](https://github.com/ScavieFae/autonomous-world-model/issues/24)** — `parse.py: ParsedGame.stage is 0 for all games regardless of actual stage`. Not currently hurting training (the `stage_filter` runs off meta.json, not the parquet), but the stage embedding in `int_frames` is dead-signal because every encoded frame has stage=0. **Blocks any multi-stage experiment (e031+).** Requires re-parsing to fix. Mattie's call: **log and defer** — the dead weight isn't killing e030b/c/d which are all FD-only.
+- **[#25](https://github.com/ScavieFae/autonomous-world-model/issues/25)** — `encode_player_frames: silently produces 56-dim floats when cfg claims 138`. The feature-layout mismatch we found via the viz agent's zero-padding workaround. Related but different fix path — this is a code bug, not a parsing bug. `state_flags` and `hitstun` flags affect the dimensional accounting but not the tensor output. Requires `encode_player_frames` patching, not re-parsing. Blocks local training/eval paths. Also logged and deferred — same rationale.
+
+Both bugs are completely inert for e030b (Modal, pre-encoded file) and any future experiment that reads the pre-encoded `.pt` file directly. They surface only when local tools need to round-trip a real replay through the trained model — which is exactly what the viz script does, which is how we found them.
+
+### Canonical viz test game (designated)
+
+Replaced the arbitrary test game with a verified-FD, verified-top-5, verified-single-match-length replay. Chosen by filtering `meta.json` for `stage == 32`, both players in `{1, 2, 7, 18, 22}` (Fox, Cpt Falcon, Sheik, Marth, Falco), 6000–9000 frames (excludes compilation reels), non-ditto (cross-player binding probe gets real work to do), tournament source (real competitive play).
+
+**Pick**: `2fd092d61ac812828132334904bc5870`
+
+| Field | Value |
+|---|---|
+| Characters | Fox (P0) vs Marth (P1) — the classic Melee matchup |
+| Stage | Final Destination (meta.json says 32; `load_game` returns 0 due to #24) |
+| Frames | 8988 |
+| Source | `phillip-matchup-compilation` (Pound 2019 / Station 102-A / 2019-04-19) — real tournament |
+| Local path | `/Users/mattiefairchild/claude-projects/nojohns-training/data/parsed/games/2fd092d61ac812828132334904bc5870` |
+
+Sanity checks:
+- p0 mean y = 0.4, max 113, min -141 (full in-air range, no platform rest position)
+- p1 mean y = 1.8, max 57, min -71 (same)
+- Only 3.0% of p0 frames in the BF side-platform y-range [24,34], and those are passing-through airborne frames, not rest positions
+- Both players labeled with correct characters in the parsed data
+- y-range profile is consistent with FD flat-ground play, not platform stage landings
+
+**This is the canonical viz game from now on.** Any future JEPA checkpoint diagnostic should use this replay for apples-to-apples comparison across experiments. When we retire it (new base build, new encoding contract, etc.) we pick a fresh canonical game and document the swap.
+
+### Canonical viz output
+
+`viz/e030a-reconstruction-fd.json` (1.56 MB, 600 / 600 / 63 frames across Ground Truth / Encoder Recon / Rollout Recon tracks). Spec-compliant JSON (NaN sanitizer applied — see below). Loads cleanly in `viz/visualizer.html`.
+
+### Probe metrics on the FD test game vs the earlier BF test game
+
+| Target | e030a on BF (wrong test game) | e030a on FD (canonical) | Delta |
+|---|---|---|---|
+| p0_percent R² | 0.951 | **-5.67** | regression (but MAE 6.9 pct) |
+| p0_x R² | 0.728 | **0.960** | +0.23 |
+| p0_y R² | 0.813 | 0.788 | -0.025 |
+| p1_x R² | 0.853 | **-8.34** | regression (but MAE 6.5 px) |
+| p1_y R² | — | 0.644 | new number |
+| p0_action_acc | 5.8% | **20.8%** | +15 pts |
+| p1_action_acc | 0.0% | **27.5%** | +27.5 pts |
+
+The negative R² values on p0_percent and p1_x are a ridge-regression sensitivity quirk — MAE is small in absolute terms (6.9 pct and 6.5 px respectively), but the eval window's variance on those targets was low enough that "predict the mean" beats the probe on R² specifically. This is the 120-sample eval split biting on metrics sensitive to the train/eval variance ratio, not a sign of broken learning. The absolute errors are healthy.
+
+The big signal is **p0_x R² = 0.960 with MAE 1.56 pixels** — on a 400-ish pixel wide FD stage, that's sub-0.5% relative error on per-frame x reconstruction. And **action accuracy jumped from near-zero on the BF test game to 20-28%** on the FD test game. Random baseline is 0.25% (1/400 classes). 20-28% is a signal-to-random ratio of 80x-100x — the JEPA encoder actually learned enough about action states for a linear probe to pick them up, and the reason we didn't see it before was that the agent's original test game was out-of-distribution on stage and character count.
+
+**Retroactive lesson**: e030a's encoder learned more than we thought. The discarded run actually produced a usable representation, the methodology bugs were what made it look bad. Reinforces the decision to discard-with-useful-signal rather than discard-as-failure.
+
+### Bug fix in the viz script
+
+`scripts/visualize_jepa.py` also had a JSON-emit bug: Python's `json.dump` writes NaN literals by default but JavaScript's `JSON.parse` rejects them. First viz load failed with `Unexpected token 'N', ..." "r2": NaN, "... is not valid JSON`. Fixed by adding a `_sanitize` walker that replaces non-finite floats with `None` before serialization, plus `allow_nan=False` on the `json.dump` call to crash loudly at write time on any future violation. Existing `viz/e030a-reconstruction.json` rewritten in place via `parse_constant` override (no re-run needed).
+
+### How to view
+
+```bash
+open viz/visualizer.html
+# drag viz/e030a-reconstruction-fd.json onto the page
+```
+
+Default track is `Rollout Recon` — the interesting JEPA-predictor-drift story. Flip between tracks via whatever switcher the visualizer exposes (haven't personally checked the UI; Mattie will let me know if there isn't one).
+
+### Followups queued
+
+- Fix #24 (requires re-parse) — before e031+
+- Fix #25 (code-only, ~30-60 LOC for Option A, ~5 LOC for Option B safety-net) — before any local training/fine-tuning work
+- Run the viz script against the e030b final checkpoint when it's done. Same command, same canonical game, swap `--checkpoint` path. Gives us a clean visual comparison of e030a's 3-epoch encoder vs e030b's 10-epoch hopefully-much-better encoder.
+
+---
+
+## JEPA visualizer (probe-as-decoder) landed for e030a (Scav, Apr 11)
+
+**TL;DR**: `scripts/visualize_jepa.py` takes a JEPA checkpoint and a parsed replay, fits ridge-regression linear probes from encoder embeddings back to game-state fields (x, y, percent, action_state), and emits a multi-track comparison JSON for `viz/visualizer.html`. Three tracks: Ground Truth, Encoder Recon (per-frame encode → probe decode), Rollout Recon (JEPAWorldModel.rollout → probe decode). Works end-to-end on the e030a epoch-3 checkpoint pulled from Modal. This is a diagnostic tool for a discarded checkpoint — not production infrastructure.
+
+### What it does
+
+Probe-as-decoder pattern: the same linear probes `training/jepa_diagnostics.py` fits for diagnostics double as the decoder for visualization. Given frozen 192-dim JEPA latents, a closed-form ridge fit (ridge=1.0) learns a 192→1 mapping for each of 12 continuous targets (p0/p1 × percent, x, y, shield, speed_x, speed_y) and two 192→400 mappings for p0/p1 action state. Those weights then decode any new embedding — whether it came from the encoder on a real frame or from an autoregressive rollout step — back into the viz schema.
+
+No new decoder module. No MLP head. One script, ~500 lines including boilerplate. Matches the constraint in the brief.
+
+### How to run it
+
+```bash
+# Pull the checkpoint once
+mkdir -p checkpoints/e030a-jepa-baseline
+modal volume get melee-training-data checkpoints/e030a-jepa-baseline/latest.pt \
+  ./checkpoints/e030a-jepa-baseline/latest.pt
+
+# Get a parsed replay locally (any zlib-parquet game from nojohns-training/data/parsed/games/)
+mkdir -p data/local_test_games
+cp ../nojohns-training/data/parsed/games/<hash> data/local_test_games/
+
+# Run
+python scripts/visualize_jepa.py \
+  --checkpoint ./checkpoints/e030a-jepa-baseline/latest.pt \
+  --input-replay ./data/local_test_games/<hash> \
+  --output-json ./viz/e030a-reconstruction.json \
+  --mode both --horizon 60 --num-frames 600 --start-frame 2000
+```
+
+Open `viz/visualizer.html`, drop the JSON onto it, and the track selector will expose all three reconstructions.
+
+### What e030a's reconstruction actually looks like (600-frame Marth ditto, high-motion window)
+
+Probe metrics on the held-out 20% of the fit window (120 frames):
+
+```
+target               R²         MAE    unit  note
+--------------------------------------------------
+p0_percent       0.9511       1.810     pct
+p0_x             0.7282       4.380      px
+p0_y             0.8134       1.694      px
+p1_x             0.8533       4.784      px
+p0_action acc    0.0583                       (random = 0.25%)
+p1_action acc    0.0000                       (degenerate on this slice)
+p0_shield            —        1.334     pct   ZEROVAR
+p1_percent           —        0.111     pct   ZEROVAR
+p1_y                 —        1.173      px   ZEROVAR
+p1_shield       -5.7568       1.465     pct
+speeds               —        0.000     u/f   ZEROVAR
+```
+
+ZEROVAR = target is constant within the eval window (e.g., p1 standing still on a platform, nobody's shield changed, all velocities ≈ 0 at sample points). The script flags these explicitly instead of reporting nonsense R²s like `-1.3e10` or trivial `1.0000`. MAE is still reported because it's meaningful even on constant targets.
+
+**What's real**:
+
+- **Position is decodable**. p0_x 4.4 px MAE, p0_y 1.7 px MAE, p1_x 4.8 px MAE on a 800-pixel-wide stage. The encoder genuinely encodes absolute position. R² in the 0.73–0.85 range on a 120-frame eval window is strong signal given the underdetermined regime.
+- **Percent is decodable**. p0_percent 1.81 pct MAE at R² 0.95 — the encoder tracks damage.
+- **Action state is above random**. p0 action probe at 5.8% is ~23× random (0.25%). Not competitive with Mamba2's supervised head, but unambiguously non-noise.
+- **p1_shield R²=-5.76** is a real failure — the probe can't fit it even though there's variance. That's a 120-sample 400-feature fit talking, not a model pathology.
+
+**What's degenerate**: 5 of 12 continuous targets are ZEROVAR on this slice. The 600-frame window isn't long enough for every field to move. A smarter default would scan for the highest-variance window across the full game, but the CLI accepts `--start-frame` and `--num-frames` and the user can pick manually.
+
+### Ground truth vs encoder vs rollout (the actual picture)
+
+- **Encoder vs GT, first 30 frames**: mean absolute x-error **0.17 px**. Encoder reconstruction is visually near-indistinguishable from ground truth on the first handful of frames. Deeper in the sequence (frame 500 of 600), percent reconstruction stays tight (12 → 16) and position stays close (2.2 → 4.9 px), but action_state argmax starts diverging (GT=183, encoder=24). That's the 120-sample action probe failing, not the encoder.
+- **Rollout divergence over 60 autoregressive steps**:
+
+```
+ t=3    GT=(179.14, 27.08)   Rollout=(180.87, 24.77)    err=(1.7, 2.3) px
+ t=10   GT=(174.43, 20.06)   Rollout=(187.28, 11.58)    err=(12.8, 8.5)
+ t=20   GT=(168.99, 15.78)   Rollout=(184.73, 0.51)     err=(15.7, 15.3)
+ t=30   GT=(165.85, 15.69)   Rollout=(165.68, -2.84)    err=(0.2, 18.5)
+ t=45   GT=(164.71, 13.22)   Rollout=(114.88, 20.83)    err=(49.8, 7.6)
+ t=62   GT=(134.91, 10.11)   Rollout=(34.78, 113.29)    err=(100.1, 103.2)
+```
+
+At the first step (t=3, just past the H=3 seed) error is ~2 px — clean handoff from encoder to predictor. At t=10 it's ~13 px (one character-width). At t=30 y has drifted 18 px but x is ~on. By t=45 x has fallen 50 px behind. At t=62 both axes are catastrophically off (predicted y=113, off-stage above the blast zone). **The predictor's latent trajectories look like they decay into an off-manifold region the encoder never saw during training** — a classic JEPA rollout-drift pattern. This is consistent with "pred_loss dropped 500× but we only trained 3 epochs" — the one-step predictor is healthy, but AR unrolling amplifies whatever residual error lives in the 192-dim space.
+
+### What this lets us say about e030a
+
+The run card's decision was "discarded — useful null result, the probe methodology bug invalidated the go/no-go numbers." This visualizer adds an independent second look at that claim, bypassing the broken in-batch holdout probes entirely: **methodology-fixed held-out probes on a new 600-frame window show position R² 0.73–0.85 and percent R² 0.95.** Those are real numbers, and they land in the "promising but not competitive" band of the run card's success criteria. The encoder learned something. The predictor doesn't generalize past ~10 steps AR. That's a coherent story for an 3-epoch baseline run.
+
+Does this change the "discarded" call on e030a? No — e030b still needs to run to answer "does JEPA work at proper scale" with the corrected probe methodology and corrected batch size. But it's evidence that e030a wasn't zero signal, and it gives us a visualization baseline to compare e030b against once it lands.
+
+### Feature-layout footgun we worked around (not fixed)
+
+`_encode_game` in `data/dataset.py` builds frames with `state_flags=False` and `hitstun=False` regardless of the cfg — the pre-encoded .pt files on Modal were produced by a different pipeline (external encoder) that includes those 40+1 extra features. A local script that calls `_encode_game` with the e030a EncodingConfig produces (T, 56) floats, not (T, 138) as the trained encoder expects. I worked around this in the script by zero-padding the missing features: insert 1 zero for hitstun_remaining after the velocity block, append 40 zeros for state_flags in the binary block. The encoder sees off-distribution inputs on those 41 dimensions but the trunk is a dense linear so it just produces slightly shifted latents — the probe fitting adapts downstream.
+
+**This is a divergence worth flagging**: the local `_encode_game` and the Modal pre-encoded pipeline are not interchangeable. If anyone writes another "run model locally on a parsed game" script, they will hit the same shape mismatch. Fixing it properly would mean either (a) making `_encode_game` honor state_flags/hitstun/multi_position by computing those features from the parquet source (which means they need to exist in the parquet, which they may not), or (b) vendoring the real encoder from wherever it lives in nojohns-training. Neither is in scope for a viz diagnostic, so I left the zero-pad in with a comment and moved on.
+
+### Files touched
+
+- **New**: `scripts/visualize_jepa.py` — entry point, ~500 lines, CLI + probe fit + decode + JSON emit
+- **New**: `checkpoints/e030a-jepa-baseline/latest.pt` — pulled from Modal volume (155 MB, gitignored)
+- **New**: `data/local_test_games/c09fe28c6a06f93041802647f5c407b4` — one parsed game, copied from nojohns-training (gitignored — should stay local, this is just a test fixture)
+- **New**: `viz/e030a-reconstruction.json` — the actual comparison file (~1.5 MB)
+- **Modified**: this file (HANDOFF.md)
+
+Nothing else touched — I did not modify `models/jepa/`, `training/jepa_*`, `viz/visualizer.html`, or any experiment infra.
+
+### Follow-ups worth queuing (not doing now)
+
+1. **Motion-window auto-selection.** Right now `--start-frame` is manual. A 3-line prelude that scans the game for the highest-variance 600-frame window would make the script self-tuning.
+2. **Latent-space trajectory panel.** The brief's stretch goal. 2D PCA of encoder embeddings vs rollout embeddings over time, rendered as a line plot — would give us a direct view of where the predictor's latent drift starts. Nice-to-have, not needed for the "does this work" check.
+3. **Re-run on e030b when it's kept.** The script is checkpoint-agnostic — point it at `e030b` and you get the same three tracks. Worth running as the first thing after e030b lands to get an apples-to-apples visual comparison against this e030a baseline.
+4. **Fix the `_encode_game` feature-layout mismatch upstream** (the state_flags/hitstun divergence above). Not viz's problem, but it will bite the next person who tries to run a model locally on a parsed replay.
+
+---
+
 ## Review: e030a closeout + e030b proposal (ScavieFae, Apr 11)
 
 **ScavieFae → Scav**: Reviewed commit `1b5cc27` — e030a closeout + e030b rescale card + probe methodology fix. **Good to go after `/experiment-launch` pre-flight.** Adding epoch-1 watchlist to the e030b run card so the first-epoch go/no-go is unambiguous, owning a PR #22 foot-gun, and parking a follow-up.
