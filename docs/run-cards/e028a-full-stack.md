@@ -7,6 +7,7 @@ base_build: b002
 built_on: [e026b, e026c]
 source_paper: null
 rollout_coherence: 4.798
+rollout_coherence_k5: 1.446
 prior_best_rc: 4.965
 ---
 
@@ -105,3 +106,34 @@ change_acc is flat (80.1% vs 80.2%) — the curriculum already captured most of 
 This is the recipe for the 7.7K scaling run: b002 + unimix + curriculum.
 
 Cumulative RC improvement from E019 baseline: -29.1% (6.77 -> 4.798).
+
+## Retroactive multi-metric eval (2026-04-12)
+
+The original e028a-full-stack closeout captured only the K=20 `summary_pos_mae` (4.798) as the north star. Subsequent work (ScavieFae's review of the e030 JEPA lineage, plus the e031 speed-focused Mamba2 work) established that K=20 is dominated by accumulated rollout drift and misses signal that lives at K=5/K=10. Re-ran `modal_train.py::eval_checkpoint` against `best.pt` to backfill the full multi-metric suite. L4 GPU, 300 samples from the 2K val split, K=20 horizon, $0.60.
+
+### Per-horizon and summary
+
+```
+  h      pos      vel    act      pct
+  1    0.522    0.001   0.992    0.214
+  5    2.386    0.005   0.910    1.122
+ 10    4.560    0.009   0.787    1.849
+ 20    8.878    0.017   0.530    3.636
+```
+
+| Metric | K=5 | K=10 | K=20 |
+|---|---|---|---|
+| pos_mae | **1.446** | 2.565 | 4.798 |
+| vel_mae | 0.003 ⚠ | 0.005 ⚠ | 0.009 ⚠ |
+| action_acc | 0.962 | 0.904 | 0.775 |
+| percent_mae | 0.614 | 1.086 | 1.966 |
+
+⚠ vel_mae numbers are suspiciously low compared to e029a's retroactive eval on the same code path (0.12-1.27 vs 0.003-0.017). Same `scripts/eval_rollout.py`, same `cfg.velocity_scale` division. Likely a denormalization or config mismatch flagged for later investigation — not blocking because the other three metrics tell the real story.
+
+### Why backfilled
+
+- **Set the K=5 baseline for the new rollout_coherence_k5 frontmatter field.** e028a's 1.446 is now the "prior best K=5" number that future Mamba2 experiments compare against.
+- **Enable the e029a matched comparison.** Without e028a's K=5/K=10 numbers, the e029a retroactive eval (also 2026-04-12) would have been a floating number with no baseline. See `docs/run-cards/e029a-7k-scaling.md::Results` for the full comparison — it shows the 7.7K run was meaningfully **better** at K=5 pos_mae (-10.8%) but **worse** on action_acc (-3.9pp) and percent_mae (+101%). A regime tradeoff the original K=20-only view completely hid.
+- **Inform the e031 speed-focused Mamba2 work.** e031a/b/c all use K=5 as the primary metric going forward; e028a's 1.446 K=5 is the target to beat (and watch for regressions on action_acc 0.962 and percent_mae 0.614).
+
+Eval artifact: `/data/checkpoints/e028a-full-stack/eval_rollout.json` on the Modal volume (`per_horizon` dict for K=1..20, saved 2026-04-12).

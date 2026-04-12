@@ -119,15 +119,18 @@ def _build_experiment_tree(cards):
     for bb in sorted(base_builds):
         lines.append(f'    {bb}["{bb}"]')
 
-    # Add experiment nodes with RC in label
+    # Add experiment nodes with RC in label (K=5 primary, K=20 fallback)
     for c in graphed:
         nk = _node_key(c)
         cid = c.get("id", "?")
-        rc = c.get("rollout_coherence")
+        rc_k5 = c.get("rollout_coherence_k5")
+        rc_k20 = c.get("rollout_coherence")
         status = c.get("status", "")
         label = cid
-        if rc:
-            label += f"\\nRC {rc}"
+        if rc_k5:
+            label += f"\\nK5 {rc_k5}"
+        elif rc_k20:
+            label += f"\\nK20 {rc_k20}"
         if status == "kept":
             lines.append(f'    {nk}(["{label}"])')
         elif status in ("discarded", "cancelled"):
@@ -172,45 +175,72 @@ def _build_experiment_tree(cards):
 
 
 def _build_rc_leaderboard(cards):
-    """Build a rollout coherence leaderboard sorted best to worst."""
-    scored = [c for c in cards if c.get("rollout_coherence")]
-    if not scored:
-        return []
+    """Build rollout coherence leaderboards — K=5 primary, K=20 for legacy."""
+    status_icons = {
+        "kept": ":white_check_mark:",
+        "discarded": ":x:",
+        "running": ":hourglass:",
+        "cancelled": ":stop_sign:",
+    }
 
-    scored.sort(key=lambda c: float(c["rollout_coherence"]))
+    lines = []
 
-    # Find the best RC for the progress bar scaling
-    rcs = [float(c["rollout_coherence"]) for c in scored]
-    rc_min, rc_max = min(rcs), max(rcs)
+    # K=5 leaderboard (primary going forward)
+    scored_k5 = [c for c in cards if c.get("rollout_coherence_k5")]
+    if scored_k5:
+        scored_k5.sort(key=lambda c: float(c["rollout_coherence_k5"]))
+        best_k5 = float(scored_k5[0]["rollout_coherence_k5"])
 
-    lines = [
-        "## Rollout Coherence",
-        "",
-        "*Lower is better. Mean position MAE over K=20 autoregressive horizons.*",
-        "",
-        "| Rank | Experiment | RC | Status | Delta vs Best |",
-        "|------|-----------|-----|--------|---------------|",
-    ]
+        lines += [
+            "## Rollout Coherence — K=5 (primary)",
+            "",
+            "*Lower is better. Mean position MAE over K=5 autoregressive horizons — "
+            "the per-step signal ceiling before drift dominates.*",
+            "",
+            "| Rank | Experiment | RC K=5 | RC K=20 | Status | Delta vs Best |",
+            "|------|-----------|--------|---------|--------|---------------|",
+        ]
+        for i, c in enumerate(scored_k5):
+            cid = c.get("id", "?")
+            rc5 = float(c["rollout_coherence_k5"])
+            rc20 = c.get("rollout_coherence", "—") or "—"
+            status = c.get("status", "?")
+            delta = rc5 - best_k5
+            delta_str = f"+{delta:.3f}" if delta > 0 else "**best**"
+            icon = status_icons.get(status, "")
+            link = f"[{cid}](../run-cards/{c['filename']})"
+            lines.append(
+                f"| {i+1} | {link} | {rc5} | {rc20} | {icon} {status} | {delta_str} |"
+            )
+        lines.append("")
 
-    best_rc = rcs[0]
-    for i, c in enumerate(scored):
-        cid = c.get("id", "?")
-        rc = float(c["rollout_coherence"])
-        status = c.get("status", "?")
-        delta = rc - best_rc
-        delta_str = f"+{delta:.2f}" if delta > 0 else "**best**"
-        link = f"[{cid}](../run-cards/{c['filename']})"
+    # K=20 leaderboard (historical — includes everything with legacy RC)
+    scored_k20 = [c for c in cards if c.get("rollout_coherence")]
+    if scored_k20:
+        scored_k20.sort(key=lambda c: float(c["rollout_coherence"]))
+        best_k20 = float(scored_k20[0]["rollout_coherence"])
 
-        status_icons = {
-            "kept": ":white_check_mark:",
-            "discarded": ":x:",
-            "running": ":hourglass:",
-            "cancelled": ":stop_sign:",
-        }
-        icon = status_icons.get(status, "")
-        lines.append(f"| {i+1} | {link} | {rc} | {icon} {status} | {delta_str} |")
+        lines += [
+            "## Rollout Coherence — K=20 (legacy)",
+            "",
+            "*Historical metric — mean position MAE over K=20 horizons. "
+            "At K=20 accumulated rollout drift dominates per-step signal; "
+            "use K=5 for architectural comparisons going forward.*",
+            "",
+            "| Rank | Experiment | RC K=20 | Status | Delta vs Best |",
+            "|------|-----------|---------|--------|---------------|",
+        ]
+        for i, c in enumerate(scored_k20):
+            cid = c.get("id", "?")
+            rc = float(c["rollout_coherence"])
+            status = c.get("status", "?")
+            delta = rc - best_k20
+            delta_str = f"+{delta:.2f}" if delta > 0 else "**best**"
+            icon = status_icons.get(status, "")
+            link = f"[{cid}](../run-cards/{c['filename']})"
+            lines.append(f"| {i+1} | {link} | {rc} | {icon} {status} | {delta_str} |")
+        lines.append("")
 
-    lines.append("")
     return lines
 
 
@@ -246,14 +276,23 @@ def generate_experiment_index():
         "",
     ]
 
-    # Best rollout coherence
+    # Best rollout coherence — K=5 primary, K=20 legacy
+    scored_k5 = [c for c in cards if c.get("rollout_coherence_k5")]
+    if scored_k5:
+        best_k5 = min(scored_k5, key=lambda c: float(c["rollout_coherence_k5"]))
+        lines.append(
+            f"**Best K=5 rollout coherence:** {best_k5['rollout_coherence_k5']} "
+            f"([{best_k5['id']}](../run-cards/{best_k5['filename']}))"
+        )
+
     scored = [c for c in cards if c.get("rollout_coherence")]
     if scored:
         best = min(scored, key=lambda c: float(c["rollout_coherence"]))
         lines.append(
-            f"**Best rollout coherence:** {best['rollout_coherence']} "
+            f"**Best K=20 rollout coherence (legacy):** {best['rollout_coherence']} "
             f"([{best['id']}](../run-cards/{best['filename']}))"
         )
+    if scored_k5 or scored:
         lines.append("")
 
     # Experiment tree (Mermaid)
@@ -272,12 +311,13 @@ def generate_experiment_index():
             continue
         lines.append(f"## {section_name}")
         lines.append("")
-        lines.append("| ID | Type | Base | RC | Built On | Paper |")
-        lines.append("|-----|------|------|----|----------|-------|")
+        lines.append("| ID | Type | Base | RC K=5 | RC K=20 | Built On | Paper |")
+        lines.append("|-----|------|------|--------|---------|----------|-------|")
         for c in section_cards:
             cid = c.get("id", "?")
             ctype = c.get("type", "—")
             base = c.get("base_build", "—") or "—"
+            rc5 = c.get("rollout_coherence_k5", "—") or "—"
             rc = c.get("rollout_coherence", "—") or "—"
             built_on = c.get("built_on", [])
             if isinstance(built_on, list):
@@ -285,7 +325,9 @@ def generate_experiment_index():
             paper = c.get("source_paper")
             paper_str = f"[{paper}](https://arxiv.org/abs/{paper})" if paper else "—"
             link = f"[{cid}](../run-cards/{c['filename']})"
-            lines.append(f"| {link} | {ctype} | {base} | {rc} | {built_on} | {paper_str} |")
+            lines.append(
+                f"| {link} | {ctype} | {base} | {rc5} | {rc} | {built_on} | {paper_str} |"
+            )
         lines.append("")
 
     (EXPERIMENTS_DIR / "index.md").write_text("\n".join(lines))

@@ -13,8 +13,10 @@ The card is the permanent record. Everything flows into the card. This skill ens
 
 You need to know:
 - **Which experiment** (e.g., e019)
-- **The results** — rollout coherence score, TF metrics, any qualitative findings
+- **The results** — rollout coherence at K=5 **and** K=20, the full multi-metric suite (pos_mae, vel_mae, action_acc, percent_mae) at K=5/K=10/K=20, TF metrics, any qualitative findings
 - **The decision** — kept or discarded, and why
+
+**K=5 is the primary metric going forward.** K=20 is retained for historical continuity with older runs but is drift-dominated — per-step signal lives at K=5. Compare to prior experiments on K=5 first, K=20 second. See e029a-7k-scaling's Layer A/B analysis for why: a run can be meaningfully better at K=5 and indistinguishable at K=20, hiding real regime shifts.
 
 If the user doesn't provide these, ask before proceeding.
 
@@ -28,45 +30,57 @@ Check for a PR: gh pr list --search "{experiment-id}" --state open
 
 ## Step 2: Update Frontmatter
 
-Update the YAML frontmatter in the run card:
+Update the YAML frontmatter in the run card. Both K=5 and K=20 fields are required for new runs:
 
 ```yaml
 status: kept  # or discarded
-rollout_coherence: {measured value}
-prior_best_rc: {value from the best prior experiment at time of eval}
+rollout_coherence: {K=20 pos_mae — legacy metric, keep for continuity}
+rollout_coherence_k5: {K=5 pos_mae — primary metric going forward}
+prior_best_rc: {K=20 of the best prior experiment at time of eval}
+prior_best_rc_k5: {K=5 of the best prior experiment at time of eval}
 ```
 
-`prior_best_rc` is the rollout coherence of the best existing experiment *before* this one ran. This lets future readers understand the improvement without needing to cross-reference.
+`prior_best_rc` / `prior_best_rc_k5` are the best existing experiment values *before* this one ran. This lets future readers understand the improvement without needing to cross-reference.
+
+If you only have K=20 (e.g., reviewing an old closeout), leave `rollout_coherence_k5` out and note it in the results section. For new runs, both must be populated — `modal_train.py::eval_checkpoint` saves `per_horizon` so you can compute K=5 from the saved eval JSON.
 
 ## Step 3: Append Results Section
 
-Add a `## Results` section to the card body. Follow this structure:
+Add a `## Results` section to the card body. Follow this structure — **lead with the multi-metric K=5/K=10/K=20 suite**, not a single scalar:
 
 ```markdown
 ## Results
 
-| Metric | {Prior Best ID} | {This Experiment} | Delta |
-|--------|-----------------|-------------------|-------|
-| rollout_coherence | {prior} | {new} | {change} |
-| change_acc | ... | ... | ... |
-| pos_mae | ... | ... | ... |
-| val_loss | ... | ... | ... |
+### Matched rollout eval vs {prior best ID}
+
+| Metric | K=5 ({prior}) | K=5 ({new}) | K=10 ({prior}) | K=10 ({new}) | K=20 ({prior}) | K=20 ({new}) |
+|--------|---------------|-------------|----------------|--------------|----------------|--------------|
+| pos_mae | ... | ... | ... | ... | ... | ... |
+| action_acc | ... | ... | ... | ... | ... | ... |
+| percent_mae | ... | ... | ... | ... | ... | ... |
+
+| Headline | Prior | This | Delta |
+|----------|-------|------|-------|
+| rollout_coherence_k5 (primary) | ... | ... | ... |
+| rollout_coherence (K=20, legacy) | ... | ... | ... |
 
 {Any qualitative observations — AR demo quality, failure modes, surprises.}
+{If K=5 and K=20 tell different stories (Layer A/B tradeoff), call it out.}
 
 ## Decision
 
-**{Kept/Discarded}.** {One-sentence rationale grounded in the numbers.}
+**{Kept/Discarded}.** {One-sentence rationale grounded in the K=5 numbers first, K=20 as secondary.}
 
 {If kept: what this enables or changes. If discarded: what this rules out.}
 ```
 
 **Rules for the results section:**
 - State findings as observations with numbers. Not editorials.
-- Compare to the specific prior best, not to all experiments ever.
+- **Never celebrate or regret based on a single scalar.** If you only have K=20 improvement, check K=5. If K=5 improves but action_acc or percent_mae regress, that's the Layer A/B tradeoff and must be documented.
+- Compare to the specific prior best on K=5, not to all experiments ever.
 - Include the delta — raw numbers without context are useless.
-- Note surprises. If TF metrics improved but AR quality didn't (or vice versa), say so.
-- Keep it short. 10-20 lines, not a paper.
+- Note surprises. If K=5 and K=20 disagree, or if TF metrics improved but AR quality didn't (or vice versa), say so.
+- Keep it short. 15-25 lines, not a paper.
 
 ## Step 4: Rebuild Docs Index
 
@@ -132,9 +146,9 @@ Present the proposed changes as diffs: quote the current text, show the replacem
 
 Quick sanity check:
 
-- [ ] Card frontmatter has `status`, `rollout_coherence`, `prior_best_rc` filled in
-- [ ] Card body has `## Results` and `## Decision` sections
-- [ ] `experiments/index.md` shows the updated metrics
+- [ ] Card frontmatter has `status`, `rollout_coherence`, `rollout_coherence_k5`, `prior_best_rc`, `prior_best_rc_k5` filled in
+- [ ] Card body has `## Results` with the K=5/K=10/K=20 multi-metric table and `## Decision` sections
+- [ ] `experiments/index.md` shows the updated metrics in both K=5 and K=20 leaderboards
 - [ ] PR is closed (if one existed)
 - [ ] Research log has an entry
 - [ ] program.md updates proposed (if applicable)
