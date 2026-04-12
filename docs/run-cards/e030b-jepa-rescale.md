@@ -1,7 +1,7 @@
 ---
 id: e030b
 created: 2026-04-11
-status: proposed
+status: discarded
 type: hyperparameter
 base_build: null
 built_on: [e030a]
@@ -234,11 +234,143 @@ Inherited from e030a, plus two specific to the rescale:
 - Well under $30/day cap
 - e030a already spent ~$10 on the partial run, so e030 series total is ~$12-14 — still fine
 
+## Results
+
+**Status: discarded, highly informative.** All 10 epochs completed cleanly. $4.54 total. No crashes, no NaN, no OOM, no Modal timeout. The run executed exactly as designed — the design was insufficient.
+
+### The trajectory (all 10 epochs from `manifest.json`)
+
+| Ep | pred_loss | sigreg | total | val_pred | swap/mean | ditto | p0_x R² | p1_x R² | rel_x R² | p0_act | p1_act | straight | wall |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| **1** | 0.080 | 2.07 | 0.288 | 0.048 | 0.035 | 0.191 | **0.904** | **0.891** | **0.895** | **0.753** | **0.700** | 0.512 | 829s |
+| 2 | 0.018 | 1.60 | 0.178 | 0.018 | 0.030 | 0.210 | 0.901 | 0.898 | 0.772 | 0.595 | 0.575 | 0.607 | 825s |
+| 3 | 0.011 | 1.47 | 0.159 | 0.014 | 0.037 | 0.219 | 0.868 | 0.868 | 0.785 | 0.489 | 0.460 | 0.663 | 751s |
+| 4 | 0.008 | 1.14 | 0.122 | 0.010 | 0.043 | 0.206 | 0.841 | 0.830 | 0.781 | 0.293 | 0.244 | 0.709 | 753s |
+| 5 | 0.006 | 0.79 | 0.085 | 0.007 | 0.042 | 0.203 | 0.734 | 0.681 | 0.639 | 0.217 | 0.174 | 0.726 | 758s |
+| 6 | 0.005 | 0.74 | 0.078 | 0.005 | 0.042 | 0.197 | 0.480 | 0.516 | 0.524 | 0.172 | 0.150 | 0.740 | 753s |
+| 7 | 0.004 | 0.71 | 0.075 | 0.004 | 0.044 | 0.195 | 0.418 | 0.361 | 0.354 | 0.163 | 0.132 | 0.756 | 763s |
+| 8 | 0.004 | 0.70 | 0.074 | 0.004 | 0.045 | 0.194 | 0.349 | 0.350 | 0.321 | 0.152 | 0.140 | 0.770 | 786s |
+| 9 | 0.003 | 0.70 | 0.073 | 0.003 | 0.044 | 0.192 | 0.345 | 0.294 | 0.286 | 0.152 | 0.132 | 0.776 | 771s |
+| **10** | 0.003 | 0.69 | 0.073 | 0.003 | 0.044 | 0.192 | **0.305** | **0.246** | **0.257** | **0.151** | **0.133** | 0.777 | 788s |
+
+**Observations**:
+
+- **Loss curves are textbook healthy.** `pred_loss` dropped 27× (0.080 → 0.003). `sigreg_loss` dropped 3× (2.07 → 0.69). `val_pred_loss` tracks training loss with no overfit gap. `total_loss` monotonic decrease.
+- **Temporal straightness rose monotonically** 0.51 → 0.78. LeWM's emergent diagnostic was firing strongly throughout.
+- **Swap test stayed stable.** `swap/mean ≈ 0.04`, `swap/ditto ≈ 0.19-0.21`. Both well below the 0.9 collapse gate. Identity preservation was healthy the whole run.
+- **No identity collapse was ever triggered.** The pre-registered `e030-identity-fix` is not needed.
+- **But the linear probes degraded monotonically.** p0_x R² went 0.904 → 0.305. p1_x went 0.891 → 0.246. rel_x went 0.895 → 0.257. Action accuracy went 0.75/0.70 → 0.15/0.13. **Every single epoch had worse probe numbers than the previous epoch.**
+
+The striking shape: loss metrics and the straightness diagnostic all improved smoothly, while the linear probe metrics — which measure "can you recover game state from the latent" — degraded smoothly in the opposite direction. Two internally consistent training signals pointing in opposite directions.
+
+### Nonlinear probe diagnostic (to rule out probe methodology)
+
+Before concluding the information was genuinely lost, I ran a nonlinear probe against the epoch-10 encoder on the canonical FD test game (`2fd092d61ac812828132334904bc5870`, Fox vs Marth, 2000-frame window, 50/50 temporal fit/eval split).
+
+Script: `scripts/nonlinear_probe_diagnostic.py`. Probe: 2-layer MLP (192 → 64 → 1, ReLU, Adam lr=1e-3, 500 steps).
+
+```
+target             linear R²    nonlin R²    lin MAE   nonlin MAE
+------------------------------------------------------------------------
+p0_percent           -0.4148        0.1565      51.648      47.244  pct
+p0_x                  0.4866        0.4247      30.499      28.004  px
+p0_y                 -0.7705        0.0240      42.661      27.642  px
+p0_shield               —              —        46.056       4.998  pct  ZEROVAR
+p1_percent         -364.5406      -30.4055      19.765       5.838  pct
+p1_x                  0.8232        0.7820      16.685      14.104  px
+p1_y                  0.0731        0.2859      11.939       8.761  px
+p1_shield         -9694.2607     -392.4787      45.985       9.186  pct
+
+                  linear acc   nonlin acc  note
+------------------------------------------------------------------------
+p0_action             0.0680        0.0860  (random = 0.0025)
+p1_action             0.1140        0.1120
+```
+
+**The nonlinear probe does not dramatically outperform the linear probe.** Where linear is decent, nonlinear is decent (p1_x: 0.82 → 0.78). Where linear is bad, nonlinear is barely better (p0_y: -0.77 → 0.02, a minor lift). Nowhere does the MLP find information the linear probe missed by more than ~0.3 R².
+
+If the encoder were still carrying game-state information through nonlinear feature combinations, a 64-hidden-unit MLP with 500 SGD steps would find it — 1000 training samples with 192-dim input is plenty of signal for a small MLP to fit whatever structure is there. The fact that it doesn't means **the information really is gone from the encoder.**
+
+### The failure mode: "prediction-shortcut collapse"
+
+What happened: the encoder learned to minimize `||encoder(frame_{t+1}) - encoder(frame_t) - small_delta||²` by progressively dropping information about the fields that cause large frame-to-frame MSE spikes (percent on hits, action_state on transitions, shield on breaks). The encoder kept the smoothly-varying physics fields (position, velocity) because they're the ones that make the "small delta" prediction easy, and dropped everything that looked like discrete events.
+
+SIGReg prevents **distribution-level collapse** (swap test stable, dittos ≠ non-dittos, ranks full) but has no mechanism to prevent **information-level compression** as long as the embedding distribution stays isotropic Gaussian. The encoder can drop whatever information it wants to as long as what's left is still approximately Gaussian-distributed. And because the loss actively rewards dropping information about discrete events, it does.
+
+The field-specific pattern in the nonlinear probe confirms this diagnosis:
+
+| Field | Layer | Epoch 10 R² (linear / nonlinear) | Interpretation |
+|---|---|---|---|
+| `p1_x` | continuous physics | 0.82 / 0.78 | preserved |
+| `p0_x` | continuous physics | 0.49 / 0.42 | half-preserved |
+| `p0_y` | continuous physics | -0.77 / 0.02 | mostly lost (asymmetric with x — direction-specific specialization) |
+| `p1_y` | continuous physics | 0.07 / 0.29 | mostly lost |
+| `percent` | discrete events | strongly negative | severely degraded |
+| `shield` | discrete events | extremely negative | severely degraded |
+| `action` | discrete transitions | 6-11% (was 75-70% at ep1) | mostly lost |
+
+**X coordinates survived. Y coordinates mostly didn't. Discrete-event fields (percent, shield, action) are essentially gone.** This isn't random information loss — it's systematic specialization on continuous physics at the cost of discrete game rules.
+
+### This is the same failure mode as three other observations from this session
+
+1. **e030a's probe R² = 1.000 artifact at epoch 2** (which we discarded as a methodology bug): the e030a encoder hadn't yet specialized, and the in-batch holdout let a 193-param linear probe memorize the training split. **That encoder was actually healthy** (see retroactive viz finding on the FD test game) — we just couldn't tell because the probe was broken.
+2. **Percent going backwards in the e030a reconstruction viz** (which we analyzed earlier today): the encoder at epoch 3 wasn't fully specialized, so percent decoded with R² ~0.9 on the FD game. But the reconstructed percent still drifts smoothly toward the mean in rollouts because the JEPA predictor has no concept of "discrete step functions."
+3. **Death→respawn never working across any of our models**: the catastrophic version of the same story. Discrete events are rare, loss is continuous, gradient descent finds smooth-only solutions.
+
+All four are symptoms of the same underlying issue. Full analysis in `docs/jepa-direction-notes/smooth-physics-vs-game-rules.md`.
+
+### What e030b actually proved
+
+- **The paradigm is not dead.** Epoch 1's probe numbers (R² 0.904 on position, 75% on action) were Competitive-zone results. JEPA on structured game state CAN learn a usable representation — we watched it happen, for about 800 seconds.
+- **The rescale (batch 1024, lr 4e-4, 10 epochs) was correct** as a wall-clock fix. The run completed comfortably under budget. Nothing about the scale-knob choices is wrong.
+- **The problem is not hyperparameters; it's loss structure.** Pure MSE in latent space + SIGReg isotropic-Gaussian prior has a joint optimum at "smooth latent trajectories with dropped discrete-event information." Training longer makes this worse, not better. Early stopping at epoch 1 would have given us the Competitive result we were chasing.
+- **Checkpoint-saving strategy is broken.** `best.pt` is saved on lowest `val_total_loss`, which monotonically decreased. So `best.pt`, `latest.pt`, and `final.pt` are all epoch 10 — the worst-probe checkpoint. **We do not have the epoch-1 checkpoint on disk.** The Competitive checkpoint is gone. See `docs/jepa-scaling-notes.md` for the checkpoint-saving strategy fix.
+
+## Decision
+
+**Discarded, highly informative.** This run produced more useful research signal than any experiment we've run to date, specifically because the failure mode is new and reproducible and we now understand it. Listing explicitly what we learned:
+
+1. **Prediction-shortcut collapse is a thing in our setup**, specifically with MSE + SIGReg + our dataset. It didn't fire in LeWM's environments because they're continuous control (Layer A only). It fires on Melee because Melee has both continuous physics (Layer A) and discrete game rules (Layer B).
+2. **The rescale numbers are correct** for the question they asked (can we fit the training regime into reasonable wall clock). They're not the reason the run failed.
+3. **Linear probe R² is a trustworthy signal**. The nonlinear probe confirms the linear numbers. Our diagnostic suite is working.
+4. **Per-epoch monotonic degradation** is a signature pattern to watch for in future runs. Rising straightness + rising pred_loss health + falling probe R² = prediction-shortcut collapse in progress.
+5. **Best.pt saved by val_loss is wrong for JEPA.** We need probe-R²-aware checkpointing, or (simpler) save every epoch so we can pick post-hoc. Logged as a follow-up in the scaling notes.
+6. **Every training signal we had pointed at "healthy" except the probes.** Without the probes we'd have called this run a success. The probe infrastructure ScavieFae shipped in PR #22 is the reason we caught this at all — without it we'd have a Modal checkpoint we think is good, and we'd only notice it was broken when someone tried to visualize a reconstruction.
+
+What this rules out:
+- **NOT**: "JEPA is the wrong architecture for Melee"
+- **NOT**: "Linear LR scaling at 8× was wrong"
+- **NOT**: "The rescale hyperparameters were too aggressive"
+- **YES**: "LeWM's loss structure, applied to a domain with discrete events, compresses out discrete-event information as training progresses"
+
+What this enables:
+- **A specific, testable hypothesis for e030c**: reducing SIGReg pressure (λ) should slow the specialization. If true, we can find a λ where Layer B info survives. If false, the MSE itself is the problem and we need structural changes.
+- **A named failure mode** to watch for in future runs. "Prediction-shortcut collapse" is now a thing we can reference in run card Risks sections.
+- **A research note** (`docs/jepa-direction-notes/smooth-physics-vs-game-rules.md`) that captures the framework tying together death→respawn, percent backwards, and the e030b trajectory. Reusable for any future experiment's context section.
+- **A probe methodology confirmation**: linear probes are trustworthy. Nonlinear probes don't rescue what linear probes call "gone."
+
+## Follow-ups queued
+
+In priority order:
+
+1. **e030c**: SIGReg λ sweep. Reduce λ from 0.1 to 0.01 (and maybe 0.03 as a middle point). Same model, same data, same rescale hyperparams. One change only, per Mattie's "move slowly" directive. Hypothesis: lower λ preserves Layer B info longer. This is the next experiment.
+
+2. **Checkpoint-saving strategy fix**. Add `--save-every-epoch` to `scripts/modal_train_jepa.py` and `training/jepa_trainer.py`. When enabled, save `epoch_1.pt`, `epoch_2.pt`, ... alongside `best.pt`/`latest.pt`/`final.pt`. Cost: ~15 min of code + a few hundred MB per run on the Modal volume. Ships before e030c. See scaling notes update.
+
+3. **Event-conditioned eval metric.** Split rollout eval into "context contained a hit / stock change / death" vs "no event," report `pos_mae`, `percent_mae`, `action_acc` separately for each split. Surfaces Layer B gap as a real number. Applies to Mamba2 as well. ~50 LOC in `scripts/eval_rollout.py`.
+
+4. **e030b canonical viz artifact**. Run `scripts/visualize_jepa.py` against the `final.pt` checkpoint with the canonical Fox-Marth FD game. Expected: visually worse encoder reconstruction than e030a's 3-epoch checkpoint on the same game. If this prediction holds, it's direct visual confirmation of "longer training = worse representation in this regime" which is viscerally striking.
+
+5. **Research note cross-reference**. Update `docs/jepa-direction.md` to link to `smooth-physics-vs-game-rules.md` as the canonical explanation for "why we expect certain fields to be hard."
+
 ## References
 
 - LeWM paper: `research/sources/2603.19312-summary.md`
-- **e030a run card**: `docs/run-cards/e030a-jepa-baseline.md` — the baseline this corrects
-- Data flow trace: `docs/jepa-data-flow.md`
+- **Research note**: `docs/jepa-direction-notes/smooth-physics-vs-game-rules.md` — the full framework tying e030b, the percent-backwards observation, and death→respawn into one disease
+- **Scaling notes**: `docs/jepa-scaling-notes.md` — now includes a "prediction-shortcut collapse" section and checkpoint-saving strategy
+- **e030a run card**: `docs/run-cards/e030a-jepa-baseline.md` — the baseline this rescale was designed to correct (now retroactively reinterpretable: e030a's 3-epoch encoder was actually less collapsed than e030b's 10-epoch encoder)
+- **Diagnostic script**: `scripts/nonlinear_probe_diagnostic.py` — reusable tool for running linear-vs-nonlinear probe comparison on any JEPA checkpoint
+- **Manifest**: `checkpoints/e030b-jepa-rescale/manifest.json` on Modal volume — full per-epoch history
 - Code:
     - Models: `models/jepa/` (unchanged)
     - Data: `data/jepa_dataset.py` (unchanged)

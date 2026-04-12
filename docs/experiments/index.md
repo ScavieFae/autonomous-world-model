@@ -1,8 +1,8 @@
 # Experiment Index
 
-*29 experiments — 8 kept, 2 running, 1 proposed, 17 discarded.*
+*29 experiments — 8 kept, 2 running, 0 proposed, 18 discarded.*
 
-*Generated 2026-04-11 23:14 UTC*
+*Generated 2026-04-12 03:37 UTC*
 
 **Best rollout coherence:** 4.798 ([e028a](../run-cards/e028a-full-stack.md))
 
@@ -40,7 +40,7 @@ flowchart TD
     e027c_lossreweight_warmstart(["e027c\nRC 4.939"])
     e028a_full_stack(["e028a\nRC 4.798"])
     e030a_jepa_baseline["e030a"]
-    e030b_jepa_rescale("e030b")
+    e030b_jepa_rescale["e030b"]
     e019_baseline --> e018a_self_forcing
     e017a --> e018b_rollout_coherence_eval
     e018a_self_forcing --> e018b_self_forcing_n5
@@ -99,7 +99,7 @@ flowchart TD
     style e027c_lossreweight_warmstart fill:#2e7d32,color:#fff
     style e028a_full_stack fill:#2e7d32,color:#fff
     style e030a_jepa_baseline fill:#616161,color:#fff
-    style e030b_jepa_rescale fill:#f9a825,color:#000
+    style e030b_jepa_rescale fill:#616161,color:#fff
     style b001 fill:#4a148c,color:#fff
     style b002 fill:#4a148c,color:#fff
 ```
@@ -155,12 +155,6 @@ flowchart TD
 | [e027c](../run-cards/e027c-lossreweight-warmstart.md) | training-regime | b002 | 4.939 | e025b, e026c | — |
 | [e028a](../run-cards/e028a-full-stack.md) | training-regime | b002 | 4.798 | e026b, e026c | — |
 
-## Proposed
-
-| ID | Type | Base | RC | Built On | Paper |
-|-----|------|------|----|----------|-------|
-| [e030b](../run-cards/e030b-jepa-rescale.md) | hyperparameter | — | — | e030a | [2603.19312](https://arxiv.org/abs/2603.19312) |
-
 ## Discarded
 
 | ID | Type | Base | RC | Built On | Paper |
@@ -182,3 +176,4 @@ flowchart TD
 | [e026a](../run-cards/e026a-muon.md) | training-regime | b002 | 5.342 | — | — |
 | [e027b](../run-cards/e027b-e023b-regime-switch.md) | training-regime | b002 | 5.225 | e026c | — |
 | [e030a](../run-cards/e030a-jepa-baseline.md) | architectural | — | — | — | [2603.19312](https://arxiv.org/abs/2603.19312) |
+| [e030b](../run-cards/e030b-jepa-rescale.md) | hyperparameter | — | — | e030a | [2603.19312](https://arxiv.org/abs/2603.19312) |

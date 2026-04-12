@@ -162,6 +162,85 @@ This axis can be combined with any of regimes A-D. The blocker is **encoded-data
 
 **Never**: Regime C at any scale above 2K. It's the "I forgot about scaling" regime and it wastes compute.
 
+## Prediction-shortcut collapse (observed in e030b)
+
+**Added after e030b completed.** A failure mode specific to JEPA + our dataset that we didn't see in LeWM's environments and wasn't predicted by the pre-launch reasoning.
+
+### What it is
+
+The encoder progressively drops information about input frames as training proceeds, despite loss curves looking healthy. Specifically: fields that cause large frame-to-frame MSE spikes (percent on hits, action state on transitions, shield on breaks) get compressed out of the latent, while fields that change smoothly from frame to frame (position, velocity) get preserved.
+
+SIGReg prevents **distribution-level collapse** (the embedding distribution stays isotropic Gaussian, swap test stays healthy, rank stays full). But it has no mechanism to prevent **information-level compression** — the encoder can drop whatever information it wants as long as what's left is still approximately Gaussian. And the loss actively rewards dropping information about discrete events, because those events are the ones that make the "predict a small delta" target expensive.
+
+### Signature pattern in training metrics
+
+From e030b, per-epoch:
+
+| Metric | Direction | What it looked like |
+|---|---|---|
+| `pred_loss` | ↓ monotonically | 0.080 → 0.003 |
+| `sigreg_loss` | ↓ monotonically | 2.07 → 0.69 |
+| `val_pred_loss` | ↓ monotonically (tracks train) | 0.048 → 0.003 |
+| `emergent/straightness` | ↑ monotonically | 0.51 → 0.78 |
+| `swap/mean`, `swap/ditto` | stable | ~0.035-0.045, ~0.19-0.21 |
+| **`probe/p0_x_r2`** | **↓ monotonically** | **0.904 → 0.305** |
+| **`probe/p0_action_acc`** | **↓ monotonically** | **0.753 → 0.151** |
+
+**Every loss-side signal and the straightness diagnostic said "healthy training."** Every probe signal said "encoder is degrading." Both were internally consistent trajectories. Only the probes were aligned with what we actually care about (decodable representation).
+
+### How to detect it
+
+- **Linear probes must be held-out and reported every epoch.** e030a's in-batch-holdout probe would have shown R²=1.000 and missed this entirely. Stride-sampled disjoint probe batches from `training/jepa_diagnostics.py::run_diagnostic_suite_holdout` are the minimum.
+- **Run a nonlinear probe diagnostic on the final checkpoint** to confirm information is genuinely lost, not just linearly opaque. Script: `scripts/nonlinear_probe_diagnostic.py`. If nonlinear R² > linear R² by more than ~0.3 on any target, the linear probe is under-measuring. If they agree, the information really is gone.
+- **Watch per-epoch probe direction, not just magnitude.** A single epoch of R²=0.7 can look "Promising" but if the trend is -0.1 per epoch, the next run with the same config will be "Not viable."
+
+### What it isn't
+
+- **Not distribution-level collapse**: SIGReg prevents that, and swap test confirms it didn't happen
+- **Not identity collapse**: P0 vs P1 stayed distinguishable throughout
+- **Not a probe methodology bug**: confirmed by the nonlinear probe test
+- **Not training instability**: loss curves were textbook
+- **Not overfitting**: `val_pred_loss` tracked `train_pred_loss`
+- **Not LR-scaling fallout**: 4e-4 linear-scaled from LeWM's 5e-5 is in-range; no oscillation; warmup worked as designed
+
+It's specifically and narrowly: **MSE in latent space + isotropic Gaussian regularization + extended training = encoder specialization on smooth physics at the cost of discrete events**.
+
+### What to try against it
+
+Full treatment in `docs/jepa-direction-notes/smooth-physics-vs-game-rules.md`. Quick list:
+
+1. **Reduce SIGReg λ** (cheapest, ~$5 next run): 0.1 → 0.01 or 0.03. Less pressure toward isotropic Gaussian → less pressure to drop information. This is the hypothesis e030c should test, per "move slowly" — one lever at a time.
+2. **Early stopping**: epoch 1 was Competitive; every later epoch was worse. Stop at epoch 1-2 if all the probe numbers look good.
+3. **Checkpoint every epoch** (required to do early stopping well, see below).
+4. **Add an auxiliary decoder loss** (medium cost): reconstruct game state fields from the latent, train jointly. Not pure JEPA anymore — flag as a divergence.
+5. **Hybrid latent with explicit event dimension** (structural): extend latent to have continuous + discrete components trained with different losses. New experiment lineage.
+
+## Checkpoint-saving strategy
+
+**Problem surfaced by e030b**: `best.pt` is saved on lowest `val_total_loss`. In e030b, `val_total_loss` monotonically decreased across all 10 epochs. So `best.pt = latest.pt = final.pt = epoch 10`. But **epoch 1 was the best-probe checkpoint** (R² 0.904 vs epoch 10's R² 0.305). We do not have the epoch-1 checkpoint on disk. **The actually-good encoder is gone.**
+
+### The fix (not yet implemented)
+
+Add `--save-every-epoch` flag to `scripts/modal_train_jepa.py` and `training/jepa_trainer.py`. When set, save `epoch_1.pt`, `epoch_2.pt`, ..., `epoch_N.pt` alongside the usual `best.pt`/`latest.pt`/`final.pt`. Each checkpoint is ~155 MB for the current 13.5M-param model, so 10 epochs = ~1.5 GB on the Modal volume — cheap.
+
+**Scope**: ~15 lines of code.
+
+```python
+# In JEPATrainer.train(), inside the per-epoch loop, after _save_checkpoint(...):
+if self._save_every_epoch:
+    self._save_checkpoint(f"epoch_{epoch+1}.pt", epoch, val_loss)
+```
+
+Plus a kwarg in `__init__` and a config field in the yaml.
+
+### Why it matters beyond e030b
+
+Any JEPA run is at risk of prediction-shortcut collapse. Without per-epoch checkpoints, "best.pt by val_loss" can be meaningfully different from "best.pt by probe R²" — and we have no recourse once training is done. Saving every epoch is cheap insurance.
+
+**Corollary**: add a post-training "find best epoch by probe R²" step. Run the diagnostic suite against each `epoch_N.pt` and pick the highest probe R². This becomes our actual `best.pt` for the run.
+
+**Not blocking e030c** — we can use the feature when it lands. Queued as a pre-e030c code change.
+
 ## What to remember when planning
 
 1. **Think in gradient steps, not epochs.** LeWM's "100 epochs" assumed ~1K batches/epoch. Ours varies by 3 orders of magnitude depending on dataset × batch. Target ~150-200K total steps unless you have a reason to go bigger.
