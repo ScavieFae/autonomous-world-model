@@ -295,6 +295,16 @@ Ordered by cost, untested, all speculative:
 
 3. **Early stopping with intermediate checkpoints.** Save `epoch_N.pt` every epoch instead of overwriting `best.pt`. Pick the best-probe-R² checkpoint regardless of val_loss. Run the viz on each. Tells us "how early would we stop, and does early stopping actually work for deployment." Doesn't fix the structural issue but gives us a usable checkpoint for now.
 
+### Data-level interventions
+
+See [event-slicing-direction.md](../event-slicing-direction.md) for the full note.
+
+**Event slicing / episodic training on rare events.** Extract short windows (~120 frames) around each death event from the 7.7K dataset and inject them into the 2K training data as additional mini-"games" in the existing `game_offsets` layout. Directly attacks the rare-event frequency imbalance (one of the three Layer-A gradients above) by concentrating ~40K death events into a 15% mix of training examples — a ~300× increase in death-relevant training signal per step.
+
+Blocked on the event-conditioned rollout eval (item 1 above), because without it we can't measure whether the intervention worked. Scope: ~115 LOC of additive dataset-construction code, no trainer or model changes. Applies to both Mamba2 and JEPA. This is a **partial fix** — it addresses frequency imbalance but not MSE smoothness or SIGReg pressure, so the experimental outcome is also a diagnostic for which of the three Layer-A gradients is actually binding.
+
+Inspired by how frontier robotics world models are trained (episodically, on task-specific short clips) rather than on continuous match data. See the direction note for the full implementation outline and "what we don't know" section.
+
 ### Moderate cost (~$15-30)
 
 4. **Augment pred_loss with a Layer B reconstruction term.** Add a decoder head that predicts `(x, y, percent, action_state)` from the latent and train it jointly with MSE. The decoder's CE loss on action_state specifically forces the encoder to preserve action-state information. This is essentially "LeJEPA + auxiliary supervised decoder" — not pure JEPA anymore, but if it works, it gives us the JEPA latent without the Layer B blind spot. Flag this as a divergence from LeWM per our rule.
