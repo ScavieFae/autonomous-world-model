@@ -347,12 +347,14 @@ class Trainer:
 
         fi = torch.from_numpy(frame_indices)
 
-        tgt = dataset.floats[fi]          # (B, F)
-        prev = dataset.floats[fi - 1]     # (B, F)
-        tgt_ints = dataset.ints[fi]        # (B, I)
+        # .cpu() ensures SF targets are on CPU regardless of gpu_resident mode.
+        # SF does CPU↔GPU roundtrips per unroll step by design.
+        tgt = dataset.floats[fi].cpu()          # (B, F)
+        prev = dataset.floats[fi - 1].cpu()     # (B, F)
+        tgt_ints = dataset.ints[fi].cpu()        # (B, I)
 
         # Controller input (with threshold features if enabled)
-        ctrl = build_ctrl_batch(dataset.floats, fi, cfg)
+        ctrl = build_ctrl_batch(dataset.floats, fi, cfg).cpu()
 
         # Continuous deltas (4 per player)
         p0_cont_d = tgt[:, :ccd] - prev[:, :ccd]
@@ -434,12 +436,15 @@ class Trainer:
         )
         starts = self._sf_valid_starts[idx]
 
-        # Pre-build ALL context and targets on CPU, transfer once
-        # Context: vectorized slice instead of per-sample loop
+        # Pre-build ALL context and targets on CPU, transfer once.
+        # When gpu_resident=True, dataset.floats/ints live on GPU, but the
+        # SF reconstruction loop does CPU roundtrips (argmax on categoricals).
+        # Explicitly bring context to CPU here — the speedup from gpu_resident
+        # is for the 80% of batches that are teacher-forcing, not for SF.
         offsets = np.arange(-K, 0)
         ctx_indices = starts[:, None] + offsets[None, :]  # (B, K)
-        batch_floats = dataset.floats[ctx_indices]  # (B, K, F)
-        batch_ints = dataset.ints[ctx_indices]  # (B, K, I)
+        batch_floats = dataset.floats[ctx_indices].cpu()  # (B, K, F)
+        batch_ints = dataset.ints[ctx_indices].cpu()  # (B, K, I)
 
         # Pre-build targets for all N steps at once
         all_ctrls = []
