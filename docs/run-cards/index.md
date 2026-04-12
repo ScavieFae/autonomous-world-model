@@ -2,8 +2,9 @@
 
 Individual experiment records. Each card documents one idea tested in isolation.
 
-*29 cards. Generated 2026-04-12 03:37 UTC*
+*30 cards. Generated 2026-04-12 19:47 UTC*
 
+- :white_check_mark: [Run Card: e031a-speed-profile](e031a-speed-profile.md) — *kept*
 - :x: [Run Card: e030b-jepa-rescale](e030b-jepa-rescale.md) — *discarded*
 - :x: [Run Card: e030a-jepa-baseline](e030a-jepa-baseline.md) — *discarded*
 - :white_check_mark: [Run Card: e028a-full-stack](e028a-full-stack.md) — *kept*

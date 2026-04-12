@@ -1,8 +1,8 @@
 # Experiment Index
 
-*29 experiments — 8 kept, 2 running, 0 proposed, 18 discarded.*
+*30 experiments — 9 kept, 2 running, 0 proposed, 18 discarded.*
 
-*Generated 2026-04-12 03:37 UTC*
+*Generated 2026-04-12 19:47 UTC*
 
 **Best rollout coherence:** 4.798 ([e028a](../run-cards/e028a-full-stack.md))
 
@@ -41,6 +41,7 @@ flowchart TD
     e028a_full_stack(["e028a\nRC 4.798"])
     e030a_jepa_baseline["e030a"]
     e030b_jepa_rescale["e030b"]
+    e031a_speed_profile(["e031a"])
     e019_baseline --> e018a_self_forcing
     e017a --> e018b_rollout_coherence_eval
     e018a_self_forcing --> e018b_self_forcing_n5
@@ -71,6 +72,7 @@ flowchart TD
     e026b_unimix --> e028a_full_stack
     e026c_sf_curriculum --> e028a_full_stack
     e030a_jepa_baseline --> e030b_jepa_rescale
+    e028a_full_stack --> e031a_speed_profile
     style e018a_self_forcing fill:#2e7d32,color:#fff
     style e018b_rollout_coherence_eval fill:#1565c0,color:#fff
     style e018b_self_forcing_n5 fill:#616161,color:#fff
@@ -100,6 +102,7 @@ flowchart TD
     style e028a_full_stack fill:#2e7d32,color:#fff
     style e030a_jepa_baseline fill:#616161,color:#fff
     style e030b_jepa_rescale fill:#616161,color:#fff
+    style e031a_speed_profile fill:#2e7d32,color:#fff
     style b001 fill:#4a148c,color:#fff
     style b002 fill:#4a148c,color:#fff
 ```
@@ -154,6 +157,7 @@ flowchart TD
 | [e026c](../run-cards/e026c-sf-curriculum.md) | training-regime | b002 | 4.965 | — | — |
 | [e027c](../run-cards/e027c-lossreweight-warmstart.md) | training-regime | b002 | 4.939 | e025b, e026c | — |
 | [e028a](../run-cards/e028a-full-stack.md) | training-regime | b002 | 4.798 | e026b, e026c | — |
+| [e031a](../run-cards/e031a-speed-profile.md) | training-regime | b002 | — | e028a | — |
 
 ## Discarded
 

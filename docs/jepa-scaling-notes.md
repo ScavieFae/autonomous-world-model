@@ -241,6 +241,58 @@ Any JEPA run is at risk of prediction-shortcut collapse. Without per-epoch check
 
 **Not blocking e030c** — we can use the feature when it lands. Queued as a pre-e030c code change.
 
+## What the e031a profile showed us (cross-architecture infrastructure data)
+
+**Added after e031a completed**, 2026-04-12. The profile was on Mamba2, not JEPA, but the infrastructure findings apply to both lineages — anything that uses `training/trainer.py` or `training/jepa_trainer.py` with the shared data path.
+
+### The breakdown (Mamba2, b002 config, batch 512, 2K games on A100)
+
+| Phase | % of wall clock | ms/batch | Notes |
+|---|---|---|---|
+| data loading | **0.0%** | 0.02 | GPU-resident data completely eliminated it |
+| forward pass | 16.1% | 64.87 | Per-TF-batch |
+| backward pass | 27.5% | 110.44 | ~1.7× forward (normal ratio) |
+| optimizer | 1.1% | 3.40 | Negligible |
+| self-forcing | **55.3%** | 889.62 | Per-SF-batch, 5× a TF batch |
+
+### Finding 1 — GPU-resident data works, and was not a JEPA-specific win
+
+Moving `dataset.floats` and `dataset.ints` to GPU at startup eliminates the data-loading phase to **0.02 ms/batch**. This is on Mamba2 but the same 2 lines apply to the JEPA trainer. When we come back to JEPA, adding `gpu_resident: true` to the config is the first ~2× speedup we get without touching anything else.
+
+The gpu_resident path required ~4 small fixes to downstream code that was assuming `dataset.floats` lived on CPU: the SF path in `training/trainer.py` (Mamba2 only, doesn't affect JEPA), and the rollout eval path in `scripts/eval_rollout.py` (Mamba2 only). JEPA's trainer uses a different data path (`JEPAFrameDataset.get_batch`) and a different diagnostic suite (`training/jepa_diagnostics.py`) — so for JEPA, the gpu_resident change should be a pure win with no downstream fixes needed.
+
+### Finding 2 — 12 GB GPU memory cost limits in-memory scaling
+
+Moving the 2K FD top-5 dataset to GPU consumed **12.02 GB** (17.4M frames × 138 floats × 4 bytes for the float tensor, plus 17.4M × 17 × 8 bytes for the int tensor). Took 7.5s. Model + activations peak at **20.21 GB**. A100-40GB has ~20 GB free after this, plenty for training.
+
+**But the 7.7K dataset would be ~48 GB — that doesn't fit on A100-40GB.** For e031+ Mamba2 scaling and any JEPA e031+ data-scaling experiment, we have three options:
+
+1. **Stay on 2K with gpu_resident** — what e031a/b/c are doing now. Fast but bounded.
+2. **Accept the cost on 7.7K** — fall back to CPU-resident data (the `mmap=True` path) at 7.7K. Adds back the data loader overhead. Per e031a's profile this was 0.0% of cost WHEN data was already on GPU; with CPU tensors it was probably the dominant cost per the old e030a profile data (hypothesized ~50-80%). Back to the old speed regime.
+3. **Larger GPU** — H100-80GB fits a 7.7K dataset at ~48 GB with headroom. Requires explicit sign-off per the budget gate but resolves the memory issue cleanly.
+
+This is a real scaling wall we didn't predict in the original scaling notes. **Logged as a hard constraint.** Cross-reference: the "encoder capacity as a separate ceiling" section in this doc remains true, but there's now a second ceiling (data-on-GPU memory) that bites earlier.
+
+### Finding 3 — Self-forcing is 5× the cost of a TF batch, not 3×
+
+SF at 20% ratio with N=3 unroll was always advertised as "~60% overhead." The profile shows it's closer to **~100% overhead** (SF + TF = 2× what pure TF would cost). This is Mamba2-specific — JEPA's `JEPATrainer` doesn't have SF at all. But it matters for anyone reading the scaling notes and wondering "how much does self-forcing cost."
+
+Per SF batch breakdown (Mamba2):
+- N=3 autoregressive forward passes through the model
+- Per pass: one forward + one frame reconstruction
+- Frame reconstruction: CPU argmax on ~12 categorical heads (400-class action state, etc.)
+- Per-step CPU↔GPU roundtrip (move preds to CPU, reconstruct, move next frame back to GPU)
+- `batch_floats = torch.cat([batch_floats, next_float.unsqueeze(1)], dim=1)` — grows the context buffer each step
+
+The CPU argmax is the suspected hot spot — the model runs on GPU, but argmax on categoricals is done on CPU because the reconstruction logic was written assuming CPU tensors. **If we wanted to keep SF and speed it up, moving the argmax + reconstruction to GPU would probably be the biggest win.** But that's ~50-100 lines of code to rewrite `reconstruct_frame` and isn't worth it until we've confirmed SF is still load-bearing (e031b).
+
+### What it means for the JEPA direction specifically
+
+1. **gpu_resident: true is free speedup** — port when we come back to JEPA. No downstream fixes expected because JEPA's data/eval paths are separate.
+2. **The 12 GB memory wall applies to JEPA too** — a JEPA training run on 7.7K won't fit in `gpu_resident` mode on A100. Same three options as above.
+3. **The profile validated the infrastructure plan** — the four-step speed optimization (GPU-resident, bigger batch, SSD chunked scan, torch.compile) holds conceptually. GPU-resident is the biggest per-step win. SSD chunked scan is already on in b002. Bigger batch and torch.compile are the next levers.
+4. **JEPA doesn't have the SF overhead problem** (because it doesn't have SF), so the 55% wall-clock tax on Mamba2 doesn't apply. JEPA's speed bottleneck is the predictor's sequential forward + backward, which is where batch-scaling helps most.
+
 ## What to remember when planning
 
 1. **Think in gradient steps, not epochs.** LeWM's "100 epochs" assumed ~1K batches/epoch. Ours varies by 3 orders of magnitude depending on dataset × batch. Target ~150-200K total steps unless you have a reason to go bigger.
