@@ -122,7 +122,7 @@ At epoch 10, the encoder has reached a local optimum where Layer B information i
 
 **Not *only* a hyperparameter issue.** This is worth unpacking carefully — see the next section for the full "levers vs fixes" breakdown. The short version: λ and early-stopping epoch are real levers that bias the Layer A / Layer B tradeoff, but they're knobs on the tradeoff, not ways to eliminate it.
 
-**Not specific to JEPA.** Mamba2 has the same death→respawn problem. Mamba2 avoids some of the symptoms because its per-field supervised heads force some Layer B representation (the 400-class action head has to get transitions right), but the rare-event imbalance still crushes the signal. We see percent bumps and action state transitions predicted poorly in Mamba2 rollouts too.
+**Not specific to JEPA.** Mamba2 has the same death→respawn problem, and the same percent-bump and stock-transition representation gaps. Mamba2 avoids some of the symptoms because its per-field supervised heads force some Layer B representation on categorical fields (the 400-class action head has to get transitions right), but the rare-event imbalance still crushes the signal on continuous fields. See the "JEPA vs Mamba2: loss or backbone" section below for the full breakdown of why this is mostly a loss-structure problem, not an architecture problem, and what that implies for porting fixes between the two lineages.
 
 ## Levers vs. fixes: what λ can and cannot do
 
@@ -205,6 +205,83 @@ Worth naming separately: **the checkpoint-saving strategy bug is its own issue, 
 Fixing checkpoint saving (select by probe R², or save per-epoch checkpoints and pick post-hoc) is a ~15 LOC change and a real lever — it doesn't fix Layer B, but it **makes the paradigm operationally usable today**. A JEPA model at epoch 1 of e030b was Competitive-zone. The only reason we don't have a deployable JEPA checkpoint right now is that we overwrote it. Fixing checkpoint saving means every future JEPA run produces a usable artifact whose quality is bounded by the early-epoch peak rather than the late-epoch floor.
 
 This is a lever (doesn't fix the underlying issue) but a very cheap lever that unblocks deployment while the real fixes proceed.
+
+## JEPA vs Mamba2: is this a loss problem or a backbone problem?
+
+The natural reading of the observations so far is "JEPA is worse at Layer B because it doesn't carry explicit state the way SSMs do." That reading is wrong — or at least it's mis-localized in a way that matters for how we plan work. The dominant driver is the loss structure, not the backbone choice. This section unpacks why, because the conclusion changes what work we sign up for when we come back to JEPA.
+
+### The core claim
+
+**The difference in observed Layer B behavior between our JEPA experiments (loud failure) and our Mamba2 experiments (quiet partial failure) is almost entirely explained by loss structure, not backbone choice.** Mamba2 has per-field supervised heads — specifically the 400-class CE head on `action_state` — that create gradient pressure for Layer B representation regardless of backbone. JEPA has MSE on next-frame latent with no supervised targets, and that loss structure has nothing rewarding Layer B preservation.
+
+If this claim is right, the three Layer-A gradients identified in "Levers vs. fixes" (MSE rewarding smooth predictions, SIGReg rewarding unimodal Gaussian distributions, rare-event gradient imbalance) are **properties of losses**, not backbones. SSMs don't neutralize them. Transformers don't amplify them. You get the same behavior from either backbone with the same loss.
+
+### Two thought experiments
+
+**Thought experiment 1: Mamba2 with JEPA loss.** Take our current Mamba2 code, keep the SSM backbone, keep the selective scan, keep the recurrent hidden state — but replace the 16 supervised per-field heads with "MSE on next-frame encoder latent + SIGReg(Z), no supervised targets." Predict what happens.
+
+My prediction: same Layer B blind spot JEPA shows. Same percent oscillating. Same monotonic probe degradation across training. Same "death→respawn never learned." Because nothing in the new loss is rewarding Layer B representation, and the SSM backbone has no built-in preference for representing discrete state machines unless something in the loss asks it to.
+
+**Thought experiment 2: Transformer predictor with Mamba2-style supervised heads.** Take a stateless Transformer backbone (no recurrence, attention-only state reconstruction) and train it with the same per-field supervised heads Mamba2 uses — 400-class CE on action_state, MSE on continuous fields, cross-entropy on jumps, etc. Predict what happens.
+
+My prediction: handles Layer B about as well as Mamba2 does. Because the 400-class action_state cross-entropy head literally cannot be minimized without representing action transitions, regardless of whether the backbone has an explicit recurrent state or reconstructs state implicitly from attention over context.
+
+Both predictions are untested. The first is cheaper to test (swap Mamba2's trainer to produce a latent-only loss, run one epoch) and would be the cleanest single data point on the loss-dominates-backbone claim.
+
+### The backbone hedge: where SSMs might actually matter
+
+There's one place the architectural difference might genuinely matter, and it's worth being honest about. SSMs are designed to carry state across time through recurrence: `h_t = A h_{t-1} + B x_t`. The A matrix is learned but the mathematical shape of the recurrence makes carrying information across time the "natural" thing for the network to do. For a small-cardinality discrete state machine — say, 5 Melee meta-states (grounded, aerial, hitstun, dead, respawning) — you could roughly write down the A/B/C matrices by hand that implement the transitions. A Transformer has to reconstruct state from attention context, which is a harder learning problem for an explicit FSM even though it's not impossible.
+
+Whether learned SSMs discover this in practice is an empirical question we haven't tested. I'd guess there's a real but modest architectural advantage for SSMs on state transitions — maybe 10-30% improvement on the fraction of transitions they get right, not 10×. Second-order compared to the loss-structure effect.
+
+**Evidence for second-order, not first-order**: we've never seen our Mamba2 runs produce a clean death→respawn either, despite having the architecturally "right" kind of backbone for it. If the backbone were the dominant factor, we'd expect Mamba2 to at least sometimes handle the transition. It doesn't. That's a data point against "SSM backbone solves Layer B" and for "loss structure dominates."
+
+### What we actually observe in Mamba2 (empirical, not systematic)
+
+We don't have systematic Layer B measurement on Mamba2 yet — the event-conditioned rollout eval is still a follow-up queued in "What we might try" item 1. So the Mamba2 observations here are anecdotal and from rollout visualizations, not run metrics. Framed honestly:
+
+- **Stock count is deducted at wrong times.** Mamba2 has been observed predicting stock decrements when no death occurred (false positive) or missing decrements when deaths did occur (false negative). The stock field is a small integer counter with transitions that happen at the end of death animations — functionally a Layer B field. The supervised head on stocks (via the dynamics loss) is not sufficient to produce reliable transition prediction, because the rare-event frequency imbalance still bites.
+- **We have never observed a clean respawn in any Mamba2 run.** The teleport from death animation to respawn platform, with the associated stocks decrement and position reset to (0, 40) on FD, is not something the Mamba2 rollouts produce. When the seed context includes a death, Mamba2 predicts the character stays dead. When the seed doesn't include a death, Mamba2 never produces one. Same symptom as JEPA.
+- **Percent bumps are represented noisily in Mamba2.** Unlike `action_state` (which has a supervised CE head), percent has only a continuous MSE loss, no classification head. The smooth-continuation failure mode applies identically to Mamba2 on this field. We haven't measured it systematically, but the anecdotal observation from visualizations is that Mamba2's percent prediction also drifts smoothly toward stable values rather than producing discrete +10 bumps.
+
+**This is exactly what the loss-dominates-backbone reframe predicts.** Mamba2's supervised heads partially mask the Layer B gap on categorical fields (action_state, jumps) because those fields have direct CE supervision. The same heads don't help with discrete-event continuous fields (percent, stock count) because those fields use MSE loss just like JEPA's latent does. The gap is there in both architectures; it's louder in JEPA because **nothing** masks it. In Mamba2 some fields get partial coverage and others don't.
+
+**Epistemic caveat**: none of this is systematic measurement. We have anecdotal rollout visualizations, not metrics on event-conditioned eval splits. The "we've seen stocks at wrong times" observation is a rare occurrence that stood out when someone was watching a replay, not a measured rate over N transitions. A first useful step is landing the event-conditioned rollout eval (item 1 in the mitigation list) and putting real numbers on the Mamba2 Layer B gap. Until then, the comparison between "how bad is Mamba2 at Layer B" and "how bad is JEPA at Layer B" is grounded in loss-structure reasoning, not empirical measurement.
+
+### Why we came back to Mamba2 (the clean reason)
+
+The right framing is **not** "JEPA is structurally worse at state changes, so we're going back to the better architecture." That framing imports a backbone-dominant reading that the analysis above argues against. The right framing is:
+
+1. **Reducing simultaneous unknowns.** Pursuing Layer B fixes on JEPA means debugging JEPA's training dynamics, tuning JEPA's hyperparameters, understanding its structural failure, *and* developing Layer B fixes — all at once. Going back to Mamba2 narrows the research question to just "developing Layer B fixes" on a baseline where training dynamics are well-understood and hyperparameters are stable.
+2. **Faster iteration cycles.** The e031a profile surfaced that Mamba2 training has ~2.2× headroom (Self-Forcing overhead + data loader bottleneck), and infrastructure fixes are landing now. Every Layer B experiment after the SF ablation is cheaper to run.
+3. **Existing instrumentation and success criteria.** Mamba2 has working per-field heads, established run cards, a known RC baseline (4.798), and a stable set of metrics. JEPA's probe methodology just got reworked in e030b and needs more runs to calibrate before it's a reliable go/no-go signal.
+4. **Layer B work is architecture-independent.** The fixes we want to try (event-weighted loss, longer context, auxiliary decoder heads, event-conditioned eval) are not JEPA-specific. They're properties of how you train a world model on a state-machine domain. Doing the research concentrated on the baseline with tighter feedback loops is correct regardless of which backbone we eventually ship.
+
+The load-bearing reason is #1. Reducing the number of simultaneous open variables is the right project management move when each variable costs wall clock and the outcomes are uncertain.
+
+### The practical implication: work ports
+
+Here's the corollary that makes this decision better than it looks. **If the loss-dominates-backbone reading is right, the Layer B fixes developed on Mamba2 will port directly to JEPA when we come back.** Specifically:
+
+| Fix | Architecture dependency | Port cost |
+|---|---|---|
+| Event-conditioned rollout eval | Pure metric code, reads per-horizon results dict | Zero — same eval script runs on both |
+| Event-weighted MSE | Property of how per-frame loss is summed; doesn't care about backbone or per-field vs latent | Low — same weighting scheme applies |
+| Longer context window | Both architectures need to see the full transition to represent it | Medium — JEPA needs a bigger history buffer, Mamba2 needs a longer context_len |
+| Auxiliary Layer B reconstruction head | This is literally "give JEPA the supervised heads Mamba2 already has" | Low — port the head definition directly |
+| Hybrid latent with event dimension | Architecture-agnostic — applies wherever you have a continuous latent | Medium |
+| Hierarchical physics + FSM | Applies to any world model with a loss gap on state machines | High regardless |
+
+So the Mamba2 loop is **not** parallel wasted work from the JEPA perspective. It's doing the Layer B research once, on the better-instrumented baseline, with results that transfer. The only thing we lose by not running this work on JEPA right now is per-fix confirmation on the JEPA-loss variant — and that's a follow-up run, not duplicated research.
+
+**Concrete prediction for when we come back to JEPA**: the first experiment should be "JEPA with an auxiliary supervised decoder head on action_state + percent + stocks, trained jointly with MSE+SIGReg." This is item 4 in the mitigation list, and it's essentially "port Mamba2's supervised-heads story to JEPA." If the loss-dominates-backbone reading is right, this should preserve Layer B information in JEPA comparably to how Mamba2 currently does. If it doesn't, we'd update toward "the backbone does matter for this domain" and pursue item 7 (hybrid latent) or item 8 (hierarchical model).
+
+### Open questions for the research diary
+
+1. **What's Mamba2's actual Layer B performance on the action_state transition frames?** Event-conditioned rollout eval answers this directly. First data point we should collect once the eval split lands.
+2. **Does Mamba2 handle percent transitions better than a counterfactual "Mamba2 with only latent MSE loss"?** Would require training the counterfactual, which is ~1-2 days of work. Not urgent but would be the cleanest single test of the loss-dominates-backbone claim.
+3. **Is there an SSM-specific advantage on small discrete state machines that we haven't measured?** Would require either a literature search for SSM-on-FSM results or a targeted experiment. Low priority — we have bigger fish to fry on the loss-structure side first.
+4. **Does respawn work in either architecture at any context length?** Both Mamba2 (context=30) and JEPA (history_size=3) fail on this. At context_len=60 or 120, does Mamba2 start producing clean death→respawn transitions? If yes, context length was the binding constraint and the loss-structure reading needs revisiting.
 
 ## What we might try
 
