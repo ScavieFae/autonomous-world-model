@@ -113,13 +113,16 @@ def evaluate_rollout_coherence(
     # Constraint checker for violation detection
     constraint_checker = ConstraintChecker(cfg)
 
-    # Pre-build batched context windows: (N, K, F) and (N, K, I)
+    # Pre-build batched context windows: (N, K, F) and (N, K, I).
+    # .cpu() handles the gpu_resident=True case — dataset tensors may live
+    # on GPU, but reconstruct_frame() and the metric computations below
+    # expect CPU tensors. Rollout eval does CPU↔GPU roundtrips per step.
     batch_floats = torch.stack([
         dataset.floats[t - context_len:t] for t in starting_points
-    ])  # (N, K, F)
+    ]).cpu()  # (N, K, F)
     batch_ints = torch.stack([
         dataset.ints[t - context_len:t] for t in starting_points
-    ])  # (N, K, I)
+    ]).cpu()  # (N, K, I)
 
     # Metrics accumulators: [horizon] -> list of per-sample values
     pos_maes = [[] for _ in range(horizon)]
@@ -158,9 +161,9 @@ def evaluate_rollout_coherence(
             next_float, prev_float, cfg,
         )
 
-        # Ground truth for this horizon step
-        gt_float = torch.stack([dataset.floats[t + k] for t in starting_points])
-        gt_int = torch.stack([dataset.ints[t + k] for t in starting_points])
+        # Ground truth for this horizon step — .cpu() for gpu_resident mode
+        gt_float = torch.stack([dataset.floats[t + k] for t in starting_points]).cpu()
+        gt_int = torch.stack([dataset.ints[t + k] for t in starting_points]).cpu()
 
         # --- Compute metrics (in game units) ---
 
