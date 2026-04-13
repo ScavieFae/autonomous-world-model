@@ -467,6 +467,23 @@ def eval_checkpoint(
     print(f"  ** summary_pos_mae = {results['summary_pos_mae']:.4f} **")
     print()
 
+    # Pre-compute K=5/K=10/K=20 summaries for every metric up front.
+    # Having these as explicit fields removes the temptation (and opportunity)
+    # for downstream closeout agents to fabricate summaries by eyeballing
+    # per_horizon points. Fields = ground truth; no arithmetic to fudge.
+    per_horizon = results["per_horizon"]
+    k_summary = {}
+    for K in (5, 10, 20):
+        horizons = [h for h in range(1, K + 1) if h in per_horizon]
+        if not horizons:
+            continue
+        k_summary[f"K{K}"] = {}
+        for metric in ("pos_mae", "vel_mae", "action_acc", "percent_mae"):
+            vals = [per_horizon[h].get(metric) for h in horizons
+                    if metric in per_horizon[h] and per_horizon[h][metric] is not None]
+            if vals:
+                k_summary[f"K{K}"][metric] = sum(vals) / len(vals)
+
     # Save to volume alongside checkpoint
     import pathlib
     ckpt_dir = str(pathlib.Path(ckpt_path).parent)
@@ -478,6 +495,7 @@ def eval_checkpoint(
         "seed": 42,
         "eval_time_s": round(eval_time, 2),
         "summary_pos_mae": results["summary_pos_mae"],
+        "k_summary": k_summary,
         "per_horizon": {str(k): v for k, v in results["per_horizon"].items()},
     }
     with open(eval_path, "w") as f:

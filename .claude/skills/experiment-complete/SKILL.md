@@ -82,7 +82,47 @@ Add a `## Results` section to the card body. Follow this structure — **lead wi
 - Note surprises. If K=5 and K=20 disagree, or if TF metrics improved but AR quality didn't (or vice versa), say so.
 - Keep it short. 15-25 lines, not a paper.
 
-## Step 4: Rebuild Docs Index
+## Step 4: Verify Numbers via Fresh-Context Subagent (MANDATORY)
+
+**This step is not optional.** It exists because a previous closeout (e031b) almost shipped three fabricated K-summary values to the permanent record. The numbers looked plausible, were within ~1–2% of the correct values, and were typed from memory rather than read from source. Plausible fabrication is the single worst failure mode of this skill, and the only reliable defense is a fresh context that has no narrative stake in the numbers being right.
+
+Spawn a subagent via the Agent tool (`subagent_type: general-purpose`). Give it:
+- The path to the draft run card
+- The paths to every `eval_rollout.json` the card references (this run's + any prior-best comparison runs)
+- **Nothing else.** The point is fresh context with no story loaded.
+
+Use this prompt verbatim — do not paraphrase or summarize, the prompt's rigidity is the point:
+
+> Verify every number in the Results section of `{card_path}` against the linked eval JSON files at `{json_paths}`.
+>
+> For each numeric claim (pos_mae, vel_mae, action_acc, action_change_acc, percent_mae, K=5/K=10/K=20 summaries, per-horizon rows, deltas, percentages, pp differences), confirm it either:
+>
+> 1. **Appears verbatim** in one of the linked eval_rollout.json files (check `k_summary.K5.pos_mae`, `per_horizon.{h}.{metric}`, `summary_pos_mae`, etc.), OR
+> 2. **Is recomputable** from `per_horizon` via the standard K-summary formula (mean over t=1..K), OR
+> 3. **Is a standard arithmetic derivation** from verified numbers (delta = A − B, percentage = delta / B × 100, pp = (A − B) × 100 for accuracy fields).
+>
+> Be pedantic about precision — 1.447 vs 1.446 counts as a mismatch, and so does a sign error in a delta.
+>
+> Return structured findings in this form:
+>
+> ```
+> VERIFIED (N numbers):
+>   - K=5 pos_mae 1.487 → e031b/eval_rollout.json::k_summary.K5.pos_mae ✓
+>   - delta −0.157 (10.8%) → 1.289 − 1.446 = −0.157 ✓
+>   ...
+>
+> UNVERIFIED (M numbers):
+>   - Action_acc K=5 0.950 → CLAIMED in card, but k_summary.K5.action_acc = 0.9437 in source JSON. MISMATCH.
+>   - ...
+> ```
+>
+> UNVERIFIED is the most important category — those are fabrications or errors. Report under 400 words total.
+
+If the subagent reports anything UNVERIFIED, fix the numbers in the card against the source JSONs and re-run verification. **Do not proceed to Step 5 (docs rebuild) until verification is clean.**
+
+Paste the subagent's verification output into the commit message or PR description when you ship the closeout, so future-you can see it actually ran.
+
+## Step 5: Rebuild Docs Index
 
 ```bash
 python scripts/docs_prebuild.py
@@ -92,7 +132,7 @@ This regenerates `experiments/index.md` and `run-cards/index.md` with the update
 
 Verify the experiment shows up correctly in the index with its new status and rollout coherence value.
 
-## Step 5: Close PR
+## Step 6: Close PR
 
 If there's an open PR for this experiment:
 
@@ -116,7 +156,7 @@ gh pr close {number} --comment "Experiment complete. Results recorded in run car
 
 If there's no PR, skip this step.
 
-## Step 6: Research Log Entry
+## Step 7: Research Log Entry
 
 Append a brief entry to `docs/RESEARCH-LOG.md`:
 
@@ -129,7 +169,7 @@ Rollout coherence {value} (prior best {prior_best_rc}, {delta}%).
 
 This is the session-level log entry. Keep it to 2-3 lines. The card has the details.
 
-## Step 7: Propose program.md Updates
+## Step 8: Propose program.md Updates
 
 **NEVER modify program.md directly.** Propose changes to the user.
 
@@ -142,12 +182,13 @@ Check if any of these apply:
 
 Present the proposed changes as diffs: quote the current text, show the replacement, explain why.
 
-## Step 8: Verify
+## Step 9: Verify
 
 Quick sanity check:
 
 - [ ] Card frontmatter has `status`, `rollout_coherence`, `rollout_coherence_k5`, `prior_best_rc`, `prior_best_rc_k5` filled in
 - [ ] Card body has `## Results` with the K=5/K=10/K=20 multi-metric table and `## Decision` sections
+- [ ] **Step 4 verification subagent ran and returned clean** (paste its output in the commit message)
 - [ ] `experiments/index.md` shows the updated metrics in both K=5 and K=20 leaderboards
 - [ ] PR is closed (if one existed)
 - [ ] Research log has an entry
